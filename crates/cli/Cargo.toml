@@ -1,0 +1,12 @@
+[package]
+name = "agentopia-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+agentopia-core = { version = "0.1.0", path = "../core" }
+agentopia-i18n = { version = "0.1.0", path = "../i18n" }
+agentopia-runtime = { version = "0.1.0", path = "../runtime" }
+anyhow = "1.0.102"
+clap = { version = "4.6.1", features = ["derive"] }
+serde_json = "1.0.149"

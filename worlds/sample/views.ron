@@ -1,0 +1,67 @@
+[
+    (
+        id: "village_square",
+        title_key: "view.village_square.title",
+        description_key: "view.village_square.description",
+        exits: [
+            (
+                direction: north,
+                target: "abandoned_shrine",
+                label_key: Some("exit.abandoned_shrine"),
+                requirements: [],
+            ),
+            (
+                direction: east,
+                target: "bamboo_path",
+                label_key: Some("exit.bamboo_path"),
+                requirements: [],
+            ),
+        ],
+        entities: ["old_guard", "stone_well"],
+        layout: None,
+    ),
+    (
+        id: "abandoned_shrine",
+        title_key: "view.abandoned_shrine.title",
+        description_key: "view.abandoned_shrine.description",
+        exits: [
+            (
+                direction: south,
+                target: "village_square",
+                label_key: Some("exit.village_square"),
+                requirements: [],
+            ),
+        ],
+        entities: ["rusted_sword", "moss_tablet"],
+        layout: None,
+    ),
+    (
+        id: "bamboo_path",
+        title_key: "view.bamboo_path.title",
+        description_key: "view.bamboo_path.description",
+        exits: [
+            (
+                direction: west,
+                target: "village_square",
+                label_key: Some("exit.village_square"),
+                requirements: [],
+            ),
+        ],
+        entities: ["wandering_healer"],
+        layout: Some((
+            width: 4,
+            height: 3,
+            tiles: [
+                "bamboo", "grass", "grass", "bamboo",
+                "grass", "path", "path", "grass",
+                "bamboo", "grass", "grass", "bamboo",
+            ],
+            collision: [
+                true, false, false, true,
+                false, false, false, false,
+                true, false, false, true,
+            ],
+            placements: [],
+        )),
+    ),
+]
