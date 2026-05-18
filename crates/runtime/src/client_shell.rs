@@ -14,6 +14,18 @@ pub struct Chrome {
 }
 
 impl Chrome {
+    /// ANSI reset sequence.
+    pub const ANSI_RESET: &'static str = "\x1b[0m";
+
+    /// ANSI style for the local player marker.
+    pub const ANSI_PLAYER_MARKER: &'static str = "\x1b[1;36m";
+
+    /// ANSI style for room/place markers in ASCII maps (`[...]`).
+    pub const ANSI_PLACE_MARKER: &'static str = "\x1b[1;33m";
+
+    /// ANSI style for item/object markers in ASCII maps (`{...}`).
+    pub const ANSI_ITEM_MARKER: &'static str = "\x1b[1;32m";
+
     /// Command-line prompt shown before reading player input.
     pub const PROMPT: &'static str = "> ";
 
@@ -153,7 +165,7 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
     if !observation.ascii_art.is_empty() {
         output.push('\n');
         for line in &observation.ascii_art {
-            output.push_str(line);
+            output.push_str(&highlight_ascii_markers(line));
             output.push('\n');
         }
     }
@@ -194,4 +206,86 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
     }
 
     output
+}
+
+fn highlight_ascii_markers(line: &str) -> String {
+    highlight_player_marker(&highlight_item_markers(&highlight_place_markers(line)))
+}
+
+fn highlight_player_marker(line: &str) -> String {
+    style_literal(line, "<Me>", Chrome::ANSI_PLAYER_MARKER)
+}
+
+fn highlight_place_markers(line: &str) -> String {
+    line.replace(
+        "[Tavern]",
+        &styled_marker("[Tavern]", Chrome::ANSI_PLACE_MARKER),
+    )
+    .replace(
+        "[Workshop]",
+        &styled_marker("[Workshop]", Chrome::ANSI_PLACE_MARKER),
+    )
+}
+
+fn highlight_item_markers(line: &str) -> String {
+    line.replace(
+        "{bulletin board}",
+        &styled_marker("{bulletin board}", Chrome::ANSI_ITEM_MARKER),
+    )
+}
+
+fn style_literal(line: &str, literal: &str, ansi_style: &str) -> String {
+    line.replace(literal, &styled_marker(literal, ansi_style))
+}
+
+fn styled_marker(label: &str, ansi_style: &str) -> String {
+    format!("{ansi_style}{label}{}", Chrome::ANSI_RESET)
+}
+
+#[cfg(test)]
+mod tests {
+    use xagora_core::{JsonObservation, ObservationEvent};
+
+    use super::{Chrome, render_text_observation};
+
+    #[test]
+    fn text_renderer_highlights_player_marker() {
+        let rendered = render_text_observation(&JsonObservation {
+            player_id: "local_player".to_owned(),
+            view_id: "arrival_street".to_owned(),
+            title: "Town Crossroads".to_owned(),
+            ascii_art: vec!["west --- <Me> --- east".to_owned()],
+            description: "A crossing.".to_owned(),
+            exits: Vec::new(),
+            entities: Vec::new(),
+            available_commands: Vec::new(),
+            events: vec![ObservationEvent::Message {
+                text: "hello".to_owned(),
+            }],
+        });
+
+        assert!(rendered.contains(Chrome::ANSI_PLAYER_MARKER));
+        assert!(rendered.contains("<Me>"));
+        assert!(rendered.contains(Chrome::ANSI_RESET));
+    }
+
+    #[test]
+    fn text_renderer_distinguishes_place_and_item_markers() {
+        let rendered = render_text_observation(&JsonObservation {
+            player_id: "local_player".to_owned(),
+            view_id: "arrival_street".to_owned(),
+            title: "Town Crossroads".to_owned(),
+            ascii_art: vec!["[Tavern] -- {bulletin board}".to_owned()],
+            description: "A crossing.".to_owned(),
+            exits: Vec::new(),
+            entities: Vec::new(),
+            available_commands: Vec::new(),
+            events: Vec::new(),
+        });
+
+        assert!(rendered.contains(Chrome::ANSI_PLACE_MARKER));
+        assert!(rendered.contains("[Tavern]"));
+        assert!(rendered.contains(Chrome::ANSI_ITEM_MARKER));
+        assert!(rendered.contains("{bulletin board}"));
+    }
 }

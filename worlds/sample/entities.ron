@@ -1,5 +1,43 @@
 [
     (
+        id: "tavern_front",
+        kind: object,
+        name: "tavern front",
+        description: "Warm light leaks around a heavy door. A painted sign names the place The Forked Lantern.",
+        aliases: ["tavern", "inn", "lantern", "door"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "tavern_sign",
+                    title: "The Forked Lantern",
+                    body: "A hand-painted sign promises stew, rumors, and a dry bench by the fire.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "workshop_front",
+        kind: object,
+        name: "workshop front",
+        description: "Tool racks and half-finished brass fittings crowd the open shopfront.",
+        aliases: ["workshop", "shop", "tools", "forge"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "workshop_sign",
+                    title: "Mender's Workshop",
+                    body: "A chalkboard lists repairs, custom fittings, and odd mechanical commissions.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
         id: "cyber_scroll_board",
         kind: object,
         name: "bulletin board",
@@ -12,7 +50,7 @@
                 (
                     id: "arrival_skill",
                     title: "Arrival Skill",
-                    body: "Welcome to Xagora. Try /go east or /go west from the crossroads.",
+                    body: "Welcome to Xagora. Try /inspect tavern, /read workshop, /go east, or /go west from the crossroads.",
                 ),
                 (
                     id: "guild_guide",

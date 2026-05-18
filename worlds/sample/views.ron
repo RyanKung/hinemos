@@ -2,15 +2,22 @@
     (
         id: "arrival_street",
         title: "Town Crossroads",
-        description: "Packed dirt and wagon ruts cross here; east and west forks split from the junction. A weathered bulletin board stands beside the crossing.",
+        description: "Packed dirt and wagon ruts meet at a lively crossing. A lantern-lit tavern fronts the west side, a tool-cluttered workshop faces it from the east, and a weathered bulletin board stands south of the junction.",
         ascii_art: [
             "============================================================",
             "                     TOWN CROSSROADS",
             "============================================================",
             "",
-            "    east fork ------------- [Me] ------------- west fork",
+            "                            north road",
             "                               |",
-            "                            {BOARD}",
+            "                               |",
+            "       [Tavern] ----------- <Me> ----------- [Workshop]",
+            "          |                    |                    |",
+            "    west fork                  |                  east fork",
+            "                               |",
+            "                         {bulletin board}",
+            "                               |",
+            "                            south road",
         ],
         exits: [
             (
@@ -26,7 +33,7 @@
                 requirements: [],
             ),
         ],
-        entities: ["cyber_scroll_board"],
+        entities: ["tavern_front", "workshop_front", "cyber_scroll_board"],
         layout: None,
     ),
     (
@@ -37,7 +44,7 @@
             "============================================================",
             "                         EAST FORK",
             "============================================================",
-            "                          [Me]",
+            "                          <Me>",
         ],
         exits: [
             (
@@ -58,7 +65,7 @@
             "============================================================",
             "                         WEST FORK",
             "============================================================",
-            "                          [Me]",
+            "                          <Me>",
         ],
         exits: [
             (

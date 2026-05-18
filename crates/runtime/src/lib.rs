@@ -283,7 +283,7 @@ impl GameRuntime {
             .map(|entity_id| entity_observation(&self.world, entity_id))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let ascii_art = render_ascii_art_for_view(view, &visible_entities, &self.world);
+        let ascii_art = render_ascii_art_for_view(view);
 
         Ok(JsonObservation {
             player_id: player_id.to_owned(),
@@ -498,31 +498,12 @@ fn message(text: String) -> ObservationEvent {
     ObservationEvent::Message { text }
 }
 
-fn render_ascii_art_for_view(
-    view: &View,
-    visible_entities: &[EntityId],
-    world: &StaticWorld,
-) -> Vec<String> {
+fn render_ascii_art_for_view(view: &View) -> Vec<String> {
     if view.ascii_art.is_empty() {
         return Vec::new();
     }
 
-    let board_label = visible_entities
-        .iter()
-        .filter_map(|id| world.entities.get(id))
-        .find(|entity| {
-            matches!(
-                &entity.collection,
-                Some(xagora_core::EntityCollection::BulletinBoard { .. })
-            )
-        })
-        .map(|entity| entity.name.clone())
-        .unwrap_or_else(|| "{BOARD}".to_owned());
-
-    view.ascii_art
-        .iter()
-        .map(|line| line.replace("{BOARD}", &board_label))
-        .collect()
+    view.ascii_art.clone()
 }
 
 #[cfg(test)]

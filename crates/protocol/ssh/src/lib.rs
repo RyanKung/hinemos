@@ -47,7 +47,7 @@ pub async fn run_daemon() -> Result<()> {
     let host_key = load_or_create_host_key(&cli.host_key)
         .with_context(|| format!("failed to load host key from {}", cli.host_key.display()))?;
     let config = Arc::new(russh::server::Config {
-        inactivity_timeout: Some(Duration::from_secs(3600)),
+        inactivity_timeout: cli.idle_timeout(),
         auth_rejection_time: Duration::from_secs(1),
         auth_rejection_time_initial: Some(Duration::from_millis(250)),
         keys: vec![host_key],
