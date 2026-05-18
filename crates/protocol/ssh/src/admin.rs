@@ -76,9 +76,25 @@ async fn dispatch_admin_request(
 ) -> AdminResponse {
     match request {
         AdminRequest::Ping => AdminResponse::Pong,
+        AdminRequest::Status => {
+            let (session_count, user_count) = {
+                let presence = shared.presence.lock().await;
+                (presence.session_count(), presence.user_count())
+            };
+            match shared.runtime.world_counts().await {
+                Ok(counts) => AdminResponse::Status {
+                    summary: counts.into_status(session_count, user_count),
+                },
+                Err(error) => AdminResponse::error(error),
+            }
+        }
         AdminRequest::ListSessions => {
             let sessions = shared.presence.lock().await.admin_sessions();
             AdminResponse::Sessions { sessions }
+        }
+        AdminRequest::ListUsers => {
+            let users = shared.presence.lock().await.admin_users();
+            AdminResponse::Users { users }
         }
         AdminRequest::KickConnection { connection_id } => {
             let kicked = shared.presence.lock().await.request_kick(connection_id);
@@ -102,8 +118,17 @@ async fn dispatch_admin_request(
                 return AdminResponse::error(error);
             }
 
-            AdminResponse::Ok {
-                message: format!("reloaded world from {}", dir.display()),
+            match shared.runtime.world_counts().await {
+                Ok(counts) => AdminResponse::Ok {
+                    message: format!(
+                        "reloaded map from {} (views={} entities={} players={})",
+                        dir.display(),
+                        counts.view_count,
+                        counts.entity_count,
+                        counts.player_count
+                    ),
+                },
+                Err(error) => AdminResponse::error(error),
             }
         }
     }

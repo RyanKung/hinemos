@@ -1,6 +1,7 @@
 //! Atomic runtime snapshot shared by SSH sessions and admin reloads.
 
 use tokio::sync::RwLock;
+use xagora_admin_protocol::AdminStatus;
 use xagora_core::{JsonObservation, PlayerState, SemanticCommand, WorldState};
 use xagora_runtime::{Chrome, GameRuntime, ReloadError, RuntimeError, SlashParseError};
 
@@ -77,6 +78,35 @@ impl RuntimeHandle {
             runtime,
         };
         Ok(())
+    }
+
+    pub(crate) async fn world_counts(&self) -> Result<WorldCounts, RuntimeError> {
+        let state = self.state.read().await;
+        let world = state.runtime.world()?;
+        Ok(WorldCounts {
+            view_count: world.views.len(),
+            entity_count: world.entities.len(),
+            player_count: world.players.len(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WorldCounts {
+    pub(crate) view_count: usize,
+    pub(crate) entity_count: usize,
+    pub(crate) player_count: usize,
+}
+
+impl WorldCounts {
+    pub(crate) fn into_status(self, session_count: usize, user_count: usize) -> AdminStatus {
+        AdminStatus {
+            session_count,
+            user_count,
+            view_count: self.view_count,
+            entity_count: self.entity_count,
+            player_count: self.player_count,
+        }
     }
 }
 

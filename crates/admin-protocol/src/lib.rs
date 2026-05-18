@@ -17,8 +17,12 @@ pub const MAX_ADMIN_FRAME: usize = 1024 * 1024;
 pub enum AdminRequest {
     /// Liveness check.
     Ping,
+    /// Runtime and world summary.
+    Status,
     /// List authenticated SSH sessions.
     ListSessions,
+    /// List online SSH users grouped by username.
+    ListUsers,
     /// Disconnect the given connection id (best-effort).
     KickConnection {
         /// Connection id assigned by the daemon at accept time.
@@ -43,10 +47,20 @@ pub enum AdminResponse {
     },
     /// Reply to [`AdminRequest::Ping`].
     Pong,
+    /// Runtime and world summary.
+    Status {
+        /// Current runtime status.
+        summary: AdminStatus,
+    },
     /// Active sessions snapshot.
     Sessions {
         /// One row per authenticated connection.
         sessions: Vec<AdminSession>,
+    },
+    /// Online users snapshot.
+    Users {
+        /// One row per online SSH username.
+        users: Vec<AdminUser>,
     },
     /// Operation failed; `message` is safe to show operators.
     Error {
@@ -65,6 +79,21 @@ impl AdminResponse {
     }
 }
 
+/// Current runtime and world summary for operators.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminStatus {
+    /// Number of active SSH sessions.
+    pub session_count: usize,
+    /// Number of distinct SSH usernames online.
+    pub user_count: usize,
+    /// Number of loaded views in the current world.
+    pub view_count: usize,
+    /// Number of loaded entities in the current world.
+    pub entity_count: usize,
+    /// Number of runtime player states.
+    pub player_count: usize,
+}
+
 /// One connected player session as seen by the admin plane.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminSession {
@@ -74,6 +103,17 @@ pub struct AdminSession {
     pub player_id: String,
     /// SSH username offered during authentication.
     pub user: String,
+}
+
+/// Online SSH user grouped across one or more sessions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminUser {
+    /// SSH username.
+    pub user: String,
+    /// Number of active connections using this username.
+    pub session_count: usize,
+    /// Player ids currently associated with this username.
+    pub player_ids: Vec<String>,
 }
 
 /// Phase of a single admin RPC (used for stable client-side error text).
@@ -253,4 +293,32 @@ fn stable_read_unexpected_eof_message() {
     let msg =
         admin_rpc_failure_message(Path::new("/tmp/x.sock"), AdminRpcPhase::ReadResponse, &err);
     assert!(msg.contains("daemon stopped"), "unexpected message: {msg}");
+}
+
+#[cfg(test)]
+#[test]
+fn status_response_round_trips() {
+    let response = AdminResponse::Status {
+        summary: AdminStatus {
+            session_count: 2,
+            user_count: 1,
+            view_count: 5,
+            entity_count: 8,
+            player_count: 3,
+        },
+    };
+
+    let encoded = serde_json::to_vec(&response).expect("status response should serialize");
+    let decoded: AdminResponse =
+        serde_json::from_slice(&encoded).expect("status response should deserialize");
+    match decoded {
+        AdminResponse::Status { summary } => {
+            assert_eq!(summary.session_count, 2);
+            assert_eq!(summary.user_count, 1);
+            assert_eq!(summary.view_count, 5);
+            assert_eq!(summary.entity_count, 8);
+            assert_eq!(summary.player_count, 3);
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
 }

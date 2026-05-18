@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use xagora_admin_protocol::AdminSession;
+use xagora_admin_protocol::{AdminSession, AdminUser};
 
 #[derive(Debug, Default)]
 pub(crate) struct PresenceRegistry {
@@ -50,6 +50,18 @@ impl PresenceRegistry {
             .collect()
     }
 
+    pub(crate) fn session_count(&self) -> usize {
+        self.connections.len()
+    }
+
+    pub(crate) fn user_count(&self) -> usize {
+        self.connections
+            .values()
+            .map(|record| record.user.as_str())
+            .collect::<HashSet<_>>()
+            .len()
+    }
+
     pub(crate) fn admin_sessions(&self) -> Vec<AdminSession> {
         self.connections
             .iter()
@@ -59,6 +71,30 @@ impl PresenceRegistry {
                 user: record.user.clone(),
             })
             .collect()
+    }
+
+    pub(crate) fn admin_users(&self) -> Vec<AdminUser> {
+        let mut grouped = HashMap::<String, UserAccumulator>::new();
+        for record in self.connections.values() {
+            let entry = grouped.entry(record.user.clone()).or_default();
+            entry.session_count += 1;
+            entry.player_ids.insert(record.player_id.clone());
+        }
+
+        let mut users = grouped
+            .into_iter()
+            .map(|(user, accumulator)| {
+                let mut player_ids = accumulator.player_ids.into_iter().collect::<Vec<_>>();
+                player_ids.sort();
+                AdminUser {
+                    user,
+                    session_count: accumulator.session_count,
+                    player_ids,
+                }
+            })
+            .collect::<Vec<_>>();
+        users.sort_by(|left, right| left.user.cmp(&right.user));
+        users
     }
 
     pub(crate) fn request_kick(&mut self, connection_id: u64) -> bool {
@@ -75,10 +111,41 @@ impl PresenceRegistry {
     }
 }
 
+#[derive(Debug, Default)]
+struct UserAccumulator {
+    session_count: usize,
+    player_ids: HashSet<String>,
+}
+
 #[derive(Debug)]
 struct PresenceRecord {
     player_id: String,
     user: String,
     connected_at: Instant,
     last_seen_at: Instant,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PresenceRegistry;
+
+    #[test]
+    fn admin_users_group_sessions_by_user() {
+        let mut presence = PresenceRegistry::default();
+        presence.mark_online(1, "player_a".to_owned(), "alice".to_owned());
+        presence.mark_online(2, "player_b".to_owned(), "alice".to_owned());
+        presence.mark_online(3, "player_c".to_owned(), "bob".to_owned());
+
+        let users = presence.admin_users();
+
+        assert_eq!(users.len(), 2);
+        assert_eq!(users[0].user, "alice");
+        assert_eq!(users[0].session_count, 2);
+        assert_eq!(
+            users[0].player_ids,
+            vec!["player_a".to_owned(), "player_b".to_owned()]
+        );
+        assert_eq!(users[1].user, "bob");
+        assert_eq!(users[1].session_count, 1);
+    }
 }

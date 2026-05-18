@@ -59,8 +59,12 @@ struct AdminCli {
 enum AdminCmd {
     /// Verify the daemon admin socket is accepting RPCs.
     Ping,
+    /// Print runtime and loaded-map summary.
+    Status,
     /// Print authenticated sessions (connection id, player id, SSH user).
     Sessions,
+    /// Print online SSH users grouped across sessions.
+    Users,
     /// Ask the daemon to close an SSH session after its next input chunk.
     Kick {
         /// Value from `sessions` output.
@@ -68,6 +72,11 @@ enum AdminCmd {
     },
     /// Reload world RON files from disk (player positions preserved when possible).
     ReloadWorld {
+        #[arg(long)]
+        world: Option<PathBuf>,
+    },
+    /// Reload map RON files from disk (alias for `reload-world`).
+    ReloadMap {
         #[arg(long)]
         world: Option<PathBuf>,
     },
@@ -90,9 +99,12 @@ fn run_admin(admin: AdminCli) -> Result<()> {
 
     let request = match admin.cmd {
         AdminCmd::Ping => AdminRequest::Ping,
+        AdminCmd::Status => AdminRequest::Status,
         AdminCmd::Sessions => AdminRequest::ListSessions,
+        AdminCmd::Users => AdminRequest::ListUsers,
         AdminCmd::Kick { connection_id } => AdminRequest::KickConnection { connection_id },
         AdminCmd::ReloadWorld { world } => AdminRequest::ReloadWorld { world_dir: world },
+        AdminCmd::ReloadMap { world } => AdminRequest::ReloadWorld { world_dir: world },
     };
 
     let response = unix_admin_call(&admin.socket, &request)?;
@@ -100,6 +112,16 @@ fn run_admin(admin: AdminCli) -> Result<()> {
     match response {
         AdminResponse::Pong => println!("pong"),
         AdminResponse::Ok { message } => println!("{message}"),
+        AdminResponse::Status { summary } => {
+            println!(
+                "sessions={} users={} views={} entities={} players={}",
+                summary.session_count,
+                summary.user_count,
+                summary.view_count,
+                summary.entity_count,
+                summary.player_count
+            );
+        }
         AdminResponse::Sessions { sessions } => {
             if sessions.is_empty() {
                 println!("(no sessions)");
@@ -108,6 +130,19 @@ fn run_admin(admin: AdminCli) -> Result<()> {
                 println!(
                     "{} player={} user={}",
                     session.connection_id, session.player_id, session.user
+                );
+            }
+        }
+        AdminResponse::Users { users } => {
+            if users.is_empty() {
+                println!("(no users)");
+            }
+            for user in users {
+                println!(
+                    "{} sessions={} players={}",
+                    user.user,
+                    user.session_count,
+                    user.player_ids.join(",")
                 );
             }
         }
