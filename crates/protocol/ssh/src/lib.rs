@@ -2,61 +2,47 @@
 
 //! SSH adapter for the Xagora MUD runtime.
 
-use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(unix)]
 mod admin;
+mod auth;
+mod config;
+mod presence;
+mod runtime_state;
 
 use anyhow::{Context, Result};
-use clap::Parser;
 use russh::keys::ssh_key::LineEnding;
-use russh::keys::{Algorithm, HashAlg, PrivateKey, ssh_key};
+use russh::keys::{Algorithm, PrivateKey, ssh_key};
 use russh::server::{Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, server};
-use storage::PgStorage;
 use tokio::sync::Mutex;
+use xagora_core::SemanticCommand;
 use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-use xagora_core::{JsonObservation, ObservationEvent, SemanticCommand};
-use xagora_runtime::{Chrome, GameRuntime};
+use xagora_runtime::{Chrome, render_text_observation};
+use xagora_storage::{PgStorage, PlayerStateStore};
 
-#[derive(Debug, Parser)]
-#[command(name = "xagora-ssh")]
-#[command(about = "SSH adapter for the Xagora MUD runtime")]
-struct Cli {
-    #[arg(long, default_value = "127.0.0.1:2222")]
-    bind: SocketAddr,
-
-    #[arg(long, default_value = "worlds/sample")]
-    world: PathBuf,
-
-    #[arg(long, default_value = ".xagora/ssh_host_ed25519_key")]
-    host_key: PathBuf,
-
-    /// Unix domain socket path for local admin commands (`xagora admin`).
-    #[cfg(unix)]
-    #[arg(long, default_value = ".xagora/admin.sock")]
-    admin_socket: PathBuf,
-}
+use auth::{AuthIdentity, PublicKeyAuthPolicy};
+use config::{DaemonConfig, mask_database_url};
+use presence::PresenceRegistry;
+use runtime_state::RuntimeHandle;
 
 /// Runs the SSH server and (on Unix) the admin socket listener until shutdown.
 pub async fn run_daemon() -> Result<()> {
     dotenvy::dotenv().ok();
-    let cli = Cli::parse();
+    let cli = DaemonConfig::parse();
     let database_url = std::env::var("DATABASE_URL")
         .context("DATABASE_URL must be set in the environment or .env")?;
     let storage = PgStorage::connect(&database_url).await?;
     storage.migrate().await?;
     let world = load_world_from_dir(&cli.world)
         .with_context(|| format!("failed to load world from {}", cli.world.display()))?;
-    let entity_aliases = RwLock::new(world.entity_alias_map());
-    let runtime = RwLock::new(GameRuntime::new(world));
+    let runtime = RuntimeHandle::new(world);
 
     let host_key = load_or_create_host_key(&cli.host_key)
         .with_context(|| format!("failed to load host key from {}", cli.host_key.display()))?;
@@ -69,9 +55,9 @@ pub async fn run_daemon() -> Result<()> {
     });
     let shared = Arc::new(SharedState {
         runtime,
-        entity_aliases,
         presence: Mutex::new(PresenceRegistry::default()),
         next_connection_id: AtomicU64::new(1),
+        auth_policy: PublicKeyAuthPolicy,
         storage,
     });
 
@@ -96,19 +82,6 @@ pub async fn run_daemon() -> Result<()> {
     Ok(())
 }
 
-fn mask_database_url(database_url: &str) -> String {
-    let Some((scheme, rest)) = database_url.split_once("://") else {
-        return "<invalid-url>".to_owned();
-    };
-    let Some((userinfo, host)) = rest.rsplit_once('@') else {
-        return format!("{scheme}://{rest}");
-    };
-    let Some((user, _password)) = userinfo.split_once(':') else {
-        return format!("{scheme}://{userinfo}@{host}");
-    };
-    format!("{scheme}://{user}:***@{host}")
-}
-
 fn load_or_create_host_key(path: &Path) -> Result<PrivateKey> {
     if path.exists() {
         return Ok(PrivateKey::read_openssh_file(path)?);
@@ -123,65 +96,11 @@ fn load_or_create_host_key(path: &Path) -> Result<PrivateKey> {
 }
 
 pub(crate) struct SharedState {
-    runtime: RwLock<GameRuntime>,
-    entity_aliases: RwLock<HashMap<String, String>>,
+    runtime: RuntimeHandle,
     presence: Mutex<PresenceRegistry>,
     next_connection_id: AtomicU64,
+    auth_policy: PublicKeyAuthPolicy,
     storage: PgStorage,
-}
-
-#[derive(Debug, Default)]
-struct PresenceRegistry {
-    connections: HashMap<u64, PresenceRecord>,
-    pending_kicks: HashSet<u64>,
-}
-
-impl PresenceRegistry {
-    fn mark_online(&mut self, connection_id: u64, player_id: String, user: String) {
-        self.connections.insert(
-            connection_id,
-            PresenceRecord {
-                player_id,
-                user,
-                connected_at: Instant::now(),
-                last_seen_at: Instant::now(),
-            },
-        );
-    }
-
-    fn touch(&mut self, connection_id: u64) {
-        if let Some(record) = self.connections.get_mut(&connection_id) {
-            let _session_age = record.connected_at.elapsed();
-            record.last_seen_at = Instant::now();
-        }
-    }
-
-    fn remove(&mut self, connection_id: u64) {
-        self.connections.remove(&connection_id);
-        self.pending_kicks.remove(&connection_id);
-    }
-
-    fn online_count_for_player(&self, player_id: &str) -> usize {
-        self.connections
-            .values()
-            .filter(|record| record.player_id == player_id)
-            .count()
-    }
-
-    fn users(&self) -> Vec<&str> {
-        self.connections
-            .values()
-            .map(|record| record.user.as_str())
-            .collect()
-    }
-}
-
-#[derive(Debug)]
-struct PresenceRecord {
-    player_id: String,
-    user: String,
-    connected_at: Instant,
-    last_seen_at: Instant,
 }
 
 #[derive(Clone)]
@@ -204,13 +123,7 @@ impl server::Server for SshServer {
             identity: None,
             input_buffer: String::new(),
             channel: None,
-            chrome: Chrome::with_aliases(
-                self.shared
-                    .entity_aliases
-                    .read()
-                    .unwrap_or_else(|poison| poison.into_inner())
-                    .clone(),
-            ),
+            chrome: None,
         }
     }
 
@@ -226,7 +139,7 @@ struct ConnectionHandler {
     identity: Option<AuthIdentity>,
     input_buffer: String,
     channel: Option<ChannelId>,
-    chrome: Chrome,
+    chrome: Option<Chrome>,
 }
 
 impl ConnectionHandler {
@@ -251,9 +164,8 @@ impl ConnectionHandler {
         let observation = self
             .shared
             .runtime
-            .read()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .observe_json(&identity.player_id, vec![])?;
+            .observe_json(&identity.player_id)
+            .await?;
         send_text_observation(session, channel, &observation)?;
         send_prompt(session, channel)?;
         Ok(())
@@ -272,7 +184,12 @@ impl ConnectionHandler {
 
         self.shared.presence.lock().await.touch(self.connection_id);
 
-        let command = match self.chrome.parse_command(line) {
+        let Some(chrome) = &self.chrome else {
+            session.data(channel, b"Session is not ready.\r\n".to_vec())?;
+            return Ok(());
+        };
+
+        let command = match runtime_state::parse_command(chrome, line) {
             Ok(command) => command,
             Err(error) => {
                 session.data(channel, format!("{error}\r\n").into_bytes())?;
@@ -282,17 +199,12 @@ impl ConnectionHandler {
         };
 
         let should_quit = matches!(command, SemanticCommand::Quit);
-        let (observation, player_state) = {
-            let runtime = self
-                .shared
-                .runtime
-                .read()
-                .unwrap_or_else(|poison| poison.into_inner());
-            let observation = runtime.execute(&identity.player_id, &command)?;
-            let player_state = runtime.player_state(&identity.player_id)?;
-            (observation, player_state)
-        };
-        self.shared.storage.save_player_state(&player_state).await?;
+        let (observation, player_state) = self
+            .shared
+            .runtime
+            .execute(&identity.player_id, &command)
+            .await?;
+        PlayerStateStore::save_player_state(&self.shared.storage, &player_state).await?;
 
         send_text_observation(session, channel, &observation)?;
         if should_quit {
@@ -361,10 +273,21 @@ impl server::Handler for ConnectionHandler {
 
     async fn auth_publickey_offered(
         &mut self,
-        _user: &str,
-        _public_key: &ssh_key::PublicKey,
+        user: &str,
+        public_key: &ssh_key::PublicKey,
     ) -> Result<Auth, Self::Error> {
-        Ok(Auth::Accept)
+        if self
+            .shared
+            .auth_policy
+            .accepts_public_key_offer(user, public_key)
+        {
+            Ok(Auth::Accept)
+        } else {
+            Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            })
+        }
     }
 
     async fn auth_publickey(
@@ -372,41 +295,24 @@ impl server::Handler for ConnectionHandler {
         user: &str,
         public_key: &ssh_key::PublicKey,
     ) -> Result<Auth, Self::Error> {
-        let fingerprint = public_key.fingerprint(HashAlg::Sha256).to_string();
-        let player_id = player_id_from_key(user, &fingerprint);
+        let authorized = self.shared.auth_policy.authorize(user, public_key);
         let identity = self
             .shared
             .storage
-            .upsert_ssh_identity(user, &fingerprint, &player_id)
+            .upsert_ssh_identity(user, &authorized.fingerprint, &authorized.player_id)
             .await?;
-        let saved_player = self
-            .shared
-            .storage
-            .load_player_state(&identity.player_id)
+        let saved_player =
+            PlayerStateStore::load_player_state(&self.shared.storage, &identity.player_id).await?;
+        self.shared
+            .runtime
+            .set_or_create_player(saved_player, &identity.player_id, LOCAL_PLAYER_ID)
             .await?;
-        if let Some(player) = saved_player {
-            self.shared
-                .runtime
-                .write()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .set_player_state(player)?;
-        } else {
-            self.shared
-                .runtime
-                .write()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .ensure_player_from_template(&identity.player_id, LOCAL_PLAYER_ID)?;
-        }
         let player_to_save = self
             .shared
             .runtime
-            .read()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .player_state(&identity.player_id)?;
-        self.shared
-            .storage
-            .save_player_state(&player_to_save)
+            .player_state(&identity.player_id)
             .await?;
+        PlayerStateStore::save_player_state(&self.shared.storage, &player_to_save).await?;
         self.shared.presence.lock().await.mark_online(
             self.connection_id,
             identity.player_id.clone(),
@@ -423,9 +329,10 @@ impl server::Handler for ConnectionHandler {
         drop(presence);
         self.identity = Some(AuthIdentity {
             user: identity.username,
-            fingerprint,
+            fingerprint: authorized.fingerprint,
             player_id: identity.player_id,
         });
+        self.chrome = Some(self.shared.runtime.chrome().await);
         Ok(Auth::Accept)
     }
 
@@ -482,91 +389,21 @@ impl Drop for ConnectionHandler {
     }
 }
 
-#[derive(Debug, Clone)]
-struct AuthIdentity {
-    user: String,
-    fingerprint: String,
-    player_id: String,
-}
-
 fn send_text_observation(
     session: &mut Session,
     channel: ChannelId,
-    observation: &JsonObservation,
+    observation: &xagora_core::JsonObservation,
 ) -> Result<()> {
-    session.data(channel, render_text_observation(observation).into_bytes())?;
+    session.data(
+        channel,
+        render_text_observation(observation)
+            .replace('\n', "\r\n")
+            .into_bytes(),
+    )?;
     Ok(())
 }
 
 fn send_prompt(session: &mut Session, channel: ChannelId) -> Result<()> {
     session.data(channel, Chrome::PROMPT.as_bytes().to_vec())?;
     Ok(())
-}
-
-fn render_text_observation(observation: &JsonObservation) -> String {
-    let mut output = String::new();
-    output.push_str("\r\n");
-    output.push_str(&observation.title);
-    output.push_str("\r\n");
-    if !observation.ascii_art.is_empty() {
-        output.push_str("\r\n");
-        for line in &observation.ascii_art {
-            output.push_str(line);
-            output.push_str("\r\n");
-        }
-    }
-    output.push_str("\r\n");
-    output.push_str(&observation.description);
-    output.push_str("\r\n");
-
-    if !observation.exits.is_empty() {
-        let exits = observation
-            .exits
-            .iter()
-            .map(|exit| exit.direction.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        output.push_str(&format!("{}: {exits}\r\n", Chrome::LABEL_EXITS));
-    }
-
-    if !observation.entities.is_empty() {
-        let entities = observation
-            .entities
-            .iter()
-            .map(|entity| entity.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        output.push_str(&format!("{}: {entities}\r\n", Chrome::LABEL_VISIBLE));
-    }
-
-    for event in &observation.events {
-        match event {
-            ObservationEvent::Message { text } => {
-                output.push_str(text);
-                output.push_str("\r\n");
-            }
-            ObservationEvent::Move { direction, .. } => {
-                output.push_str(&format!("{} {}\r\n", Chrome::MOVE_VERB, direction.as_str()));
-            }
-        }
-    }
-
-    output
-}
-
-fn player_id_from_key(user: &str, fingerprint: &str) -> String {
-    format!("ssh_{}_{}", sanitize_id(user), sanitize_id(fingerprint))
-}
-
-fn sanitize_id(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }

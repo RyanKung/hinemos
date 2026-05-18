@@ -18,6 +18,22 @@ pub struct WorldState {
     pub players: HashMap<PlayerId, PlayerState>,
 }
 
+/// Static world definition shared by all runtime sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorldDefinition {
+    /// Views keyed by stable id.
+    pub views: HashMap<ViewId, View>,
+    /// Entities keyed by stable id.
+    pub entities: HashMap<EntityId, Entity>,
+}
+
+/// Mutable runtime snapshot for player-specific state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeSnapshot {
+    /// Player states keyed by stable id.
+    pub players: HashMap<PlayerId, PlayerState>,
+}
+
 /// A navigable location in the world graph.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct View {
@@ -170,6 +186,33 @@ pub struct EntityPlacement {
 }
 
 impl WorldState {
+    /// Builds a world state from static definition and mutable snapshot parts.
+    #[must_use]
+    pub fn from_parts(definition: WorldDefinition, snapshot: RuntimeSnapshot) -> Self {
+        Self {
+            views: definition.views,
+            entities: definition.entities,
+            players: snapshot.players,
+        }
+    }
+
+    /// Returns the static world definition portion.
+    #[must_use]
+    pub fn definition(&self) -> WorldDefinition {
+        WorldDefinition {
+            views: self.views.clone(),
+            entities: self.entities.clone(),
+        }
+    }
+
+    /// Returns the mutable runtime snapshot portion.
+    #[must_use]
+    pub fn runtime_snapshot(&self) -> RuntimeSnapshot {
+        RuntimeSnapshot {
+            players: self.players.clone(),
+        }
+    }
+
     /// Lowercased [`Entity::aliases`] entries mapped to canonical [`Entity::id`].
     #[must_use]
     pub fn entity_alias_map(&self) -> HashMap<String, EntityId> {

@@ -2839,16 +2839,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
-name = "storage"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "sqlx",
- "thiserror 2.0.18",
- "xagora-core",
-]
-
-[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3648,12 +3638,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
+name = "xagora-admin-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "xagora-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "serde_json",
+ "xagora-admin-protocol",
  "xagora-core",
  "xagora-runtime",
 ]
@@ -3688,10 +3688,21 @@ dependencies = [
  "russh",
  "serde",
  "serde_json",
- "storage",
  "tokio",
+ "xagora-admin-protocol",
  "xagora-core",
  "xagora-runtime",
+ "xagora-storage",
+]
+
+[[package]]
+name = "xagora-storage"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "xagora-core",
 ]
 
 [[package]]

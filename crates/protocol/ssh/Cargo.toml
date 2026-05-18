@@ -4,6 +4,7 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+xagora-admin-protocol = { version = "0.1.0", path = "../../admin-protocol" }
 xagora-core = { version = "0.1.0", path = "../../core" }
 xagora-runtime = { version = "0.1.0", path = "../../runtime" }
 anyhow = "1.0.102"
@@ -13,5 +14,5 @@ rand = "0.10.1"
 russh = "0.60.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-storage = { version = "0.1.0", path = "../../storage" }
+xagora-storage = { version = "0.1.0", path = "../../storage" }
 tokio = { version = "1.52.3", features = ["full"] }

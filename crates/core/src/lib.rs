@@ -12,7 +12,7 @@ pub use command::{Direction, EntityRef, SemanticCommand};
 pub use ids::{EntityId, PlayerId, ViewId};
 pub use model::{
     ActionKind, BulletinItem, Entity, EntityCollection, EntityKind, Exit, PlayerState, Requirement,
-    View, ViewLayout, WorldState,
+    RuntimeSnapshot, View, ViewLayout, WorldDefinition, WorldState,
 };
 pub use observation::{
     EntityObservation, ExitObservation, JsonObservation, ObservationEvent, TextObservation,

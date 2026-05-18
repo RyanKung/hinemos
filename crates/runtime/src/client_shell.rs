@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 
 use thiserror::Error;
-use xagora_core::{Direction, EntityRef, SemanticCommand, WorldState};
+use xagora_core::{
+    Direction, EntityRef, JsonObservation, ObservationEvent, SemanticCommand, WorldState,
+};
 
 /// Engine chrome plus [`WorldState::entity_alias_map`] for slash targets.
 #[derive(Debug, Clone)]
@@ -139,4 +141,57 @@ fn parse_direction(token: &str) -> Option<Direction> {
         "down" | "d" => Some(Direction::Down),
         _ => None,
     }
+}
+
+/// Renders a structured observation for text clients using line-feed separators.
+#[must_use]
+pub fn render_text_observation(observation: &JsonObservation) -> String {
+    let mut output = String::new();
+    output.push('\n');
+    output.push_str(&observation.title);
+    output.push('\n');
+    if !observation.ascii_art.is_empty() {
+        output.push('\n');
+        for line in &observation.ascii_art {
+            output.push_str(line);
+            output.push('\n');
+        }
+    }
+    output.push('\n');
+    output.push_str(&observation.description);
+    output.push('\n');
+
+    if !observation.exits.is_empty() {
+        let exits = observation
+            .exits
+            .iter()
+            .map(|exit| exit.direction.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        output.push_str(&format!("{}: {exits}\n", Chrome::LABEL_EXITS));
+    }
+
+    if !observation.entities.is_empty() {
+        let entities = observation
+            .entities
+            .iter()
+            .map(|entity| entity.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        output.push_str(&format!("{}: {entities}\n", Chrome::LABEL_VISIBLE));
+    }
+
+    for event in &observation.events {
+        match event {
+            ObservationEvent::Message { text } => {
+                output.push_str(text);
+                output.push('\n');
+            }
+            ObservationEvent::Move { direction, .. } => {
+                output.push_str(&format!("{} {}\n", Chrome::MOVE_VERB, direction.as_str()));
+            }
+        }
+    }
+
+    output
 }

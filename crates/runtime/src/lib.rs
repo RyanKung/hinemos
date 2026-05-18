@@ -2,17 +2,10 @@
 
 //! Runtime command execution for the Xagora world.
 
-mod admin_ipc;
 mod client_shell;
+mod reload;
 
-#[cfg(unix)]
-pub use admin_ipc::unix_admin_call;
-pub use admin_ipc::{
-    AdminClientError, AdminRequest, AdminResponse, AdminSession, MAX_ADMIN_FRAME, read_framed_json,
-    write_framed_json,
-};
-
-pub use client_shell::{Chrome, SlashParseError};
+pub use client_shell::{Chrome, SlashParseError, render_text_observation};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -21,7 +14,7 @@ use thiserror::Error;
 use xagora_core::{
     ActionKind, EntityId, EntityObservation, EntityRef, ExitObservation, JsonObservation,
     ObservationEvent, PlayerId, PlayerState, SemanticCommand, TextObservation, View, ViewId,
-    WorldState,
+    WorldDefinition, WorldState,
 };
 
 /// Errors produced by command execution and observation building.
@@ -85,7 +78,9 @@ impl GameRuntime {
     /// Creates a runtime from an initial world state.
     #[must_use]
     pub fn new(world: WorldState) -> Self {
-        let views = world
+        let definition: WorldDefinition = world.definition();
+        let snapshot = world.runtime_snapshot();
+        let views = definition
             .views
             .iter()
             .map(|(view_id, view)| {
@@ -97,15 +92,15 @@ impl GameRuntime {
                 )
             })
             .collect();
-        let players = world
+        let players = snapshot
             .players
             .iter()
             .map(|(player_id, player)| (player_id.clone(), Arc::new(Mutex::new(player.clone()))))
             .collect();
         let world = StaticWorld {
-            views: world.views,
-            entities: world.entities,
-            template_players: world.players,
+            views: definition.views,
+            entities: definition.entities,
+            template_players: snapshot.players,
         };
 
         Self {

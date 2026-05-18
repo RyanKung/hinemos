@@ -7,9 +7,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use xagora_admin_protocol::{AdminRequest, AdminResponse};
 use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-use xagora_core::{JsonObservation, ObservationEvent, SemanticCommand};
-use xagora_runtime::{AdminRequest, AdminResponse, Chrome, GameRuntime};
+use xagora_core::{JsonObservation, SemanticCommand};
+use xagora_runtime::{Chrome, GameRuntime, render_text_observation};
 
 #[derive(Debug, Parser)]
 #[command(name = "xagora")]
@@ -85,7 +86,7 @@ fn main() -> Result<()> {
 
 #[cfg(unix)]
 fn run_admin(admin: AdminCli) -> Result<()> {
-    use xagora_runtime::unix_admin_call;
+    use xagora_admin_protocol::unix_admin_call;
 
     let request = match admin.cmd {
         AdminCmd::Ping => AdminRequest::Ping,
@@ -165,54 +166,12 @@ fn run_play(play: PlayArgs) -> Result<()> {
 fn print_observation(observation: &JsonObservation, format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Text => {
-            print_text_observation(observation);
+            print!("{}", render_text_observation(observation));
             Ok(())
         }
         OutputFormat::Json => {
             println!("{}", serde_json::to_string(observation)?);
             Ok(())
-        }
-    }
-}
-
-fn print_text_observation(observation: &JsonObservation) {
-    println!();
-    println!("{}", observation.title);
-    if !observation.ascii_art.is_empty() {
-        println!();
-        for line in &observation.ascii_art {
-            println!("{line}");
-        }
-    }
-    println!();
-    println!("{}", observation.description);
-
-    if !observation.exits.is_empty() {
-        let exits = observation
-            .exits
-            .iter()
-            .map(|exit| exit.direction.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        println!("{}: {exits}", Chrome::LABEL_EXITS);
-    }
-
-    if !observation.entities.is_empty() {
-        let entities = observation
-            .entities
-            .iter()
-            .map(|entity| entity.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        println!("{}: {entities}", Chrome::LABEL_VISIBLE);
-    }
-
-    for event in &observation.events {
-        match event {
-            ObservationEvent::Message { text } => println!("{text}"),
-            ObservationEvent::Move { direction, .. } => {
-                println!("{} {}", Chrome::MOVE_VERB, direction.as_str());
-            }
         }
     }
 }

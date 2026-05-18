@@ -2,15 +2,49 @@
 
 //! Postgres-backed persistence for accounts and player state.
 
+use std::future::Future;
+use std::pin::Pin;
+
 use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use thiserror::Error;
 use xagora_core::PlayerState;
 
+/// Async player-state persistence boundary.
+pub trait PlayerStateStore {
+    /// Loads a player state if one has been saved.
+    fn load_player_state<'a>(
+        &'a self,
+        player_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<PlayerState>, StorageError>> + Send + 'a>>;
+
+    /// Saves the current player state.
+    fn save_player_state<'a>(
+        &'a self,
+        player: &'a PlayerState,
+    ) -> Pin<Box<dyn Future<Output = Result<(), StorageError>> + Send + 'a>>;
+}
+
 /// Database-backed storage facade.
 #[derive(Debug, Clone)]
 pub struct PgStorage {
     pool: PgPool,
+}
+
+impl PlayerStateStore for PgStorage {
+    fn load_player_state<'a>(
+        &'a self,
+        player_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<PlayerState>, StorageError>> + Send + 'a>> {
+        Box::pin(async move { PgStorage::load_player_state(self, player_id).await })
+    }
+
+    fn save_player_state<'a>(
+        &'a self,
+        player: &'a PlayerState,
+    ) -> Pin<Box<dyn Future<Output = Result<(), StorageError>> + Send + 'a>> {
+        Box::pin(async move { PgStorage::save_player_state(self, player).await })
+    }
 }
 
 impl PgStorage {

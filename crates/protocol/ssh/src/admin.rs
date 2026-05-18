@@ -1,4 +1,4 @@
-//! Unix domain socket for [`xagora_runtime::AdminRequest`] control messages.
+//! Unix domain socket for [`xagora_admin_protocol::AdminRequest`] control messages.
 
 use std::fs;
 use std::path::PathBuf;
@@ -7,9 +7,9 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use xagora_runtime::{AdminRequest, AdminResponse, AdminSession, MAX_ADMIN_FRAME};
+use xagora_admin_protocol::{AdminRequest, AdminResponse, MAX_ADMIN_FRAME};
 
-use super::{PresenceRegistry, SharedState};
+use super::SharedState;
 
 /// Removes stale socket files, binds `socket_path`, chmod `0600`, then accepts until error.
 pub(super) async fn run_admin_listener(
@@ -94,42 +94,18 @@ async fn dispatch_admin_request(
         }
         AdminRequest::ReloadWorld { world_dir } => {
             let dir = world_dir.unwrap_or(default_world);
-            let new_runtime = match shared.runtime.read() {
-                Ok(guard) => match guard.reload_from_world_dir_preserving_players(&dir) {
-                    Ok(runtime) => runtime,
-                    Err(error) => return AdminResponse::from_reload_error(error),
-                },
-                Err(_) => return poison_error(),
-            };
-
-            match shared.runtime.write() {
-                Ok(mut guard) => *guard = new_runtime,
-                Err(_) => return poison_error(),
-            }
-
-            let aliases = match shared.runtime.read() {
-                Ok(guard) => match guard.world() {
-                    Ok(world) => world.entity_alias_map(),
-                    Err(error) => return AdminResponse::from_runtime_error(error),
-                },
-                Err(_) => return poison_error(),
-            };
-
-            match shared.entity_aliases.write() {
-                Ok(mut guard) => *guard = aliases,
-                Err(_) => return poison_error(),
+            if let Err(error) = shared
+                .runtime
+                .reload_from_world_dir_preserving_players(&dir)
+                .await
+            {
+                return AdminResponse::error(error);
             }
 
             AdminResponse::Ok {
                 message: format!("reloaded world from {}", dir.display()),
             }
         }
-    }
-}
-
-fn poison_error() -> AdminResponse {
-    AdminResponse::Error {
-        message: "runtime lock poisoned".to_owned(),
     }
 }
 
@@ -172,30 +148,4 @@ async fn write_framed_raw_async(stream: &mut UnixStream, bytes: &[u8]) -> Result
     stream.write_all(bytes).await?;
     stream.flush().await?;
     Ok(())
-}
-
-impl PresenceRegistry {
-    pub(super) fn admin_sessions(&self) -> Vec<AdminSession> {
-        self.connections
-            .iter()
-            .map(|(&connection_id, record)| AdminSession {
-                connection_id,
-                player_id: record.player_id.clone(),
-                user: record.user.clone(),
-            })
-            .collect()
-    }
-
-    pub(super) fn request_kick(&mut self, connection_id: u64) -> bool {
-        if self.connections.contains_key(&connection_id) {
-            self.pending_kicks.insert(connection_id);
-            true
-        } else {
-            false
-        }
-    }
-
-    pub(super) fn poll_kick(&mut self, connection_id: u64) -> bool {
-        self.pending_kicks.remove(&connection_id)
-    }
 }
