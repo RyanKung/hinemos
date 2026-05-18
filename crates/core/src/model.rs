@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::command::Direction;
-use crate::ids::{EntityId, PlayerId, TextKey, ViewId};
+use crate::ids::{EntityId, PlayerId, ViewId};
 
 /// The mutable state of a world instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,10 +23,13 @@ pub struct WorldState {
 pub struct View {
     /// Stable canonical id.
     pub id: ViewId,
-    /// Localized title key.
-    pub title_key: TextKey,
-    /// Localized description key.
-    pub description_key: TextKey,
+    /// Player-facing title from world data.
+    pub title: String,
+    /// Player-facing description from world data.
+    pub description: String,
+    /// Optional ASCII map rendered above the description.
+    #[serde(default)]
+    pub ascii_art: Vec<String>,
     /// Directed exits from this view.
     pub exits: Vec<Exit>,
     /// Entities currently visible in this view.
@@ -42,8 +45,9 @@ pub struct Exit {
     pub direction: Direction,
     /// Target view id.
     pub target: ViewId,
-    /// Optional localized label for the exit destination.
-    pub label_key: Option<TextKey>,
+    /// Optional player-facing label for the exit destination.
+    #[serde(default)]
+    pub label: Option<String>,
     /// Requirements that must be satisfied to use this exit.
     pub requirements: Vec<Requirement>,
 }
@@ -63,14 +67,43 @@ pub struct Entity {
     pub id: EntityId,
     /// Finite entity category.
     pub kind: EntityKind,
-    /// Localized name key.
-    pub name_key: TextKey,
-    /// Localized description key.
-    pub description_key: TextKey,
+    /// Player-facing display name from world data.
+    pub name: String,
+    /// Player-facing description from world data.
+    pub description: String,
+    /// Slash-command tokens that resolve to this entity id (world-authored).
+    #[serde(default)]
+    pub aliases: Vec<String>,
     /// Commands supported by this entity.
     pub actions: Vec<ActionKind>,
+    /// Optional structured payload (bulletin boards, shops, etc.).
+    #[serde(default)]
+    pub collection: Option<EntityCollection>,
     /// Whether the entity can be carried.
+    #[serde(default)]
     pub portable: bool,
+}
+
+/// Structured entity payloads referenced by [`Entity::collection`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum EntityCollection {
+    /// Ordered bulletin entries on a board entity.
+    BulletinBoard {
+        /// Ordered bulletin entries.
+        items: Vec<BulletinItem>,
+    },
+}
+
+/// Single bulletin entry shown through [`EntityCollection::BulletinBoard`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BulletinItem {
+    /// Stable bulletin id unique within its board.
+    pub id: String,
+    /// Player-facing title from world data.
+    pub title: String,
+    /// Player-facing body from world data.
+    pub body: String,
 }
 
 /// Finite entity categories used by rules and renderers.
@@ -91,6 +124,8 @@ pub enum EntityKind {
 pub enum ActionKind {
     /// Inspect the entity.
     Inspect,
+    /// Read readable text on the entity.
+    Read,
     /// Take the entity.
     Take,
     /// Talk to the entity.
@@ -135,6 +170,18 @@ pub struct EntityPlacement {
 }
 
 impl WorldState {
+    /// Lowercased [`Entity::aliases`] entries mapped to canonical [`Entity::id`].
+    #[must_use]
+    pub fn entity_alias_map(&self) -> HashMap<String, EntityId> {
+        let mut map = HashMap::new();
+        for entity in self.entities.values() {
+            for alias in &entity.aliases {
+                map.insert(alias.to_ascii_lowercase(), entity.id.clone());
+            }
+        }
+        map
+    }
+
     /// Returns the requested player state.
     #[must_use]
     pub fn player(&self, player_id: &str) -> Option<&PlayerState> {

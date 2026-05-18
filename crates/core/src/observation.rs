@@ -6,19 +6,22 @@ use crate::command::{Direction, SemanticCommand};
 use crate::ids::{EntityId, ViewId};
 use crate::model::{ActionKind, EntityKind};
 
-/// Human-readable observation data before localization rendering.
+/// Human-readable observation lines for plain-text clients.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextObservation {
-    /// Localized view title.
+    /// View title from world data.
     pub title: String,
-    /// Localized view description.
+    /// ASCII map lines shown above the description.
+    #[serde(default)]
+    pub ascii_art: Vec<String>,
+    /// View description from world data.
     pub description: String,
-    /// Localized exit labels.
+    /// Exit directions as plain strings.
     pub exits: Vec<String>,
-    /// Localized entity names.
+    /// Visible entity names from world data.
     pub entities: Vec<String>,
-    /// Localized event lines.
+    /// Event lines produced by the last command.
     pub events: Vec<String>,
 }
 
@@ -30,9 +33,12 @@ pub struct JsonObservation {
     pub player_id: String,
     /// Current view id.
     pub view_id: ViewId,
-    /// Localized view title for display.
+    /// View title from world data.
     pub title: String,
-    /// Localized view description for display.
+    /// ASCII map lines rendered above the description.
+    #[serde(default)]
+    pub ascii_art: Vec<String>,
+    /// View description from world data.
     pub description: String,
     /// Exits visible from the current view.
     pub exits: Vec<ExitObservation>,
@@ -52,7 +58,7 @@ pub struct ExitObservation {
     pub direction: Direction,
     /// Target id when known by the client.
     pub target_known: bool,
-    /// Optional localized label.
+    /// Optional player-facing label from world data.
     pub label: Option<String>,
 }
 
@@ -64,9 +70,9 @@ pub struct EntityObservation {
     pub id: EntityId,
     /// Finite entity kind.
     pub kind: EntityKind,
-    /// Localized entity name.
+    /// Display name from world data.
     pub name: String,
-    /// Localized entity description.
+    /// Description from world data.
     pub description: String,
     /// Supported action kinds.
     pub actions: Vec<ActionKind>,
@@ -78,7 +84,7 @@ pub struct EntityObservation {
 pub enum ObservationEvent {
     /// Informational message.
     Message {
-        /// Localized event text.
+        /// Message body shown to the player.
         text: String,
     },
     /// Player moved between views.

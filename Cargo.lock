@@ -79,46 +79,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agentopia-cli"
-version = "0.1.0"
-dependencies = [
- "agentopia-core",
- "agentopia-i18n",
- "agentopia-runtime",
- "anyhow",
- "clap",
- "serde_json",
-]
-
-[[package]]
-name = "agentopia-core"
-version = "0.1.0"
-dependencies = [
- "ron",
- "serde",
-]
-
-[[package]]
-name = "agentopia-i18n"
-version = "0.1.0"
-dependencies = [
- "agentopia-core",
- "agentopia-runtime",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "agentopia-runtime"
-version = "0.1.0"
-dependencies = [
- "agentopia-core",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2844,22 +2804,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ssh"
-version = "0.1.0"
-dependencies = [
- "agentopia-core",
- "agentopia-i18n",
- "agentopia-runtime",
- "anyhow",
- "clap",
- "dotenvy",
- "rand 0.10.1",
- "russh",
- "storage",
- "tokio",
-]
-
-[[package]]
 name = "ssh-cipher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2898,10 +2842,10 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 name = "storage"
 version = "0.1.0"
 dependencies = [
- "agentopia-core",
  "serde_json",
  "sqlx",
  "thiserror 2.0.18",
+ "xagora-core",
 ]
 
 [[package]]
@@ -3702,6 +3646,53 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
+
+[[package]]
+name = "xagora-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde_json",
+ "xagora-core",
+ "xagora-runtime",
+]
+
+[[package]]
+name = "xagora-core"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "xagora-runtime"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "xagora-core",
+]
+
+[[package]]
+name = "xagora-ssh"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dotenvy",
+ "rand 0.10.1",
+ "russh",
+ "serde",
+ "serde_json",
+ "storage",
+ "tokio",
+ "xagora-core",
+ "xagora-runtime",
+]
 
 [[package]]
 name = "yoke"

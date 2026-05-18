@@ -1,0 +1,336 @@
+//! Admin control-plane requests over a framed JSON payload (Unix socket).
+
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use xagora_core::sample_world::{self, LOCAL_PLAYER_ID};
+use xagora_core::{PlayerState, WorldState};
+
+use crate::{GameRuntime, ReloadError, RuntimeError};
+
+/// Maximum serialized admin frame (request or response).
+pub const MAX_ADMIN_FRAME: usize = 1024 * 1024;
+
+/// Wire protocol request from CLI / tooling to the daemon.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "cmd", rename_all = "snake_case")]
+pub enum AdminRequest {
+    /// Liveness check.
+    Ping,
+    /// List authenticated SSH sessions.
+    ListSessions,
+    /// Disconnect the given connection id (best-effort).
+    KickConnection {
+        /// Connection id assigned by the daemon at accept time.
+        connection_id: u64,
+    },
+    /// Reload world files from disk while merging existing player states.
+    ReloadWorld {
+        /// World directory; defaults to the daemon's configured world path.
+        #[serde(default)]
+        world_dir: Option<PathBuf>,
+    },
+}
+
+/// Successful or error payload returned to the client.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum AdminResponse {
+    /// Generic success with a short message.
+    Ok {
+        /// Human-readable summary.
+        message: String,
+    },
+    /// Reply to [`AdminRequest::Ping`].
+    Pong,
+    /// Active sessions snapshot.
+    Sessions {
+        /// One row per authenticated connection.
+        sessions: Vec<AdminSession>,
+    },
+    /// Operation failed; `message` is safe to show operators.
+    Error {
+        /// Explanation suitable for logs / CLI.
+        message: String,
+    },
+}
+
+/// One connected player session as seen by the admin plane.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminSession {
+    /// Daemon-issued connection id (used with [`AdminRequest::KickConnection`]).
+    pub connection_id: u64,
+    /// Stable player id in the runtime.
+    pub player_id: String,
+    /// SSH username offered during authentication.
+    pub user: String,
+}
+
+/// Phase of a single admin RPC (used for stable client-side error text).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdminRpcPhase {
+    Connect,
+    SendRequest,
+    ReadResponse,
+}
+
+/// Client-side failure reaching the daemon admin socket or completing an RPC.
+#[derive(Debug, Error)]
+#[error("{summary}")]
+pub struct AdminClientError {
+    summary: String,
+    #[source]
+    source: io::Error,
+}
+
+impl AdminClientError {
+    fn new(socket_path: &Path, phase: AdminRpcPhase, source: io::Error) -> Self {
+        Self {
+            summary: admin_rpc_failure_message(socket_path, phase, &source),
+            source,
+        }
+    }
+}
+
+fn admin_rpc_failure_message(socket_path: &Path, phase: AdminRpcPhase, err: &io::Error) -> String {
+    let path = socket_path.display();
+    match phase {
+        AdminRpcPhase::Connect => match err.kind() {
+            io::ErrorKind::NotFound => format!(
+                "cannot reach daemon: admin socket does not exist at {path} (daemon not running or wrong --admin-socket?)"
+            ),
+            io::ErrorKind::ConnectionRefused => format!(
+                "cannot reach daemon: nothing is listening on admin socket at {path} (daemon not running?)"
+            ),
+            io::ErrorKind::PermissionDenied => {
+                format!("cannot access admin socket at {path}: permission denied")
+            }
+            io::ErrorKind::AddrNotAvailable | io::ErrorKind::InvalidInput => {
+                format!("invalid admin socket path {path}")
+            }
+            _ => format!("cannot connect to admin socket at {path}: {err}"),
+        },
+        AdminRpcPhase::SendRequest => match err.kind() {
+            io::ErrorKind::BrokenPipe => format!(
+                "daemon closed the admin connection before the request was fully sent (socket {path})"
+            ),
+            io::ErrorKind::ConnectionReset => {
+                format!("lost connection to daemon while sending admin request (socket {path})")
+            }
+            _ => format!("failed to send admin request to {path}: {err}"),
+        },
+        AdminRpcPhase::ReadResponse => match err.kind() {
+            io::ErrorKind::UnexpectedEof => format!(
+                "daemon stopped before sending a complete admin response (socket {path}; daemon likely exited)"
+            ),
+            io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset => format!(
+                "daemon closed the admin connection before a complete response (socket {path})"
+            ),
+            io::ErrorKind::InvalidData => {
+                format!("invalid admin response from daemon at {path}: {err}")
+            }
+            _ => format!("failed to read admin response from {path}: {err}"),
+        },
+    }
+}
+
+/// Reads a length-prefixed JSON frame (little-endian `u32` length).
+pub fn read_framed_json<R: Read, T: for<'de> Deserialize<'de>>(reader: &mut R) -> io::Result<T> {
+    let raw = read_framed_raw(reader)?;
+    serde_json::from_slice(&raw).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid admin JSON: {error}"),
+        )
+    })
+}
+
+/// Writes a length-prefixed JSON frame (little-endian `u32` length).
+pub fn write_framed_json<W: Write, T: Serialize>(writer: &mut W, value: &T) -> io::Result<()> {
+    let bytes = serde_json::to_vec(value).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to serialize admin payload: {error}"),
+        )
+    })?;
+    write_framed_raw(writer, &bytes)
+}
+
+fn read_framed_raw(reader: &mut impl Read) -> io::Result<Vec<u8>> {
+    let mut len_buf = [0_u8; 4];
+    reader.read_exact(&mut len_buf)?;
+    let len = u32::from_le_bytes(len_buf) as usize;
+    if len > MAX_ADMIN_FRAME {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("admin frame length {len} exceeds maximum {MAX_ADMIN_FRAME}"),
+        ));
+    }
+    let mut buf = vec![0_u8; len];
+    reader.read_exact(&mut buf)?;
+    Ok(buf)
+}
+
+fn write_framed_raw(writer: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
+    if bytes.len() > MAX_ADMIN_FRAME {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "admin payload length {} exceeds maximum {MAX_ADMIN_FRAME}",
+                bytes.len()
+            ),
+        ));
+    }
+    let len = u32::try_from(bytes.len()).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "admin payload length overflow")
+    })?;
+    writer.write_all(&len.to_le_bytes())?;
+    writer.write_all(bytes)?;
+    writer.flush()?;
+    Ok(())
+}
+
+/// Blocking Unix socket RPC helper for CLI and scripts (Unix only).
+///
+/// Returns [`AdminClientError`] with stable messages when the daemon is down, the socket path is wrong,
+/// or the connection drops mid-RPC.
+#[cfg(unix)]
+pub fn unix_admin_call(
+    socket_path: &Path,
+    request: &AdminRequest,
+) -> Result<AdminResponse, AdminClientError> {
+    use std::os::unix::net::UnixStream;
+
+    let mut stream = UnixStream::connect(socket_path)
+        .map_err(|source| AdminClientError::new(socket_path, AdminRpcPhase::Connect, source))?;
+    write_framed_json(&mut stream, request)
+        .map_err(|source| AdminClientError::new(socket_path, AdminRpcPhase::SendRequest, source))?;
+    read_framed_json(&mut stream)
+        .map_err(|source| AdminClientError::new(socket_path, AdminRpcPhase::ReadResponse, source))
+}
+
+impl AdminResponse {
+    /// Wraps a runtime reload error as an admin [`AdminResponse::Error`].
+    #[must_use]
+    pub fn from_reload_error(error: ReloadError) -> Self {
+        AdminResponse::Error {
+            message: error.to_string(),
+        }
+    }
+
+    /// Wraps a world/load error as an admin [`AdminResponse::Error`].
+    #[must_use]
+    pub fn from_world_load_error(error: sample_world::WorldLoadError) -> Self {
+        AdminResponse::Error {
+            message: error.to_string(),
+        }
+    }
+
+    /// Wraps a runtime error as an admin [`AdminResponse::Error`].
+    #[must_use]
+    pub fn from_runtime_error(error: RuntimeError) -> Self {
+        AdminResponse::Error {
+            message: error.to_string(),
+        }
+    }
+}
+
+impl GameRuntime {
+    /// Reloads world files from `dir`, merging player states from `self` so SSH sessions stay anchored when possible.
+    ///
+    /// Players whose current view no longer exists are moved to the `local_player` spawn view from the new files.
+    /// Inventory is filtered to entity ids that still exist.
+    pub fn reload_from_world_dir_preserving_players(
+        &self,
+        dir: impl Into<PathBuf>,
+    ) -> Result<Self, ReloadError> {
+        let dir = dir.into();
+        let fresh = sample_world::load_world_from_dir(&dir)?;
+        let old_world = self.world()?;
+        let merged = merge_world_reload(fresh, &old_world.players);
+        Ok(GameRuntime::new(merged))
+    }
+}
+
+fn merge_world_reload(
+    fresh: WorldState,
+    old_players: &std::collections::HashMap<String, PlayerState>,
+) -> WorldState {
+    let fallback_view = fresh
+        .players
+        .get(LOCAL_PLAYER_ID)
+        .map(|player| player.current_view.clone())
+        .or_else(|| fresh.views.keys().next().cloned())
+        .unwrap_or_default();
+
+    let mut players = fresh.players.clone();
+    for (player_id, state) in old_players {
+        let merged = merge_player_for_reload(state.clone(), &fresh, &fallback_view);
+        players.insert(player_id.clone(), merged);
+    }
+
+    WorldState {
+        views: fresh.views,
+        entities: fresh.entities,
+        players,
+    }
+}
+
+fn merge_player_for_reload(
+    mut player: PlayerState,
+    fresh: &WorldState,
+    fallback_view: &str,
+) -> PlayerState {
+    if !fresh.views.contains_key(&player.current_view) {
+        player.current_view = fallback_view.to_owned();
+    }
+    player
+        .inventory
+        .retain(|entity_id| fresh.entities.contains_key(entity_id));
+    player
+}
+
+#[cfg(test)]
+#[test]
+fn stable_connect_not_found_message() {
+    use std::path::Path;
+
+    let err = std::io::Error::new(std::io::ErrorKind::NotFound, "ENOENT");
+    let msg = admin_rpc_failure_message(
+        Path::new("/run/xagora/admin.sock"),
+        AdminRpcPhase::Connect,
+        &err,
+    );
+    assert!(
+        msg.starts_with("cannot reach daemon:"),
+        "unexpected message: {msg}"
+    );
+    assert!(msg.contains("does not exist"), "unexpected message: {msg}");
+}
+
+#[cfg(test)]
+#[test]
+fn stable_connect_refused_message() {
+    use std::path::Path;
+
+    let err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "");
+    let msg = admin_rpc_failure_message(Path::new("/tmp/x.sock"), AdminRpcPhase::Connect, &err);
+    assert!(
+        msg.contains("nothing is listening"),
+        "unexpected message: {msg}"
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn stable_read_unexpected_eof_message() {
+    use std::path::Path;
+
+    let err = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "");
+    let msg =
+        admin_rpc_failure_message(Path::new("/tmp/x.sock"), AdminRpcPhase::ReadResponse, &err);
+    assert!(msg.contains("daemon stopped"), "unexpected message: {msg}");
+}

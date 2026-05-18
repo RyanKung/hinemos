@@ -2,10 +2,10 @@
 
 //! Postgres-backed persistence for accounts and player state.
 
-use agentopia_core::PlayerState;
 use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use thiserror::Error;
+use xagora_core::PlayerState;
 
 /// Database-backed storage facade.
 #[derive(Debug, Clone)]

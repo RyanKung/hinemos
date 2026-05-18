@@ -1,22 +1,28 @@
 #![deny(missing_docs)]
 
-//! Runtime command execution for the Agentopia world.
+//! Runtime command execution for the Xagora world.
+
+mod admin_ipc;
+mod client_shell;
+
+#[cfg(unix)]
+pub use admin_ipc::unix_admin_call;
+pub use admin_ipc::{
+    AdminClientError, AdminRequest, AdminResponse, AdminSession, MAX_ADMIN_FRAME, read_framed_json,
+    write_framed_json,
+};
+
+pub use client_shell::{Chrome, SlashParseError};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-use agentopia_core::{
+use thiserror::Error;
+use xagora_core::{
     ActionKind, EntityId, EntityObservation, EntityRef, ExitObservation, JsonObservation,
     ObservationEvent, PlayerId, PlayerState, SemanticCommand, TextObservation, View, ViewId,
     WorldState,
 };
-use thiserror::Error;
-
-/// Provides localized text to the runtime without coupling it to resource files.
-pub trait Localizer {
-    /// Resolves a text key into the active language.
-    fn text(&self, key: &str) -> String;
-}
 
 /// Errors produced by command execution and observation building.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -44,6 +50,17 @@ pub enum RuntimeError {
     StatePoisoned,
 }
 
+/// Errors merging a freshly loaded world with an existing [`GameRuntime`] snapshot.
+#[derive(Debug, Error)]
+pub enum ReloadError {
+    /// World files could not be loaded.
+    #[error(transparent)]
+    World(#[from] xagora_core::sample_world::WorldLoadError),
+    /// Snapshot of the old runtime failed (for example lock poison).
+    #[error(transparent)]
+    Runtime(#[from] RuntimeError),
+}
+
 /// Executes commands against static world data and fine-grained mutable runtime state.
 #[derive(Debug)]
 pub struct GameRuntime {
@@ -55,7 +72,7 @@ pub struct GameRuntime {
 #[derive(Debug)]
 struct StaticWorld {
     views: HashMap<ViewId, View>,
-    entities: HashMap<EntityId, agentopia_core::Entity>,
+    entities: HashMap<EntityId, xagora_core::Entity>,
     template_players: HashMap<PlayerId, PlayerState>,
 }
 
@@ -208,37 +225,39 @@ impl GameRuntime {
         Ok(())
     }
 
-    /// Executes a command and returns localized structured observation.
+    /// Executes a command and returns a structured observation including feed-forward events.
     pub fn execute(
         &self,
         player_id: &str,
         command: &SemanticCommand,
-        localizer: &impl Localizer,
     ) -> Result<JsonObservation, RuntimeError> {
         let events = match command {
             SemanticCommand::Look | SemanticCommand::Inventory => Vec::new(),
-            SemanticCommand::Help => vec![message(localizer.text("event.help"))],
+            SemanticCommand::Help => vec![message(Chrome::HELP_SUMMARY.to_owned())],
             SemanticCommand::Move { direction } => self.move_player(player_id, *direction)?,
             SemanticCommand::Inspect { target } => {
                 self.ensure_visible(player_id, target)?;
-                vec![message(localizer.text("event.inspect"))]
+                vec![message(Chrome::FEEDBACK_INSPECT.to_owned())]
             }
-            SemanticCommand::Take { target } => self.take_entity(player_id, target, localizer)?,
+            SemanticCommand::Read { target } => {
+                self.ensure_visible(player_id, target)?;
+                vec![message(Chrome::FEEDBACK_READ.to_owned())]
+            }
+            SemanticCommand::Take { target } => self.take_entity(player_id, target)?,
             SemanticCommand::Talk { target } => {
                 self.ensure_visible(player_id, target)?;
-                vec![message(localizer.text("event.talk"))]
+                vec![message(Chrome::FEEDBACK_TALK.to_owned())]
             }
-            SemanticCommand::Quit => vec![message(localizer.text("event.quit"))],
+            SemanticCommand::Quit => vec![message(Chrome::FEEDBACK_QUIT.to_owned())],
         };
 
-        self.observe_json(player_id, localizer, events)
+        self.observe_json(player_id, events)
     }
 
     /// Builds a structured observation for the player.
     pub fn observe_json(
         &self,
         player_id: &str,
-        localizer: &impl Localizer,
         events: Vec<ObservationEvent>,
     ) -> Result<JsonObservation, RuntimeError> {
         let player = self.player(player_id)?;
@@ -259,21 +278,24 @@ impl GameRuntime {
             .map(|exit| ExitObservation {
                 direction: exit.direction,
                 target_known: true,
-                label: exit.label_key.as_deref().map(|key| localizer.text(key)),
+                label: exit.label.clone(),
             })
             .collect();
 
         let visible_entities = self.visible_entities(&current_view)?;
         let entities = visible_entities
             .iter()
-            .map(|entity_id| entity_observation(&self.world, entity_id, localizer))
+            .map(|entity_id| entity_observation(&self.world, entity_id))
             .collect::<Result<Vec<_>, _>>()?;
+
+        let ascii_art = render_ascii_art_for_view(view, &visible_entities, &self.world);
 
         Ok(JsonObservation {
             player_id: player_id.to_owned(),
             view_id: view.id.clone(),
-            title: localizer.text(&view.title_key),
-            description: localizer.text(&view.description_key),
+            title: view.title.clone(),
+            ascii_art,
+            description: view.description.clone(),
             exits,
             entities,
             available_commands: available_commands(&self.world, view, &visible_entities)?,
@@ -285,12 +307,10 @@ impl GameRuntime {
     pub fn observe_text(
         &self,
         player_id: &str,
-        localizer: &impl Localizer,
         events: Vec<String>,
     ) -> Result<TextObservation, RuntimeError> {
         let json = self.observe_json(
             player_id,
-            localizer,
             events
                 .into_iter()
                 .map(|text| ObservationEvent::Message { text })
@@ -299,6 +319,7 @@ impl GameRuntime {
 
         Ok(TextObservation {
             title: json.title,
+            ascii_art: json.ascii_art.clone(),
             description: json.description,
             exits: json
                 .exits
@@ -316,7 +337,7 @@ impl GameRuntime {
                 .map(|event| match event {
                     ObservationEvent::Message { text } => text,
                     ObservationEvent::Move { direction, .. } => {
-                        format!("{} {}", localizer.text("event.move"), direction.as_str())
+                        format!("{} {}", Chrome::MOVE_VERB, direction.as_str())
                     }
                 })
                 .collect(),
@@ -326,7 +347,7 @@ impl GameRuntime {
     fn move_player(
         &self,
         player_id: &str,
-        direction: agentopia_core::Direction,
+        direction: xagora_core::Direction,
     ) -> Result<Vec<ObservationEvent>, RuntimeError> {
         let player = self.player(player_id)?;
         let mut player = player.lock().map_err(|_| RuntimeError::StatePoisoned)?;
@@ -355,7 +376,6 @@ impl GameRuntime {
         &self,
         player_id: &str,
         target: &EntityRef,
-        localizer: &impl Localizer,
     ) -> Result<Vec<ObservationEvent>, RuntimeError> {
         let entity = self
             .world
@@ -381,7 +401,7 @@ impl GameRuntime {
             player.inventory.push(target.id.clone());
         }
 
-        Ok(vec![message(localizer.text("event.take"))])
+        Ok(vec![message(Chrome::FEEDBACK_TAKE.to_owned())])
     }
 
     fn ensure_visible(&self, player_id: &str, target: &EntityRef) -> Result<(), RuntimeError> {
@@ -423,7 +443,6 @@ impl GameRuntime {
             .ok_or_else(|| RuntimeError::PlayerNotFound(player_id.to_owned()))
     }
 }
-
 fn available_commands(
     world: &StaticWorld,
     view: &View,
@@ -448,6 +467,9 @@ fn available_commands(
             ActionKind::Inspect => SemanticCommand::Inspect {
                 target: EntityRef::new(entity_id.clone()),
             },
+            ActionKind::Read => SemanticCommand::Read {
+                target: EntityRef::new(entity_id.clone()),
+            },
             ActionKind::Take => SemanticCommand::Take {
                 target: EntityRef::new(entity_id.clone()),
             },
@@ -463,7 +485,6 @@ fn available_commands(
 fn entity_observation(
     world: &StaticWorld,
     entity_id: &str,
-    localizer: &impl Localizer,
 ) -> Result<EntityObservation, RuntimeError> {
     let entity = world
         .entities
@@ -472,8 +493,8 @@ fn entity_observation(
     Ok(EntityObservation {
         id: entity.id.clone(),
         kind: entity.kind,
-        name: localizer.text(&entity.name_key),
-        description: localizer.text(&entity.description_key),
+        name: entity.name.clone(),
+        description: entity.description.clone(),
         actions: entity.actions.clone(),
     })
 }
@@ -482,22 +503,41 @@ fn message(text: String) -> ObservationEvent {
     ObservationEvent::Message { text }
 }
 
+fn render_ascii_art_for_view(
+    view: &View,
+    visible_entities: &[EntityId],
+    world: &StaticWorld,
+) -> Vec<String> {
+    if view.ascii_art.is_empty() {
+        return Vec::new();
+    }
+
+    let board_label = visible_entities
+        .iter()
+        .filter_map(|id| world.entities.get(id))
+        .find(|entity| {
+            matches!(
+                &entity.collection,
+                Some(xagora_core::EntityCollection::BulletinBoard { .. })
+            )
+        })
+        .map(|entity| entity.name.clone())
+        .unwrap_or_else(|| "{BOARD}".to_owned());
+
+    view.ascii_art
+        .iter()
+        .map(|line| line.replace("{BOARD}", &board_label))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use agentopia_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-    use agentopia_core::{Direction, EntityRef};
+    use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
+    use xagora_core::{Direction, SemanticCommand};
 
     use super::*;
-
-    struct TestLocalizer;
-
-    impl Localizer for TestLocalizer {
-        fn text(&self, key: &str) -> String {
-            key.to_owned()
-        }
-    }
 
     fn sample_runtime() -> GameRuntime {
         let world_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds/sample");
@@ -507,53 +547,15 @@ mod tests {
     #[test]
     fn moving_updates_current_view() {
         let runtime = sample_runtime();
-        let command = SemanticCommand::Move {
-            direction: Direction::North,
-        };
-
         let observation = runtime
-            .execute(LOCAL_PLAYER_ID, &command, &TestLocalizer)
-            .expect("move should succeed");
-
-        assert_eq!(observation.view_id, "abandoned_shrine");
-    }
-
-    #[test]
-    fn taking_portable_entity_moves_it_to_inventory() {
-        let runtime = sample_runtime();
-        runtime
             .execute(
                 LOCAL_PLAYER_ID,
                 &SemanticCommand::Move {
-                    direction: Direction::North,
+                    direction: Direction::East,
                 },
-                &TestLocalizer,
             )
             .expect("move should succeed");
 
-        runtime
-            .execute(
-                LOCAL_PLAYER_ID,
-                &SemanticCommand::Take {
-                    target: EntityRef::new("rusted_sword"),
-                },
-                &TestLocalizer,
-            )
-            .expect("take should succeed");
-
-        let player = runtime
-            .player_state(LOCAL_PLAYER_ID)
-            .expect("player should exist");
-        assert!(player.inventory.contains(&"rusted_sword".to_owned()));
-
-        let observation = runtime
-            .observe_json(LOCAL_PLAYER_ID, &TestLocalizer, Vec::new())
-            .expect("observation should succeed");
-        assert!(
-            !observation
-                .entities
-                .iter()
-                .any(|entity| entity.id == "rusted_sword")
-        );
+        assert_eq!(observation.view_id, "east_main_street");
     }
 }

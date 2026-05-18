@@ -1,42 +1,26 @@
 [
     (
-        id: "old_guard",
-        kind: npc,
-        name_key: "entity.old_guard.name",
-        description_key: "entity.old_guard.description",
-        actions: [inspect, talk],
-        portable: false,
-    ),
-    (
-        id: "stone_well",
+        id: "cyber_scroll_board",
         kind: object,
-        name_key: "entity.stone_well.name",
-        description_key: "entity.stone_well.description",
-        actions: [inspect],
-        portable: false,
-    ),
-    (
-        id: "rusted_sword",
-        kind: item,
-        name_key: "entity.rusted_sword.name",
-        description_key: "entity.rusted_sword.description",
-        actions: [inspect, take],
-        portable: true,
-    ),
-    (
-        id: "moss_tablet",
-        kind: object,
-        name_key: "entity.moss_tablet.name",
-        description_key: "entity.moss_tablet.description",
-        actions: [inspect],
-        portable: false,
-    ),
-    (
-        id: "wandering_healer",
-        kind: npc,
-        name_key: "entity.wandering_healer.name",
-        description_key: "entity.wandering_healer.description",
-        actions: [inspect, talk],
+        name: "bulletin board",
+        description: "Layered notices and handbills flutter in the breeze.",
+        aliases: ["board", "bulletin", "scroll"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "arrival_skill",
+                    title: "Arrival Skill",
+                    body: "Welcome to Xagora. Try /go east or /go west from the crossroads.",
+                ),
+                (
+                    id: "guild_guide",
+                    title: "Guild Guide",
+                    body: "Use /read board on notices or /inspect board for a closer look.",
+                ),
+            ],
+        )),
         portable: false,
     ),
 ]

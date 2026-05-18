@@ -1,4 +1,4 @@
-//! Language-independent commands accepted by the world runtime.
+//! Semantic commands accepted by the world runtime.
 
 use serde::{Deserialize, Serialize};
 
@@ -52,7 +52,7 @@ impl EntityRef {
     }
 }
 
-/// Canonical commands after language-specific parsing.
+/// Canonical commands produced by the slash parser.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SemanticCommand {
@@ -65,6 +65,11 @@ pub enum SemanticCommand {
     },
     /// Inspect a visible entity.
     Inspect {
+        /// Target entity.
+        target: EntityRef,
+    },
+    /// Read visible text (poster, board, plaque).
+    Read {
         /// Target entity.
         target: EntityRef,
     },

@@ -1,7 +1,7 @@
 [
     (
         id: "local_player",
-        current_view: "village_square",
+        current_view: "arrival_street",
         inventory: [],
     ),
 ]

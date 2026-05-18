@@ -1,21 +1,36 @@
-//! RON-backed sample world loading for the first CLI prototype.
+//! Load bundled sample worlds from RON files.
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use thiserror::Error;
 
 use crate::model::{Entity, PlayerState, View, WorldState};
 
-/// Default local player id.
+/// Canonical single-player id used by local CLI and tests.
 pub const LOCAL_PLAYER_ID: &str = "local_player";
 
-/// Loads a world from a directory containing `views.ron`, `entities.ron`, and `players.ron`.
-pub fn load_world_from_dir(path: impl AsRef<Path>) -> Result<WorldState, WorldLoadError> {
-    let path = path.as_ref();
-    let views = load_indexed_file::<View>(path.join("views.ron"), |view| &view.id)?;
-    let entities = load_indexed_file::<Entity>(path.join("entities.ron"), |entity| &entity.id)?;
-    let players = load_indexed_file::<PlayerState>(path.join("players.ron"), |player| &player.id)?;
+/// Errors loading world files from disk.
+#[derive(Debug, Error)]
+pub enum WorldLoadError {
+    /// Could not read a file.
+    #[error("failed to read world file: {0}")]
+    Io(#[from] std::io::Error),
+    /// Could not parse RON.
+    #[error("failed to parse world file: {0}")]
+    Ron(#[from] ron::error::SpannedError),
+    /// Duplicate canonical id in the same collection.
+    #[error("duplicate world id `{0}`")]
+    DuplicateId(String),
+}
 
+/// Loads `views.ron`, `entities.ron`, and `players.ron` from a directory.
+pub fn load_world_from_dir(dir: impl Into<PathBuf>) -> Result<WorldState, WorldLoadError> {
+    let dir = dir.into();
+    let views = load_views(&dir)?;
+    let entities = load_entities(&dir)?;
+    let players = load_players(&dir)?;
     Ok(WorldState {
         views,
         entities,
@@ -23,74 +38,44 @@ pub fn load_world_from_dir(path: impl AsRef<Path>) -> Result<WorldState, WorldLo
     })
 }
 
-fn load_indexed_file<T>(
-    path: impl AsRef<Path>,
-    id: impl Fn(&T) -> &str,
-) -> Result<HashMap<String, T>, WorldLoadError>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let path = path.as_ref();
-    let content = fs::read_to_string(path).map_err(|source| WorldLoadError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let items = ron::from_str::<Vec<T>>(&content).map_err(|source| WorldLoadError::Parse {
-        path: path.to_path_buf(),
-        source: Box::new(source),
-    })?;
-
-    Ok(items
-        .into_iter()
-        .map(|item| (id(&item).to_owned(), item))
-        .collect())
-}
-
-/// Errors produced while loading RON world files.
-#[derive(Debug)]
-pub enum WorldLoadError {
-    /// A RON file could not be read.
-    Read {
-        /// File path that failed.
-        path: std::path::PathBuf,
-        /// Underlying I/O error.
-        source: std::io::Error,
-    },
-    /// A RON file could not be parsed.
-    Parse {
-        /// File path that failed.
-        path: std::path::PathBuf,
-        /// Underlying parse error.
-        source: Box<ron::error::SpannedError>,
-    },
-}
-
-impl std::fmt::Display for WorldLoadError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Read { path, source } => {
-                write!(formatter, "failed to read {}: {source}", path.display())
-            }
-            Self::Parse { path, source } => {
-                write!(formatter, "failed to parse {}: {source}", path.display())
-            }
+fn load_views(dir: &Path) -> Result<HashMap<String, View>, WorldLoadError> {
+    let path = dir.join("views.ron");
+    let content = fs::read_to_string(path)?;
+    let list: Vec<View> = ron::from_str(&content)?;
+    let mut map = HashMap::with_capacity(list.len());
+    for view in list {
+        let id = view.id.clone();
+        if map.insert(id.clone(), view).is_some() {
+            return Err(WorldLoadError::DuplicateId(format!("view `{id}`")));
         }
     }
+    Ok(map)
 }
 
-impl std::error::Error for WorldLoadError {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn loads_sample_world_from_ron_files() {
-        let world_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds/sample");
-        let world = load_world_from_dir(world_dir).expect("sample world should load from RON");
-
-        assert!(world.views.contains_key("village_square"));
-        assert!(world.entities.contains_key("rusted_sword"));
-        assert!(world.players.contains_key(LOCAL_PLAYER_ID));
+fn load_entities(dir: &Path) -> Result<HashMap<String, Entity>, WorldLoadError> {
+    let path = dir.join("entities.ron");
+    let content = fs::read_to_string(path)?;
+    let list: Vec<Entity> = ron::from_str(&content)?;
+    let mut map = HashMap::with_capacity(list.len());
+    for entity in list {
+        let id = entity.id.clone();
+        if map.insert(id.clone(), entity).is_some() {
+            return Err(WorldLoadError::DuplicateId(format!("entity `{id}`")));
+        }
     }
+    Ok(map)
+}
+
+fn load_players(dir: &Path) -> Result<HashMap<String, PlayerState>, WorldLoadError> {
+    let path = dir.join("players.ron");
+    let content = fs::read_to_string(path)?;
+    let list: Vec<PlayerState> = ron::from_str(&content)?;
+    let mut map = HashMap::with_capacity(list.len());
+    for player in list {
+        let id = player.id.clone();
+        if map.insert(id.clone(), player).is_some() {
+            return Err(WorldLoadError::DuplicateId(format!("player `{id}`")));
+        }
+    }
+    Ok(map)
 }
