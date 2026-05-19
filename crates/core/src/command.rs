@@ -106,6 +106,17 @@ pub enum SemanticCommand {
     History,
     /// Show global broadcast news.
     News,
+    /// Show wallet balance.
+    Balance,
+    /// Transfer MARK to another player.
+    Pay {
+        /// User name or player id.
+        target: String,
+        /// Positive MARK amount.
+        amount: i64,
+        /// Optional transfer memo.
+        memo: String,
+    },
     /// Show carried items.
     Inventory,
     /// Show help text.

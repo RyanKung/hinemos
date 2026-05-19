@@ -6,9 +6,15 @@ use std::future::Future;
 use std::pin::Pin;
 
 use serde_json::Value;
+use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use thiserror::Error;
 use xagora_core::PlayerState;
+
+/// Single in-world test currency used by the current ledger.
+pub const TEST_CURRENCY: &str = "MARK";
+
+const INITIAL_MARK_GRANT: i64 = 1_000;
 
 /// Async player-state persistence boundary.
 pub trait PlayerStateStore {
@@ -144,6 +150,66 @@ impl PgStorage {
         .execute(&self.pool)
         .await?;
 
+        sqlx::query(
+            r#"
+            create table if not exists world_accounts (
+                account_id text primary key,
+                kind text not null check (kind in ('player', 'room', 'system')),
+                owner_id text,
+                display_name text not null,
+                created_at timestamptz not null default now()
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            create table if not exists world_balances (
+                account_id text not null references world_accounts(account_id) on delete cascade,
+                asset text not null check (asset = 'MARK'),
+                amount bigint not null check (amount >= 0),
+                updated_at timestamptz not null default now(),
+                primary key (account_id, asset)
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            create table if not exists world_ledger_entries (
+                id bigserial primary key,
+                asset text not null check (asset = 'MARK'),
+                debit_account_id text references world_accounts(account_id),
+                credit_account_id text references world_accounts(account_id),
+                amount bigint not null check (amount > 0),
+                reason text not null,
+                memo text not null default '',
+                idempotency_key text unique,
+                created_at timestamptz not null default now(),
+                check (debit_account_id is not null or credit_account_id is not null)
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            create index if not exists world_ledger_account_idx
+            on world_ledger_entries (
+                coalesce(debit_account_id, ''),
+                coalesce(credit_account_id, ''),
+                created_at desc
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
@@ -185,6 +251,116 @@ impl PgStorage {
         .await?;
 
         Ok(identity)
+    }
+
+    /// Ensures the player has a MARK wallet and receives the one-time test grant.
+    pub async fn ensure_player_wallet(
+        &self,
+        username: &str,
+        player_id: &str,
+    ) -> Result<StoredBalance, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        let account_id = player_account_id(player_id);
+        ensure_player_account(&mut tx, &account_id, username, player_id).await?;
+        ensure_balance_row(&mut tx, &account_id).await?;
+
+        let grant_key = format!("initial_mark_grant:{account_id}");
+        let inserted = sqlx::query(
+            r#"
+            insert into world_ledger_entries (
+                asset, debit_account_id, credit_account_id, amount, reason, memo, idempotency_key
+            )
+            values ('MARK', null, $1, $2, 'initial_grant', 'initial test MARK grant', $3)
+            on conflict (idempotency_key) do nothing
+            returning id
+            "#,
+        )
+        .bind(&account_id)
+        .bind(INITIAL_MARK_GRANT)
+        .bind(&grant_key)
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+
+        if inserted {
+            credit_balance(&mut tx, &account_id, INITIAL_MARK_GRANT).await?;
+        }
+
+        let balance = fetch_balance_tx(&mut tx, &account_id).await?;
+        tx.commit().await?;
+        Ok(balance)
+    }
+
+    /// Loads a player's MARK balance.
+    pub async fn player_balance(&self, player_id: &str) -> Result<StoredBalance, StorageError> {
+        let account_id = player_account_id(player_id);
+        fetch_balance_pool(&self.pool, &account_id).await
+    }
+
+    /// Transfers MARK from a player to a user or player account.
+    pub async fn transfer_mark(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        target: &str,
+        amount: i64,
+        memo: &str,
+    ) -> Result<StoredTransfer, StorageError> {
+        if amount <= 0 {
+            return Err(StorageError::InvalidAmount(amount));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let sender_account_id = player_account_id(sender_player_id);
+        ensure_player_account(&mut tx, &sender_account_id, sender_user, sender_player_id).await?;
+        ensure_balance_row(&mut tx, &sender_account_id).await?;
+
+        let target = resolve_payment_target(&mut tx, target).await?;
+        let target_account_id = player_account_id(&target.player_id);
+        ensure_player_account(
+            &mut tx,
+            &target_account_id,
+            &target.username,
+            &target.player_id,
+        )
+        .await?;
+        ensure_balance_row(&mut tx, &target_account_id).await?;
+
+        if sender_account_id == target_account_id {
+            return Err(StorageError::SelfPayment);
+        }
+
+        debit_balance(&mut tx, &sender_account_id, amount).await?;
+        credit_balance(&mut tx, &target_account_id, amount).await?;
+        let ledger_id = sqlx::query(
+            r#"
+            insert into world_ledger_entries (
+                asset, debit_account_id, credit_account_id, amount, reason, memo
+            )
+            values ('MARK', $1, $2, $3, 'player_payment', $4)
+            returning id
+            "#,
+        )
+        .bind(&sender_account_id)
+        .bind(&target_account_id)
+        .bind(amount)
+        .bind(memo)
+        .fetch_one(&mut *tx)
+        .await?
+        .get::<i64, _>("id");
+        let sender_balance = fetch_balance_tx(&mut tx, &sender_account_id).await?.amount;
+        tx.commit().await?;
+
+        Ok(StoredTransfer {
+            ledger_id,
+            asset: TEST_CURRENCY.to_owned(),
+            amount,
+            sender_account_id,
+            target_account_id,
+            target_user: target.username,
+            memo: memo.to_owned(),
+            sender_balance,
+        })
     }
 
     /// Loads a player state if one has been saved.
@@ -427,6 +603,44 @@ pub struct StoredWorldMessage {
     pub expires_at: Option<String>,
 }
 
+/// Stored balance for a single account and asset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredBalance {
+    /// Account id that owns the balance.
+    pub account_id: String,
+    /// Asset symbol, currently always MARK.
+    pub asset: String,
+    /// Integer amount in the smallest MARK unit.
+    pub amount: i64,
+}
+
+/// Completed MARK transfer summary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredTransfer {
+    /// Ledger row id.
+    pub ledger_id: i64,
+    /// Asset symbol, currently always MARK.
+    pub asset: String,
+    /// Transferred amount.
+    pub amount: i64,
+    /// Debited account.
+    pub sender_account_id: String,
+    /// Credited account.
+    pub target_account_id: String,
+    /// Resolved target user.
+    pub target_user: String,
+    /// Transfer memo.
+    pub memo: String,
+    /// Sender balance after transfer.
+    pub sender_balance: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PaymentTarget {
+    username: String,
+    player_id: String,
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct PlayerStateRow {
     player_id: String,
@@ -455,4 +669,171 @@ pub enum StorageError {
     /// JSON conversion failed.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    /// Payment amount was not positive.
+    #[error("amount must be positive: {0}")]
+    InvalidAmount(i64),
+    /// Payment target does not exist.
+    #[error("payment target not found: {0}")]
+    PaymentTargetNotFound(String),
+    /// Sender and target resolve to the same account.
+    #[error("cannot pay yourself")]
+    SelfPayment,
+    /// Sender balance is too low.
+    #[error("insufficient MARK balance")]
+    InsufficientFunds,
+}
+
+fn player_account_id(player_id: &str) -> String {
+    format!("player:{player_id}")
+}
+
+async fn ensure_player_account(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_id: &str,
+    username: &str,
+    player_id: &str,
+) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+        insert into world_accounts (account_id, kind, owner_id, display_name)
+        values ($1, 'player', $2, $3)
+        on conflict (account_id) do update
+        set display_name = excluded.display_name
+        "#,
+    )
+    .bind(account_id)
+    .bind(player_id)
+    .bind(username)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn ensure_balance_row(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_id: &str,
+) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+        insert into world_balances (account_id, asset, amount)
+        values ($1, 'MARK', 0)
+        on conflict (account_id, asset) do nothing
+        "#,
+    )
+    .bind(account_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn fetch_balance_pool(
+    pool: &PgPool,
+    account_id: &str,
+) -> Result<StoredBalance, StorageError> {
+    let row = sqlx::query(
+        r#"
+        select account_id, asset, amount
+        from world_balances
+        where account_id = $1 and asset = 'MARK'
+        "#,
+    )
+    .bind(account_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(StoredBalance {
+        account_id: row.get("account_id"),
+        asset: row.get("asset"),
+        amount: row.get("amount"),
+    })
+}
+
+async fn fetch_balance_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_id: &str,
+) -> Result<StoredBalance, StorageError> {
+    let row = sqlx::query(
+        r#"
+        select account_id, asset, amount
+        from world_balances
+        where account_id = $1 and asset = 'MARK'
+        "#,
+    )
+    .bind(account_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(StoredBalance {
+        account_id: row.get("account_id"),
+        asset: row.get("asset"),
+        amount: row.get("amount"),
+    })
+}
+
+async fn credit_balance(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_id: &str,
+    amount: i64,
+) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+        update world_balances
+        set amount = amount + $2,
+            updated_at = now()
+        where account_id = $1 and asset = 'MARK'
+        "#,
+    )
+    .bind(account_id)
+    .bind(amount)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn debit_balance(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_id: &str,
+    amount: i64,
+) -> Result<(), StorageError> {
+    let updated = sqlx::query(
+        r#"
+        update world_balances
+        set amount = amount - $2,
+            updated_at = now()
+        where account_id = $1 and asset = 'MARK' and amount >= $2
+        "#,
+    )
+    .bind(account_id)
+    .bind(amount)
+    .execute(&mut **tx)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(StorageError::InsufficientFunds);
+    }
+    Ok(())
+}
+
+async fn resolve_payment_target(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    target: &str,
+) -> Result<PaymentTarget, StorageError> {
+    let row = sqlx::query(
+        r#"
+        select username, player_id
+        from ssh_identities
+        where username = $1 or player_id = $1
+        order by last_seen_at desc
+        limit 1
+        "#,
+    )
+    .bind(target)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let Some(row) = row else {
+        return Err(StorageError::PaymentTargetNotFound(target.to_owned()));
+    };
+
+    Ok(PaymentTarget {
+        username: row.get("username"),
+        player_id: row.get("player_id"),
+    })
 }

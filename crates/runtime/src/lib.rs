@@ -261,6 +261,14 @@ impl GameRuntime {
             SemanticCommand::News => {
                 vec![message("News is available in SSH sessions.".to_owned())]
             }
+            SemanticCommand::Balance => {
+                vec![message("Balance is available in SSH sessions.".to_owned())]
+            }
+            SemanticCommand::Pay { .. } => {
+                vec![message(
+                    "Payments are available in SSH sessions.".to_owned(),
+                )]
+            }
             SemanticCommand::Quit => vec![message(Chrome::FEEDBACK_QUIT.to_owned())],
         };
 
@@ -486,6 +494,12 @@ fn available_commands(
         SemanticCommand::Mailbox,
         SemanticCommand::History,
         SemanticCommand::News,
+        SemanticCommand::Balance,
+        SemanticCommand::Pay {
+            target: "<user>".to_owned(),
+            amount: 1,
+            memo: "<memo>".to_owned(),
+        },
     ];
 
     commands.extend(view.exits.iter().map(|exit| SemanticCommand::Move {

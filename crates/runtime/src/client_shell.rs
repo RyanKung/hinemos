@@ -39,7 +39,7 @@ impl Chrome {
     pub const LABEL_AVAILABLE: &'static str = "Available";
 
     /// Short protocol hint for agents and first-time text clients.
-    pub const WORLD_PROTOCOL: &'static str = "Skill: Xagora is a MUD-like open world over SSH. Read each observation, choose one Available command, send it, then observe the changed world state. Interactive TTY sessions can stay open. Non-TTY agents should either keep stdin open or run short command batches, then reconnect and continue from the saved player state.";
+    pub const WORLD_PROTOCOL: &'static str = "Skill: Xagora is a MUD-like open world over SSH. Read each observation, choose one Available command, send it, then observe the changed world state. Interactive TTY sessions can stay open. Non-TTY agents should either keep stdin open or run short command batches, then reconnect and continue from the saved player state. Wallet controls use /balance and /pay.";
 
     /// Legend for semantic ASCII markers.
     pub const MAP_LEGEND: &'static str =
@@ -49,7 +49,7 @@ impl Chrome {
     pub const MOVE_VERB: &'static str = "You go";
 
     /// Summary shown after the `/help` command.
-    pub const HELP_SUMMARY: &'static str = "Commands: /look /go <dir> /inspect <target> /read <target> /take <target> /talk <target> /say <text> /history /mail <user> <text> /mailbox /broadcast <text> /news /inventory /quit.";
+    pub const HELP_SUMMARY: &'static str = "Commands: /look /go <dir> /inspect <target> /read <target> /take <target> /talk <target> /say <text> /history /mail <user> <text> /mailbox /broadcast <text> /news /balance /pay <user> <amount> [memo] /inventory /quit.";
 
     /// Feedback line after inspecting an entity.
     pub const FEEDBACK_INSPECT: &'static str = "You look it over.";
@@ -102,6 +102,7 @@ impl Chrome {
             "mailbox" | "inbox" => Ok(SemanticCommand::Mailbox),
             "history" => Ok(SemanticCommand::History),
             "news" => Ok(SemanticCommand::News),
+            "balance" | "bal" => Ok(SemanticCommand::Balance),
             "go" | "move" => {
                 let direction_token = tokens.next().ok_or(SlashParseError::MissingArgument)?;
                 let direction =
@@ -148,6 +149,19 @@ impl Chrome {
                 let text = rest_after_command(trimmed, rest, cmd.as_str())?;
                 Ok(SemanticCommand::Broadcast { text })
             }
+            "pay" => {
+                let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+                let amount_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+                let amount = amount_text
+                    .parse::<i64>()
+                    .map_err(|_| SlashParseError::InvalidAmount)?;
+                let memo = rest_after_token(trimmed, amount_text).unwrap_or_default();
+                Ok(SemanticCommand::Pay {
+                    target: target.to_owned(),
+                    amount,
+                    memo,
+                })
+            }
             _ => Err(SlashParseError::UnknownCommand),
         }
     }
@@ -193,6 +207,9 @@ pub enum SlashParseError {
     /// Missing argument where required.
     #[error("missing command argument")]
     MissingArgument,
+    /// Invalid integer amount.
+    #[error("invalid amount")]
+    InvalidAmount,
 }
 
 fn parse_direction(token: &str) -> Option<Direction> {
@@ -297,6 +314,8 @@ fn render_command(command: &SemanticCommand) -> String {
         SemanticCommand::Mailbox => "/mailbox".to_owned(),
         SemanticCommand::History => "/history".to_owned(),
         SemanticCommand::News => "/news".to_owned(),
+        SemanticCommand::Balance => "/balance".to_owned(),
+        SemanticCommand::Pay { .. } => "/pay <user> <amount> [memo]".to_owned(),
         SemanticCommand::Inventory => "/inventory".to_owned(),
         SemanticCommand::Help => "/help".to_owned(),
         SemanticCommand::Quit => "/quit".to_owned(),

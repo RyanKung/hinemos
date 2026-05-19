@@ -25,7 +25,7 @@ use tokio::sync::Mutex;
 use xagora_core::SemanticCommand;
 use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
 use xagora_runtime::{Chrome, render_text_observation};
-use xagora_storage::{PgStorage, PlayerStateStore, StoredWorldMessage};
+use xagora_storage::{PgStorage, PlayerStateStore, StoredWorldMessage, TEST_CURRENCY};
 
 use auth::{AuthIdentity, PublicKeyAuthPolicy};
 pub use config::SshArgs;
@@ -165,6 +165,7 @@ impl ConnectionHandler {
             )
             .into_bytes(),
         )?;
+        send_balance_summary(session, channel, &self.shared.storage, identity).await?;
         send_mailbox_summary(session, channel, &self.shared.storage, identity).await?;
         let observation = self
             .shared
@@ -293,6 +294,66 @@ impl ConnectionHandler {
             SemanticCommand::News => {
                 let messages = self.shared.storage.recent_news_messages(20).await?;
                 send_message_list(session, channel, "News", &messages, "No news.")?;
+            }
+            SemanticCommand::Balance => {
+                let balance = self
+                    .shared
+                    .storage
+                    .player_balance(&identity.player_id)
+                    .await?;
+                session.data(
+                    channel,
+                    format!(
+                        "Balance: {} {} ({})\r\n",
+                        balance.amount, balance.asset, balance.account_id
+                    )
+                    .into_bytes(),
+                )?;
+            }
+            SemanticCommand::Pay {
+                target,
+                amount,
+                memo,
+            } => {
+                let transfer = self
+                    .shared
+                    .storage
+                    .transfer_mark(&identity.user, &identity.player_id, target, *amount, memo)
+                    .await?;
+                session.data(
+                    channel,
+                    format!(
+                        "Paid {} {} to {}. Ledger #{}. Balance: {} {}.\r\n",
+                        transfer.amount,
+                        transfer.asset,
+                        transfer.target_user,
+                        transfer.ledger_id,
+                        transfer.sender_balance,
+                        transfer.asset
+                    )
+                    .into_bytes(),
+                )?;
+                let recipients = self
+                    .shared
+                    .presence
+                    .lock()
+                    .await
+                    .direct_recipients(self.connection_id, target);
+                if !recipients.is_empty() {
+                    let memo_text = if transfer.memo.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" memo={}", transfer.memo)
+                    };
+                    deliver_live_message(
+                        recipients,
+                        &format!(
+                            "[payment from {}] {} {}{}",
+                            identity.user, transfer.amount, transfer.asset, memo_text
+                        ),
+                    )
+                    .await;
+                }
             }
             _ => return Ok(false),
         }
@@ -479,6 +540,10 @@ impl server::Handler for ConnectionHandler {
             .shared
             .storage
             .upsert_ssh_identity(user, &authorized.fingerprint, &authorized.player_id)
+            .await?;
+        self.shared
+            .storage
+            .ensure_player_wallet(&identity.username, &identity.player_id)
             .await?;
         let saved_player =
             PlayerStateStore::load_player_state(&self.shared.storage, &identity.player_id).await?;
@@ -702,6 +767,24 @@ async fn send_mailbox_summary(
     Ok(())
 }
 
+async fn send_balance_summary(
+    session: &mut Session,
+    channel: ChannelId,
+    storage: &PgStorage,
+    identity: &AuthIdentity,
+) -> Result<()> {
+    let balance = storage.player_balance(&identity.player_id).await?;
+    session.data(
+        channel,
+        format!(
+            "Wallet: {} {}. Use /balance or /pay <user> <amount> [memo].\r\n",
+            balance.amount, TEST_CURRENCY
+        )
+        .into_bytes(),
+    )?;
+    Ok(())
+}
+
 async fn deliver_live_message(recipients: Vec<PresenceDelivery>, message: &str) {
     let payload = format!("\r\n{message}\r\n{}", Chrome::PROMPT);
     for recipient in recipients {
@@ -716,5 +799,6 @@ fn exec_help() -> &'static str {
     "Xagora is a MUD-like open world served over SSH, not a general-purpose Unix shell.\n\
      Open an SSH shell: ssh -p <port> <user>@<host>\n\
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
-     Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help."
+     Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
+     Wallet commands: /balance, /pay <user> <amount> [memo]."
 }
