@@ -109,6 +109,11 @@ pub enum EntityCollection {
         /// Ordered bulletin entries.
         items: Vec<BulletinItem>,
     },
+    /// Ordered dialogue lines offered by an NPC.
+    Dialogue {
+        /// Ordered dialogue lines.
+        lines: Vec<DialogueLine>,
+    },
 }
 
 /// Single bulletin entry shown through [`EntityCollection::BulletinBoard`].
@@ -119,6 +124,17 @@ pub struct BulletinItem {
     /// Player-facing title from world data.
     pub title: String,
     /// Player-facing body from world data.
+    pub body: String,
+}
+
+/// Single dialogue line shown when talking to an NPC.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DialogueLine {
+    /// Stable dialogue id unique within its entity.
+    pub id: String,
+    /// Player-facing speaker name.
+    pub speaker: String,
+    /// Player-facing line body.
     pub body: String,
 }
 

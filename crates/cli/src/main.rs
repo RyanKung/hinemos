@@ -1,6 +1,6 @@
 #![deny(missing_docs)]
 
-//! Local stdin/stdout CLI adapter for the Xagora MUD runtime.
+//! Local stdin/stdout CLI adapter for the Xagora open-world runtime.
 
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ use xagora_runtime::{Chrome, GameRuntime, render_text_observation};
 
 #[derive(Debug, Parser)]
 #[command(name = "xagora")]
-#[command(about = "A local MUD prototype for agent exploration")]
+#[command(about = "A local open-world prototype for agent exploration")]
 struct Cli {
     #[cfg(unix)]
     #[command(subcommand)]
@@ -29,6 +29,15 @@ struct Cli {
 enum AdminTop {
     /// Control a running daemon via its admin Unix socket.
     Admin(AdminCli),
+    /// Run a network adapter.
+    #[command(subcommand)]
+    Serve(ServeCli),
+}
+
+#[derive(Debug, Subcommand)]
+enum ServeCli {
+    /// Run the SSH adapter.
+    Ssh(xagora_ssh::SshArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -82,12 +91,16 @@ enum AdminCmd {
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     #[cfg(unix)]
-    if let Some(AdminTop::Admin(admin)) = cli.sub {
-        return run_admin(admin);
+    if let Some(sub) = cli.sub {
+        return match sub {
+            AdminTop::Admin(admin) => run_admin(admin),
+            AdminTop::Serve(ServeCli::Ssh(args)) => xagora_ssh::run_daemon(args).await,
+        };
     }
 
     run_play(cli.play)

@@ -38,13 +38,17 @@
     ),
     (
         id: "east_main_street",
-        title: "East Fork",
-        description: "The eastern arm carries dust and hoofprints away from the hub.",
+        title: "Workshop Repair Bay",
+        description: "The eastern fork opens into a covered repair bay. Tool drawers line the wall, a workbench faces the road, and Toma keeps one eye on the crossroads.",
         ascii_art: [
             "============================================================",
-            "                         EAST FORK",
+            "                    WORKSHOP REPAIR BAY",
             "============================================================",
-            "                          <Me>",
+            "             {repair ledger} --- <Me> --- [workbench]",
+            "                                  |",
+            "                           Toma the mender",
+            "                                  |",
+            "                            west to crossroads",
         ],
         exits: [
             (
@@ -54,18 +58,22 @@
                 requirements: [],
             ),
         ],
-        entities: [],
+        entities: ["workshop_mender", "repair_ledger"],
         layout: None,
     ),
     (
         id: "west_main_street",
-        title: "West Fork",
-        description: "The western arm bends into quieter ground beyond the junction.",
+        title: "Forked Lantern Porch",
+        description: "The western fork widens under the tavern awning. Lantern glass glows amber, a menu slate swings by the door, and Mira watches for new stories.",
         ascii_art: [
             "============================================================",
-            "                         WEST FORK",
+            "                    FORKED LANTERN PORCH",
             "============================================================",
-            "                          <Me>",
+            "              [tavern door] --- <Me> --- {tavern menu}",
+            "                                  |",
+            "                          Mira the keeper",
+            "                                  |",
+            "                            east to crossroads",
         ],
         exits: [
             (
@@ -75,7 +83,7 @@
                 requirements: [],
             ),
         ],
-        entities: [],
+        entities: ["tavern_keeper", "tavern_menu"],
         layout: None,
     ),
 ]

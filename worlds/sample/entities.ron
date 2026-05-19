@@ -3,7 +3,7 @@
         id: "tavern_front",
         kind: object,
         name: "tavern front",
-        description: "Warm light leaks around a heavy door. A painted sign names the place The Forked Lantern.",
+        description: "Warm light leaks around a heavy door. The sign points west toward The Forked Lantern porch, where travelers trade rumors before stepping inside.",
         aliases: ["tavern", "inn", "lantern", "door"],
         actions: [inspect, read],
         collection: Some((
@@ -12,7 +12,7 @@
                 (
                     id: "tavern_sign",
                     title: "The Forked Lantern",
-                    body: "A hand-painted sign promises stew, rumors, and a dry bench by the fire.",
+                    body: "Go west to reach the tavern porch. Ask Mira about rumors, rooms, or work for new arrivals.",
                 ),
             ],
         )),
@@ -22,7 +22,7 @@
         id: "workshop_front",
         kind: object,
         name: "workshop front",
-        description: "Tool racks and half-finished brass fittings crowd the open shopfront.",
+        description: "Tool racks and half-finished brass fittings crowd the open shopfront. A chalk arrow points east toward the active repair bay.",
         aliases: ["workshop", "shop", "tools", "forge"],
         actions: [inspect, read],
         collection: Some((
@@ -31,7 +31,7 @@
                 (
                     id: "workshop_sign",
                     title: "Mender's Workshop",
-                    body: "A chalkboard lists repairs, custom fittings, and odd mechanical commissions.",
+                    body: "Go east to reach the repair bay. Toma buys salvage, fixes tools, and posts mechanical requests.",
                 ),
             ],
         )),
@@ -50,12 +50,113 @@
                 (
                     id: "arrival_skill",
                     title: "Arrival Skill",
-                    body: "Welcome to Xagora. Try /inspect tavern, /read workshop, /go east, or /go west from the crossroads.",
+                    body: "Welcome to Xagora. Read visible objects, inspect shopfronts, then go west to the tavern or east to the workshop.",
                 ),
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Use /read board on notices or /inspect board for a closer look.",
+                    body: "Use /history for local room messages, /news for town-wide broadcasts, and /mailbox for private mail.",
+                ),
+                (
+                    id: "open_world_note",
+                    title: "Open World Note",
+                    body: "The world responds through observation text. Pick an Available command, observe the result, and keep exploring.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "tavern_keeper",
+        kind: npc,
+        name: "Mira the tavern keeper",
+        description: "Mira polishes a tin cup while watching the crossroads traffic through the tavern window.",
+        aliases: ["mira", "keeper", "bartender", "tavern_keeper"],
+        actions: [inspect, talk],
+        collection: Some((
+            kind: "dialogue",
+            lines: [
+                (
+                    id: "welcome",
+                    speaker: "Mira",
+                    body: "New face? The crossroads tells you where people go; the board tells you why.",
+                ),
+                (
+                    id: "rumor",
+                    speaker: "Mira",
+                    body: "Toma at the workshop is asking for clean brass scrap. Check the east repair bay if you want a practical errand.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "tavern_menu",
+        kind: object,
+        name: "tavern menu",
+        description: "A slate menu hangs beside the tavern door, smudged by rain and many sleeves.",
+        aliases: ["menu", "slate", "stew"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "menu_today",
+                    title: "Tonight's Board",
+                    body: "Root stew, black bread, and rumor tokens accepted after sunset.",
+                ),
+                (
+                    id: "room_note",
+                    title: "Rooms",
+                    body: "Rooms are not open yet. Mira records names for future lodging.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "workshop_mender",
+        kind: npc,
+        name: "Toma the mender",
+        description: "Toma sorts brass teeth, bent hinges, and cracked lens rings into labeled trays.",
+        aliases: ["toma", "mender", "mechanic", "smith"],
+        actions: [inspect, talk],
+        collection: Some((
+            kind: "dialogue",
+            lines: [
+                (
+                    id: "work",
+                    speaker: "Toma",
+                    body: "If you can read a board and follow a road, you can work here. Start by checking what the repair ledger needs.",
+                ),
+                (
+                    id: "crossroads",
+                    speaker: "Toma",
+                    body: "The west tavern hears rumors first. The east workshop turns rumors into tools.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "repair_ledger",
+        kind: object,
+        name: "repair ledger",
+        description: "A weighted ledger lies open on a scarred workbench.",
+        aliases: ["ledger", "requests", "jobs", "workbench"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "brass_scrap",
+                    title: "Wanted",
+                    body: "Clean brass scrap, clock pins, and cracked lenses. Payment is posted when trading opens.",
+                ),
+                (
+                    id: "repair_queue",
+                    title: "Repair Queue",
+                    body: "Lantern hinges first, message tubes second, stranger commissions last.",
                 ),
             ],
         )),

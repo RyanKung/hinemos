@@ -83,6 +83,29 @@ pub enum SemanticCommand {
         /// Target entity.
         target: EntityRef,
     },
+    /// Send a message to players in the same view.
+    Say {
+        /// Message body.
+        text: String,
+    },
+    /// Send a direct message to a user or player id.
+    Mail {
+        /// User name or player id.
+        target: String,
+        /// Message body.
+        text: String,
+    },
+    /// Send a global message to all connected players.
+    Broadcast {
+        /// Message body.
+        text: String,
+    },
+    /// Show private persistent mail.
+    Mailbox,
+    /// Show current view message history.
+    History,
+    /// Show global broadcast news.
+    News,
     /// Show carried items.
     Inventory,
     /// Show help text.

@@ -35,11 +35,21 @@ impl Chrome {
     /// Heading printed before visible entity names.
     pub const LABEL_VISIBLE: &'static str = "Visible";
 
+    /// Heading printed before commands generated from the current observation.
+    pub const LABEL_AVAILABLE: &'static str = "Available";
+
+    /// Short protocol hint for agents and first-time text clients.
+    pub const WORLD_PROTOCOL: &'static str = "Skill: Xagora is a MUD-like open world over SSH. Read each observation, choose one Available command, send it, then observe the changed world state. Interactive TTY sessions can stay open. Non-TTY agents should either keep stdin open or run short command batches, then reconnect and continue from the saved player state.";
+
+    /// Legend for semantic ASCII markers.
+    pub const MAP_LEGEND: &'static str =
+        "Map: <Me> is you, [name] is a place/shopfront/room, {name} is an item/object.";
+
     /// Verb printed before a movement direction (for example "You go north").
     pub const MOVE_VERB: &'static str = "You go";
 
     /// Summary shown after the `/help` command.
-    pub const HELP_SUMMARY: &'static str = "Commands: /look /go <dir> /inspect <target> /read <target> /take <target> /talk <target> /inventory /quit.";
+    pub const HELP_SUMMARY: &'static str = "Commands: /look /go <dir> /inspect <target> /read <target> /take <target> /talk <target> /say <text> /history /mail <user> <text> /mailbox /broadcast <text> /news /inventory /quit.";
 
     /// Feedback line after inspecting an entity.
     pub const FEEDBACK_INSPECT: &'static str = "You look it over.";
@@ -89,6 +99,9 @@ impl Chrome {
             "inventory" | "inv" | "i" => Ok(SemanticCommand::Inventory),
             "help" | "h" => Ok(SemanticCommand::Help),
             "quit" | "exit" | "q" => Ok(SemanticCommand::Quit),
+            "mailbox" | "inbox" => Ok(SemanticCommand::Mailbox),
+            "history" => Ok(SemanticCommand::History),
+            "news" => Ok(SemanticCommand::News),
             "go" | "move" => {
                 let direction_token = tokens.next().ok_or(SlashParseError::MissingArgument)?;
                 let direction =
@@ -119,6 +132,22 @@ impl Chrome {
                     target: EntityRef::new(self.resolve_entity_target(target)),
                 })
             }
+            "say" => {
+                let text = rest_after_command(trimmed, rest, cmd.as_str())?;
+                Ok(SemanticCommand::Say { text })
+            }
+            "mail" => {
+                let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+                let text = rest_after_token(trimmed, target)?;
+                Ok(SemanticCommand::Mail {
+                    target: target.to_owned(),
+                    text,
+                })
+            }
+            "broadcast" => {
+                let text = rest_after_command(trimmed, rest, cmd.as_str())?;
+                Ok(SemanticCommand::Broadcast { text })
+            }
             _ => Err(SlashParseError::UnknownCommand),
         }
     }
@@ -129,6 +158,29 @@ impl Chrome {
             .get(&lower)
             .cloned()
             .unwrap_or_else(|| token.to_owned())
+    }
+}
+
+fn rest_after_command(trimmed: &str, rest: &str, command: &str) -> Result<String, SlashParseError> {
+    let prefix_len = trimmed.len() - rest.len() + command.len();
+    let text = trimmed[prefix_len..].trim();
+    if text.is_empty() {
+        Err(SlashParseError::MissingArgument)
+    } else {
+        Ok(text.to_owned())
+    }
+}
+
+fn rest_after_token(trimmed: &str, token: &str) -> Result<String, SlashParseError> {
+    let token_offset = trimmed
+        .find(token)
+        .ok_or(SlashParseError::MissingArgument)?
+        + token.len();
+    let text = trimmed[token_offset..].trim();
+    if text.is_empty() {
+        Err(SlashParseError::MissingArgument)
+    } else {
+        Ok(text.to_owned())
     }
 }
 
@@ -172,6 +224,10 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
     output.push('\n');
     output.push_str(&observation.description);
     output.push('\n');
+    output.push_str(Chrome::WORLD_PROTOCOL);
+    output.push('\n');
+    output.push_str(Chrome::MAP_LEGEND);
+    output.push('\n');
 
     if !observation.exits.is_empty() {
         let exits = observation
@@ -193,6 +249,14 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
         output.push_str(&format!("{}: {entities}\n", Chrome::LABEL_VISIBLE));
     }
 
+    if !observation.available_commands.is_empty() {
+        output.push_str(&format!(
+            "{}: {}\n",
+            Chrome::LABEL_AVAILABLE,
+            render_available_commands(&observation.available_commands)
+        ));
+    }
+
     for event in &observation.events {
         match event {
             ObservationEvent::Message { text } => {
@@ -206,6 +270,37 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
     }
 
     output
+}
+
+fn render_available_commands(commands: &[SemanticCommand]) -> String {
+    let mut rendered = Vec::new();
+    for command in commands {
+        let text = render_command(command);
+        if !rendered.contains(&text) {
+            rendered.push(text);
+        }
+    }
+    rendered.join(", ")
+}
+
+fn render_command(command: &SemanticCommand) -> String {
+    match command {
+        SemanticCommand::Look => "/look".to_owned(),
+        SemanticCommand::Move { direction } => format!("/go {}", direction.as_str()),
+        SemanticCommand::Inspect { target } => format!("/inspect {}", target.id),
+        SemanticCommand::Read { target } => format!("/read {}", target.id),
+        SemanticCommand::Take { target } => format!("/take {}", target.id),
+        SemanticCommand::Talk { target } => format!("/talk {}", target.id),
+        SemanticCommand::Say { .. } => "/say <text>".to_owned(),
+        SemanticCommand::Mail { .. } => "/mail <user> <text>".to_owned(),
+        SemanticCommand::Broadcast { .. } => "/broadcast <text>".to_owned(),
+        SemanticCommand::Mailbox => "/mailbox".to_owned(),
+        SemanticCommand::History => "/history".to_owned(),
+        SemanticCommand::News => "/news".to_owned(),
+        SemanticCommand::Inventory => "/inventory".to_owned(),
+        SemanticCommand::Help => "/help".to_owned(),
+        SemanticCommand::Quit => "/quit".to_owned(),
+    }
 }
 
 fn highlight_ascii_markers(line: &str) -> String {

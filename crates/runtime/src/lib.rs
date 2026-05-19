@@ -12,9 +12,9 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use thiserror::Error;
 use xagora_core::{
-    ActionKind, EntityId, EntityObservation, EntityRef, ExitObservation, JsonObservation,
-    ObservationEvent, PlayerId, PlayerState, SemanticCommand, TextObservation, View, ViewId,
-    WorldDefinition, WorldState,
+    ActionKind, Entity, EntityCollection, EntityId, EntityObservation, EntityRef, ExitObservation,
+    JsonObservation, ObservationEvent, PlayerId, PlayerState, SemanticCommand, TextObservation,
+    View, ViewId, WorldDefinition, WorldState,
 };
 
 /// Errors produced by command execution and observation building.
@@ -231,17 +231,35 @@ impl GameRuntime {
             SemanticCommand::Help => vec![message(Chrome::HELP_SUMMARY.to_owned())],
             SemanticCommand::Move { direction } => self.move_player(player_id, *direction)?,
             SemanticCommand::Inspect { target } => {
-                self.ensure_visible(player_id, target)?;
-                vec![message(Chrome::FEEDBACK_INSPECT.to_owned())]
+                let entity = self.visible_entity(player_id, target)?;
+                vec![message(inspect_entity_message(entity))]
             }
             SemanticCommand::Read { target } => {
-                self.ensure_visible(player_id, target)?;
-                vec![message(Chrome::FEEDBACK_READ.to_owned())]
+                let entity = self.visible_entity(player_id, target)?;
+                vec![message(read_entity_message(entity))]
             }
             SemanticCommand::Take { target } => self.take_entity(player_id, target)?,
             SemanticCommand::Talk { target } => {
-                self.ensure_visible(player_id, target)?;
-                vec![message(Chrome::FEEDBACK_TALK.to_owned())]
+                let entity = self.visible_entity(player_id, target)?;
+                vec![message(talk_entity_message(entity))]
+            }
+            SemanticCommand::Say { text } => vec![message(format!("You say: {text}"))],
+            SemanticCommand::Mail { target, text } => {
+                vec![message(format!("You mail {target}: {text}"))]
+            }
+            SemanticCommand::Broadcast { text } => {
+                vec![message(format!("You broadcast: {text}"))]
+            }
+            SemanticCommand::Mailbox => {
+                vec![message("Mailbox is available in SSH sessions.".to_owned())]
+            }
+            SemanticCommand::History => {
+                vec![message(
+                    "Room history is available in SSH sessions.".to_owned(),
+                )]
+            }
+            SemanticCommand::News => {
+                vec![message("News is available in SSH sessions.".to_owned())]
             }
             SemanticCommand::Quit => vec![message(Chrome::FEEDBACK_QUIT.to_owned())],
         };
@@ -413,6 +431,14 @@ impl GameRuntime {
         }
     }
 
+    fn visible_entity(&self, player_id: &str, target: &EntityRef) -> Result<&Entity, RuntimeError> {
+        self.ensure_visible(player_id, target)?;
+        self.world
+            .entities
+            .get(&target.id)
+            .ok_or_else(|| RuntimeError::EntityNotFound(target.id.clone()))
+    }
+
     fn visible_entities(&self, view_id: &str) -> Result<Vec<EntityId>, RuntimeError> {
         Ok(self
             .view_state(view_id)?
@@ -447,6 +473,19 @@ fn available_commands(
         SemanticCommand::Look,
         SemanticCommand::Inventory,
         SemanticCommand::Help,
+        SemanticCommand::Say {
+            text: "<text>".to_owned(),
+        },
+        SemanticCommand::Mail {
+            target: "<user>".to_owned(),
+            text: "<text>".to_owned(),
+        },
+        SemanticCommand::Broadcast {
+            text: "<text>".to_owned(),
+        },
+        SemanticCommand::Mailbox,
+        SemanticCommand::History,
+        SemanticCommand::News,
     ];
 
     commands.extend(view.exits.iter().map(|exit| SemanticCommand::Move {
@@ -494,6 +533,77 @@ fn entity_observation(
     })
 }
 
+fn inspect_entity_message(entity: &Entity) -> String {
+    let mut lines = vec![format!("{}: {}", entity.name, entity.description)];
+    if let Some(collection) = &entity.collection {
+        match collection {
+            EntityCollection::BulletinBoard { items } => {
+                let titles = items
+                    .iter()
+                    .map(|item| item.title.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if !titles.is_empty() {
+                    lines.push(format!("Readable notices: {titles}."));
+                }
+            }
+            EntityCollection::Dialogue { lines: dialogue } => {
+                let speakers = dialogue
+                    .iter()
+                    .map(|line| line.speaker.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if !speakers.is_empty() {
+                    lines.push(format!("Ready to talk: {speakers}."));
+                }
+            }
+        }
+    }
+    if !entity.actions.is_empty() {
+        let actions = entity
+            .actions
+            .iter()
+            .map(action_label)
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!("Actions: {actions}."));
+    }
+    lines.join("\n")
+}
+
+fn read_entity_message(entity: &Entity) -> String {
+    match &entity.collection {
+        Some(EntityCollection::BulletinBoard { items }) if !items.is_empty() => {
+            let mut lines = vec![format!("{}:", entity.name)];
+            for item in items {
+                lines.push(format!("- {}: {}", item.title, item.body));
+            }
+            lines.join("\n")
+        }
+        _ => format!("{} has no readable notices.", entity.name),
+    }
+}
+
+fn talk_entity_message(entity: &Entity) -> String {
+    match &entity.collection {
+        Some(EntityCollection::Dialogue { lines }) if !lines.is_empty() => lines
+            .iter()
+            .map(|line| format!("{}: {}", line.speaker, line.body))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => format!("{} has nothing to say right now.", entity.name),
+    }
+}
+
+fn action_label(action: &ActionKind) -> &'static str {
+    match action {
+        ActionKind::Inspect => "inspect",
+        ActionKind::Read => "read",
+        ActionKind::Take => "take",
+        ActionKind::Talk => "talk",
+    }
+}
+
 fn message(text: String) -> ObservationEvent {
     ObservationEvent::Message { text }
 }
@@ -511,7 +621,7 @@ mod tests {
     use std::path::Path;
 
     use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-    use xagora_core::{Direction, SemanticCommand};
+    use xagora_core::{Direction, EntityRef, ObservationEvent, SemanticCommand};
 
     use super::*;
 
@@ -533,5 +643,30 @@ mod tests {
             .expect("move should succeed");
 
         assert_eq!(observation.view_id, "east_main_street");
+    }
+
+    #[test]
+    fn reading_bulletin_board_renders_notices() {
+        let runtime = sample_runtime();
+        let observation = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Read {
+                    target: EntityRef::new("cyber_scroll_board"),
+                },
+            )
+            .expect("read should succeed");
+
+        let text = observation
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                ObservationEvent::Message { text } => Some(text.as_str()),
+                ObservationEvent::Move { .. } => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("Arrival Skill"));
+        assert!(text.contains("go west to the tavern"));
     }
 }

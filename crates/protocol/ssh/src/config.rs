@@ -3,29 +3,28 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::Args;
 
-#[derive(Debug, Parser)]
-#[command(name = "xagora-ssh")]
-#[command(about = "SSH adapter for the Xagora MUD runtime")]
-struct Cli {
+/// SSH adapter command-line arguments.
+#[derive(Debug, Clone, Args)]
+pub struct SshArgs {
     #[arg(long, default_value = "127.0.0.1:2222")]
-    bind: SocketAddr,
+    pub(crate) bind: SocketAddr,
 
     #[arg(long, default_value = "worlds/sample")]
-    world: PathBuf,
+    pub(crate) world: PathBuf,
 
     #[arg(long, default_value = ".xagora/ssh_host_ed25519_key")]
-    host_key: PathBuf,
+    pub(crate) host_key: PathBuf,
 
     /// Idle timeout in seconds; 0 disables automatic idle disconnects.
     #[arg(long, default_value_t = 0)]
-    idle_timeout_seconds: u64,
+    pub(crate) idle_timeout_seconds: u64,
 
     /// Unix domain socket path for local admin commands (`xagora admin`).
     #[cfg(unix)]
     #[arg(long, default_value = ".xagora/admin.sock")]
-    admin_socket: PathBuf,
+    pub(crate) admin_socket: PathBuf,
 }
 
 #[derive(Debug)]
@@ -39,15 +38,14 @@ pub(crate) struct DaemonConfig {
 }
 
 impl DaemonConfig {
-    pub(crate) fn parse() -> Self {
-        let cli = Cli::parse();
+    pub(crate) fn from_args(args: SshArgs) -> Self {
         Self {
-            bind: cli.bind,
-            world: cli.world,
-            host_key: cli.host_key,
-            idle_timeout_seconds: cli.idle_timeout_seconds,
+            bind: args.bind,
+            world: args.world,
+            host_key: args.host_key,
+            idle_timeout_seconds: args.idle_timeout_seconds,
             #[cfg(unix)]
-            admin_socket: cli.admin_socket,
+            admin_socket: args.admin_socket,
         }
     }
 

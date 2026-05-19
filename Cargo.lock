@@ -3653,9 +3653,11 @@ dependencies = [
  "anyhow",
  "clap",
  "serde_json",
+ "tokio",
  "xagora-admin-protocol",
  "xagora-core",
  "xagora-runtime",
+ "xagora-ssh",
 ]
 
 [[package]]

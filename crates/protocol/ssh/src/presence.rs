@@ -3,6 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use russh::ChannelId;
+use russh::server::Handle;
 use xagora_admin_protocol::{AdminSession, AdminUser};
 
 #[derive(Debug, Default)]
@@ -12,16 +14,41 @@ pub(crate) struct PresenceRegistry {
 }
 
 impl PresenceRegistry {
-    pub(crate) fn mark_online(&mut self, connection_id: u64, player_id: String, user: String) {
+    pub(crate) fn mark_online(
+        &mut self,
+        connection_id: u64,
+        player_id: String,
+        user: String,
+        current_view: String,
+    ) {
         self.connections.insert(
             connection_id,
             PresenceRecord {
                 player_id,
                 user,
+                current_view,
+                channel: None,
                 connected_at: Instant::now(),
                 last_seen_at: Instant::now(),
             },
         );
+    }
+
+    pub(crate) fn attach_channel(
+        &mut self,
+        connection_id: u64,
+        handle: Handle,
+        channel_id: ChannelId,
+    ) {
+        if let Some(record) = self.connections.get_mut(&connection_id) {
+            record.channel = Some(PresenceChannel { handle, channel_id });
+        }
+    }
+
+    pub(crate) fn update_view(&mut self, connection_id: u64, current_view: String) {
+        if let Some(record) = self.connections.get_mut(&connection_id) {
+            record.current_view = current_view;
+        }
     }
 
     pub(crate) fn touch(&mut self, connection_id: u64) {
@@ -109,6 +136,43 @@ impl PresenceRegistry {
     pub(crate) fn poll_kick(&mut self, connection_id: u64) -> bool {
         self.pending_kicks.remove(&connection_id)
     }
+
+    pub(crate) fn direct_recipients(
+        &self,
+        sender_connection_id: u64,
+        target: &str,
+    ) -> Vec<PresenceDelivery> {
+        self.connections
+            .iter()
+            .filter(|(connection_id, record)| {
+                **connection_id != sender_connection_id
+                    && (record.user == target || record.player_id == target)
+            })
+            .filter_map(|(_, record)| record.delivery())
+            .collect()
+    }
+
+    pub(crate) fn view_recipients(
+        &self,
+        sender_connection_id: u64,
+        view_id: &str,
+    ) -> Vec<PresenceDelivery> {
+        self.connections
+            .iter()
+            .filter(|(connection_id, record)| {
+                **connection_id != sender_connection_id && record.current_view == view_id
+            })
+            .filter_map(|(_, record)| record.delivery())
+            .collect()
+    }
+
+    pub(crate) fn broadcast_recipients(&self, sender_connection_id: u64) -> Vec<PresenceDelivery> {
+        self.connections
+            .iter()
+            .filter(|(connection_id, _)| **connection_id != sender_connection_id)
+            .filter_map(|(_, record)| record.delivery())
+            .collect()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -121,8 +185,31 @@ struct UserAccumulator {
 struct PresenceRecord {
     player_id: String,
     user: String,
+    current_view: String,
+    channel: Option<PresenceChannel>,
     connected_at: Instant,
     last_seen_at: Instant,
+}
+
+impl PresenceRecord {
+    fn delivery(&self) -> Option<PresenceDelivery> {
+        self.channel.as_ref().map(|channel| PresenceDelivery {
+            handle: channel.handle.clone(),
+            channel_id: channel.channel_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PresenceChannel {
+    handle: Handle,
+    channel_id: ChannelId,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PresenceDelivery {
+    pub(crate) handle: Handle,
+    pub(crate) channel_id: ChannelId,
 }
 
 #[cfg(test)]
@@ -132,9 +219,24 @@ mod tests {
     #[test]
     fn admin_users_group_sessions_by_user() {
         let mut presence = PresenceRegistry::default();
-        presence.mark_online(1, "player_a".to_owned(), "alice".to_owned());
-        presence.mark_online(2, "player_b".to_owned(), "alice".to_owned());
-        presence.mark_online(3, "player_c".to_owned(), "bob".to_owned());
+        presence.mark_online(
+            1,
+            "player_a".to_owned(),
+            "alice".to_owned(),
+            "view_a".to_owned(),
+        );
+        presence.mark_online(
+            2,
+            "player_b".to_owned(),
+            "alice".to_owned(),
+            "view_a".to_owned(),
+        );
+        presence.mark_online(
+            3,
+            "player_c".to_owned(),
+            "bob".to_owned(),
+            "view_b".to_owned(),
+        );
 
         let users = presence.admin_users();
 
