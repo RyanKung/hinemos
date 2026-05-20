@@ -8,7 +8,9 @@ pub mod model;
 pub mod observation;
 pub mod sample_world;
 
-pub use command::{Direction, EntityRef, SemanticCommand};
+pub use command::{
+    BuildAction, Direction, EntityRef, LandAction, PayAction, SemanticCommand, ShopAction,
+};
 pub use ids::{EntityId, PlayerId, ViewId};
 pub use model::{
     ActionKind, BulletinItem, DialogueLine, Entity, EntityCollection, EntityKind, Exit,

@@ -2,4 +2,5 @@ docs
 target
 .xagora
 .env
+.env.test
 .env.local

@@ -1,0 +1,67 @@
+mod common;
+
+use std::time::Duration;
+
+use common::*;
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
+fn two_ssh_agents_can_chat_in_same_view() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("xagora-two-agent-chat");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let listener = format!("listener_{}_{}", std::process::id(), epoch_seconds());
+    let speaker = format!("speaker_{}_{}", std::process::id(), epoch_seconds());
+    let message = format!("chat_probe_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("xagora-server.log");
+
+    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let mut listener_session = SshSession::spawn(host, port, &listener);
+    listener_session.wait_for_stdout("Available:", Duration::from_secs(10));
+
+    let speaker_output = run_ssh_batch(
+        host,
+        port,
+        &speaker,
+        [&format!("/say {message}"), "/history", "/quit"],
+    );
+    assert_contains(
+        &speaker_output,
+        &format!("You say: {message}"),
+        "speaker sees local say confirmation",
+    );
+    assert_contains(
+        &speaker_output,
+        &message,
+        "speaker can read room history after speaking",
+    );
+
+    listener_session.wait_for_stdout(
+        &format!("[say from {speaker}] {message}"),
+        Duration::from_secs(10),
+    );
+    listener_session.write_line("/history");
+    listener_session.wait_for_stdout(&message, Duration::from_secs(10));
+    listener_session.write_line("/quit");
+    let listener_output = listener_session.wait_success(Duration::from_secs(10));
+    assert_contains(
+        &listener_output,
+        &format!("[say from {speaker}] {message}"),
+        "listener receives live room chat",
+    );
+    assert_contains(
+        &listener_output,
+        "Room History",
+        "listener can inspect persisted room history",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}

@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 use xagora_core::{
-    Direction, EntityRef, JsonObservation, ObservationEvent, SemanticCommand, WorldState,
+    BuildAction, Direction, EntityRef, JsonObservation, LandAction, ObservationEvent, PayAction,
+    SemanticCommand, ShopAction, WorldState,
 };
 
 /// Engine chrome plus [`WorldState::entity_alias_map`] for slash targets.
@@ -39,7 +40,7 @@ impl Chrome {
     pub const LABEL_AVAILABLE: &'static str = "Available";
 
     /// Short protocol hint for agents and first-time text clients.
-    pub const WORLD_PROTOCOL: &'static str = "Skill: Xagora is a MUD-like open world over SSH. Read each observation, choose one Available command, send it, then observe the changed world state. Interactive TTY sessions can stay open. Non-TTY agents should either keep stdin open or run short command batches, then reconnect and continue from the saved player state. Wallet controls use /balance and /pay.";
+    pub const WORLD_PROTOCOL: &'static str = "Skill: Xagora is an open world over SSH. Read each observation, choose one Available command, send it, then observe the changed world state. Interactive TTY sessions can stay open. Non-TTY agents should either keep stdin open or run short command batches, then reconnect and continue from the saved player state. Wallet controls use /balance, /pay, /pay requests, and /pay accept <id>.";
 
     /// Legend for semantic ASCII markers.
     pub const MAP_LEGEND: &'static str =
@@ -49,7 +50,7 @@ impl Chrome {
     pub const MOVE_VERB: &'static str = "You go";
 
     /// Summary shown after the `/help` command.
-    pub const HELP_SUMMARY: &'static str = "Commands: /look /go <dir> /inspect <target> /read <target> /take <target> /talk <target> /say <text> /history /mail <user> <text> /mailbox /broadcast <text> /news /balance /pay <user> <amount> [memo] /inventory /quit.";
+    pub const HELP_SUMMARY: &'static str = "Commands: /look /go <dir> /inspect <target> /read <target> /take <target> /talk <target> /say <text> /history /mail <user> <text> /mailbox /broadcast <text> /news /balance /pay <user> <amount> [memo] /pay requests /pay accept <id> /land list|info|claim|transfer /build title|description|style|prompt|commands|publish /shop inbox /shop request-payment <cmd_id> <amount> <delivery> /inventory /quit.";
 
     /// Feedback line after inspecting an entity.
     pub const FEEDBACK_INSPECT: &'static str = "You look it over.";
@@ -149,19 +150,12 @@ impl Chrome {
                 let text = rest_after_command(trimmed, rest, cmd.as_str())?;
                 Ok(SemanticCommand::Broadcast { text })
             }
-            "pay" => {
-                let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-                let amount_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-                let amount = amount_text
-                    .parse::<i64>()
-                    .map_err(|_| SlashParseError::InvalidAmount)?;
-                let memo = rest_after_token(trimmed, amount_text).unwrap_or_default();
-                Ok(SemanticCommand::Pay {
-                    target: target.to_owned(),
-                    amount,
-                    memo,
-                })
-            }
+            "pay" => Ok(SemanticCommand::Pay {
+                action: parse_pay_action(trimmed, &mut tokens)?,
+            }),
+            "land" => parse_land_command(&mut tokens),
+            "build" => parse_build_command(trimmed, &mut tokens),
+            "shop" => parse_shop_command(trimmed, &mut tokens),
             _ => Err(SlashParseError::UnknownCommand),
         }
     }
@@ -172,6 +166,127 @@ impl Chrome {
             .get(&lower)
             .cloned()
             .unwrap_or_else(|| token.to_owned())
+    }
+}
+
+fn parse_land_command<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<SemanticCommand, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    let action = match action.as_str() {
+        "list" => LandAction::List,
+        "info" => LandAction::Info {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        },
+        "claim" => LandAction::Claim {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        },
+        "transfer" => LandAction::Transfer {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            target: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        },
+        _ => return Err(SlashParseError::UnknownCommand),
+    };
+    Ok(SemanticCommand::Land { action })
+}
+
+fn parse_pay_action<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<PayAction, SlashParseError> {
+    let first = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+    match first.to_ascii_lowercase().as_str() {
+        "requests" | "request" => Ok(PayAction::Requests),
+        "accept" | "confirm" => {
+            let request_id = tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .parse::<i64>()
+                .map_err(|_| SlashParseError::InvalidAmount)?;
+            Ok(PayAction::Accept { request_id })
+        }
+        _ => {
+            let amount_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let amount = amount_text
+                .parse::<i64>()
+                .map_err(|_| SlashParseError::InvalidAmount)?;
+            let memo = rest_after_token(trimmed, amount_text).unwrap_or_default();
+            Ok(PayAction::Direct {
+                target: first.to_owned(),
+                amount,
+                memo,
+            })
+        }
+    }
+}
+
+fn parse_build_command<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<SemanticCommand, SlashParseError> {
+    let Some(field) = tokens.next() else {
+        return Ok(SemanticCommand::Build {
+            action: BuildAction::Help,
+        });
+    };
+    let field = field.to_ascii_lowercase();
+    if field == "publish" {
+        return Ok(SemanticCommand::Build {
+            action: BuildAction::Publish,
+        });
+    }
+    let value = rest_after_token(trimmed, &field)?;
+    Ok(SemanticCommand::Build {
+        action: BuildAction::Set { field, value },
+    })
+}
+
+fn parse_shop_command<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<SemanticCommand, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "inbox" | "commands" => Ok(SemanticCommand::Shop {
+            action: ShopAction::Inbox,
+        }),
+        "request-payment" | "request" => {
+            let command_id_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let amount_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let command_id = command_id_text
+                .parse::<i64>()
+                .map_err(|_| SlashParseError::InvalidAmount)?;
+            let amount = amount_text
+                .parse::<i64>()
+                .map_err(|_| SlashParseError::InvalidAmount)?;
+            let delivery = rest_after_token(trimmed, amount_text)?;
+            Ok(SemanticCommand::Shop {
+                action: ShopAction::RequestPayment {
+                    command_id,
+                    amount,
+                    delivery,
+                },
+            })
+        }
+        _ => Err(SlashParseError::UnknownCommand),
     }
 }
 
@@ -316,6 +431,9 @@ fn render_command(command: &SemanticCommand) -> String {
         SemanticCommand::News => "/news".to_owned(),
         SemanticCommand::Balance => "/balance".to_owned(),
         SemanticCommand::Pay { .. } => "/pay <user> <amount> [memo]".to_owned(),
+        SemanticCommand::Land { .. } => "/land list".to_owned(),
+        SemanticCommand::Build { .. } => "/build <field> <value>".to_owned(),
+        SemanticCommand::Shop { .. } => "/shop inbox".to_owned(),
         SemanticCommand::Inventory => "/inventory".to_owned(),
         SemanticCommand::Help => "/help".to_owned(),
         SemanticCommand::Quit => "/quit".to_owned(),

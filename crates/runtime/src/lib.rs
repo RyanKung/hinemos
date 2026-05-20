@@ -269,6 +269,21 @@ impl GameRuntime {
                     "Payments are available in SSH sessions.".to_owned(),
                 )]
             }
+            SemanticCommand::Land { .. } => {
+                vec![message(
+                    "Land tools are available in SSH sessions.".to_owned(),
+                )]
+            }
+            SemanticCommand::Build { .. } => {
+                vec![message(
+                    "Build tools are available in SSH sessions.".to_owned(),
+                )]
+            }
+            SemanticCommand::Shop { .. } => {
+                vec![message(
+                    "Shop tools are available in SSH sessions.".to_owned(),
+                )]
+            }
             SemanticCommand::Quit => vec![message(Chrome::FEEDBACK_QUIT.to_owned())],
         };
 
@@ -496,9 +511,20 @@ fn available_commands(
         SemanticCommand::News,
         SemanticCommand::Balance,
         SemanticCommand::Pay {
-            target: "<user>".to_owned(),
-            amount: 1,
-            memo: "<memo>".to_owned(),
+            action: xagora_core::PayAction::Direct {
+                target: "<user>".to_owned(),
+                amount: 1,
+                memo: "<memo>".to_owned(),
+            },
+        },
+        SemanticCommand::Land {
+            action: xagora_core::LandAction::List,
+        },
+        SemanticCommand::Build {
+            action: xagora_core::BuildAction::Help,
+        },
+        SemanticCommand::Shop {
+            action: xagora_core::ShopAction::Inbox,
         },
     ];
 

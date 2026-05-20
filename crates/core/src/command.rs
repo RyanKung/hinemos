@@ -108,14 +108,25 @@ pub enum SemanticCommand {
     News,
     /// Show wallet balance.
     Balance,
-    /// Transfer MARK to another player.
+    /// Wallet payment action.
     Pay {
-        /// User name or player id.
-        target: String,
-        /// Positive MARK amount.
-        amount: i64,
-        /// Optional transfer memo.
-        memo: String,
+        /// Payment action.
+        action: PayAction,
+    },
+    /// Manage commercial street parcels.
+    Land {
+        /// Land command action.
+        action: LandAction,
+    },
+    /// Edit the current owned parcel build sheet.
+    Build {
+        /// Build field update.
+        action: BuildAction,
+    },
+    /// Manage an operated shop.
+    Shop {
+        /// Shop command action.
+        action: ShopAction,
     },
     /// Show carried items.
     Inventory,
@@ -123,4 +134,85 @@ pub enum SemanticCommand {
     Help,
     /// End the local CLI loop.
     Quit,
+}
+
+/// Land management actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LandAction {
+    /// List all commercial parcels.
+    List,
+    /// Show one parcel.
+    Info {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Claim a free parcel.
+    Claim {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Transfer an owned parcel to another user or player id.
+    Transfer {
+        /// Parcel id.
+        parcel_id: String,
+        /// Target user or player id.
+        target: String,
+    },
+}
+
+/// Wallet payment actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PayAction {
+    /// Transfer MARK directly to another player.
+    Direct {
+        /// User name or player id.
+        target: String,
+        /// Positive MARK amount.
+        amount: i64,
+        /// Optional transfer memo.
+        memo: String,
+    },
+    /// List pending payment requests.
+    Requests,
+    /// Accept and pay a pending request.
+    Accept {
+        /// Payment request id.
+        request_id: i64,
+    },
+}
+
+/// Build sheet actions for an owned parcel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BuildAction {
+    /// Show build help for the current parcel.
+    Help,
+    /// Set a build field.
+    Set {
+        /// Field name: title, description, style, prompt, commands.
+        field: String,
+        /// Field value.
+        value: String,
+    },
+    /// Publish the build sheet.
+    Publish,
+}
+
+/// Shop operation actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ShopAction {
+    /// Show custom commands sent to shops owned by this player.
+    Inbox,
+    /// Create a payment request for a visitor command.
+    RequestPayment {
+        /// Operator command id this request answers.
+        command_id: i64,
+        /// Positive MARK amount.
+        amount: i64,
+        /// Content delivered only after the visitor accepts and pays.
+        delivery: String,
+    },
 }

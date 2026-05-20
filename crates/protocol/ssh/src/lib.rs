@@ -22,10 +22,15 @@ use russh::keys::{Algorithm, PrivateKey, ssh_key};
 use russh::server::{Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, server};
 use tokio::sync::Mutex;
-use xagora_core::SemanticCommand;
 use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-use xagora_runtime::{Chrome, render_text_observation};
-use xagora_storage::{PgStorage, PlayerStateStore, StoredWorldMessage, TEST_CURRENCY};
+use xagora_core::{
+    BuildAction, JsonObservation, LandAction, PayAction, SemanticCommand, ShopAction,
+};
+use xagora_runtime::{Chrome, SlashParseError, render_text_observation};
+use xagora_storage::{
+    PgStorage, PlayerStateStore, StoredOperatorCommand, StoredParcel, StoredPaymentRequest,
+    StoredWorldMessage, TEST_CURRENCY,
+};
 
 use auth::{AuthIdentity, PublicKeyAuthPolicy};
 pub use config::SshArgs;
@@ -172,7 +177,8 @@ impl ConnectionHandler {
             .runtime
             .observe_json(&identity.player_id)
             .await?;
-        send_text_observation(session, channel, &observation)?;
+        self.send_text_observation(channel, session, observation)
+            .await?;
         if prompt {
             send_prompt(session, channel)?;
         }
@@ -202,6 +208,14 @@ impl ConnectionHandler {
         let command = match runtime_state::parse_command(chrome, line) {
             Ok(command) => command,
             Err(error) => {
+                if matches!(error, SlashParseError::UnknownCommand)
+                    && line.trim_start().starts_with('/')
+                    && self
+                        .handle_operator_input(channel, session, line, identity, prompt)
+                        .await?
+                {
+                    return Ok(());
+                }
                 session.data(channel, format!("{error}\r\n").into_bytes())?;
                 if prompt {
                     send_prompt(session, channel)?;
@@ -240,7 +254,8 @@ impl ConnectionHandler {
             .await
             .update_view(self.connection_id, player_state.current_view.clone());
 
-        send_text_observation(session, channel, &observation)?;
+        self.send_text_observation(channel, session, observation)
+            .await?;
         if should_quit {
             session.exit_status_request(channel, 0)?;
             session.close(channel)?;
@@ -310,7 +325,119 @@ impl ConnectionHandler {
                     .into_bytes(),
                 )?;
             }
-            SemanticCommand::Pay {
+            SemanticCommand::Pay { action } => {
+                self.handle_pay_command(channel, session, action, identity)
+                    .await?;
+            }
+            SemanticCommand::Land { action } => {
+                self.handle_land_command(channel, session, action, identity)
+                    .await?;
+            }
+            SemanticCommand::Build { action } => {
+                self.handle_build_command(channel, session, action, identity)
+                    .await?;
+            }
+            SemanticCommand::Shop { action } => {
+                self.handle_shop_command(channel, session, action, identity)
+                    .await?;
+            }
+            _ => return Ok(false),
+        }
+
+        if prompt {
+            send_prompt(session, channel)?;
+        }
+        Ok(true)
+    }
+
+    async fn handle_operator_input(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        line: &str,
+        identity: &AuthIdentity,
+        prompt: bool,
+    ) -> Result<bool> {
+        let player = self
+            .shared
+            .runtime
+            .player_state(&identity.player_id)
+            .await?;
+        let Some(parcel) = self
+            .shared
+            .storage
+            .commercial_parcel_by_view(&player.current_view)
+            .await?
+        else {
+            return Ok(false);
+        };
+        if parcel.status != "built" {
+            return Ok(false);
+        }
+        let Some(owner_player_id) = parcel.owner_player_id.as_deref() else {
+            return Ok(false);
+        };
+        if owner_player_id == identity.player_id {
+            return Ok(false);
+        }
+
+        let recipients = self
+            .shared
+            .presence
+            .lock()
+            .await
+            .direct_recipients(self.connection_id, owner_player_id);
+        let delivered = !recipients.is_empty();
+        let command = self
+            .shared
+            .storage
+            .save_operator_command(
+                &parcel,
+                &identity.user,
+                &identity.player_id,
+                line,
+                delivered,
+            )
+            .await?;
+        if delivered {
+            deliver_live_message(
+                recipients,
+                &format!(
+                    "[shop command #{} in {} from {}] {}",
+                    command.id, command.parcel_id, command.sender_user, command.raw_input
+                ),
+            )
+            .await;
+        }
+        session.data(
+            channel,
+            format!(
+                "Sent shop command #{} to {} ({}) for parcel {}.\r\n{}",
+                command.id,
+                command.owner_user,
+                if delivered { "delivered" } else { "queued" },
+                command.parcel_id,
+                custom_command_preview(&parcel, line)
+                    .map(|preview| format!("Trial: {preview}\r\n"))
+                    .unwrap_or_default()
+            )
+            .into_bytes(),
+        )?;
+        if prompt {
+            send_prompt(session, channel)?;
+        }
+        Ok(true)
+    }
+
+    async fn handle_pay_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        action: &PayAction,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        match action {
+            PayAction::Direct {
                 target,
                 amount,
                 memo,
@@ -355,13 +482,218 @@ impl ConnectionHandler {
                     .await;
                 }
             }
-            _ => return Ok(false),
+            PayAction::Requests => {
+                let requests = self
+                    .shared
+                    .storage
+                    .pending_payment_requests(&identity.player_id, 20)
+                    .await?;
+                send_payment_request_list(session, channel, &requests)?;
+            }
+            PayAction::Accept { request_id } => {
+                let (request, sender_balance) = self
+                    .shared
+                    .storage
+                    .accept_payment_request(&identity.user, &identity.player_id, *request_id)
+                    .await?;
+                session.data(
+                    channel,
+                    render_paid_request(&request, sender_balance).into_bytes(),
+                )?;
+                let recipients = self
+                    .shared
+                    .presence
+                    .lock()
+                    .await
+                    .direct_recipients(self.connection_id, &request.payee_player_id);
+                if !recipients.is_empty() {
+                    deliver_live_message(
+                        recipients,
+                        &format!(
+                            "[payment request #{} paid by {}] {} {}",
+                            request.id, identity.user, request.amount, request.asset
+                        ),
+                    )
+                    .await;
+                }
+            }
         }
+        Ok(())
+    }
 
-        if prompt {
-            send_prompt(session, channel)?;
+    async fn handle_land_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        action: &LandAction,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        match action {
+            LandAction::List => {
+                let parcels = self.shared.storage.list_commercial_parcels().await?;
+                session.data(
+                    channel,
+                    render_parcel_list(&parcels)
+                        .replace('\n', "\r\n")
+                        .into_bytes(),
+                )?;
+            }
+            LandAction::Info { parcel_id } => {
+                let parcel = self.shared.storage.commercial_parcel(parcel_id).await?;
+                session.data(
+                    channel,
+                    render_parcel_detail(&parcel)
+                        .replace('\n', "\r\n")
+                        .into_bytes(),
+                )?;
+            }
+            LandAction::Claim { parcel_id } => {
+                let parcel = self
+                    .shared
+                    .storage
+                    .claim_commercial_parcel(parcel_id, &identity.user, &identity.player_id)
+                    .await?;
+                session.data(
+                    channel,
+                    format!(
+                        "Claimed parcel {}. Go to {} and use /build title, /build description, /build prompt, /build commands, then /build publish.\r\n",
+                        parcel.parcel_id, parcel.view_id
+                    )
+                    .into_bytes(),
+                )?;
+            }
+            LandAction::Transfer { parcel_id, target } => {
+                let parcel = self
+                    .shared
+                    .storage
+                    .transfer_commercial_parcel(parcel_id, &identity.player_id, target)
+                    .await?;
+                session.data(
+                    channel,
+                    format!(
+                        "Transferred parcel {} to {}.\r\n",
+                        parcel.parcel_id,
+                        parcel.owner_user.as_deref().unwrap_or("unknown")
+                    )
+                    .into_bytes(),
+                )?;
+            }
         }
-        Ok(true)
+        Ok(())
+    }
+
+    async fn handle_build_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        action: &BuildAction,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        let player = self
+            .shared
+            .runtime
+            .player_state(&identity.player_id)
+            .await?;
+        match action {
+            BuildAction::Help => {
+                session.data(channel, build_help().as_bytes().to_vec())?;
+            }
+            BuildAction::Set { field, value } => {
+                let parcel = self
+                    .shared
+                    .storage
+                    .update_parcel_build_field(
+                        &player.current_view,
+                        &identity.player_id,
+                        field,
+                        value,
+                    )
+                    .await?;
+                session.data(
+                    channel,
+                    format!("Updated {} for parcel {}.\r\n", field, parcel.parcel_id).into_bytes(),
+                )?;
+            }
+            BuildAction::Publish => {
+                let parcel = self
+                    .shared
+                    .storage
+                    .publish_parcel_build(&player.current_view, &identity.player_id)
+                    .await?;
+                session.data(
+                    channel,
+                    format!("Published parcel {} as a built shop.\r\n", parcel.parcel_id)
+                        .into_bytes(),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_shop_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        action: &ShopAction,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        match action {
+            ShopAction::Inbox => {
+                let commands = self
+                    .shared
+                    .storage
+                    .recent_operator_commands(&identity.player_id, 20)
+                    .await?;
+                send_operator_command_list(session, channel, &commands)?;
+            }
+            ShopAction::RequestPayment {
+                command_id,
+                amount,
+                delivery,
+            } => {
+                let request = self
+                    .shared
+                    .storage
+                    .create_payment_request(*command_id, &identity.player_id, *amount, delivery)
+                    .await?;
+                session.data(
+                    channel,
+                    format!(
+                        "Created payment request #{} for {}: {} {}. Delivery is locked until payment.\r\n",
+                        request.id, request.payer_user, request.amount, request.asset
+                    )
+                    .into_bytes(),
+                )?;
+                let recipients = self
+                    .shared
+                    .presence
+                    .lock()
+                    .await
+                    .direct_recipients(self.connection_id, &request.payer_player_id);
+                if !recipients.is_empty() {
+                    deliver_live_message(recipients, &render_payment_popup(&request)).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn send_text_observation(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        mut observation: JsonObservation,
+    ) -> Result<()> {
+        if let Some(parcel) = self
+            .shared
+            .storage
+            .commercial_parcel_by_view(&observation.view_id)
+            .await?
+        {
+            overlay_parcel_observation(&mut observation, &parcel);
+        }
+        send_text_observation(session, channel, &observation)?;
+        Ok(())
     }
 
     async fn dispatch_live_message(
@@ -679,6 +1011,114 @@ fn send_text_observation(
     Ok(())
 }
 
+fn overlay_parcel_observation(observation: &mut JsonObservation, parcel: &StoredParcel) {
+    let owner = parcel.owner_user.as_deref().unwrap_or("unclaimed");
+    match parcel.status.as_str() {
+        "built" => {
+            if let Some(title) = &parcel.title {
+                observation.title = title.clone();
+            }
+            if let Some(description) = &parcel.description {
+                observation.description = format!(
+                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}.\nCustom commands: {}.\nOperator prompt: {}",
+                    parcel.parcel_id,
+                    parcel.style.as_deref().unwrap_or("unspecified"),
+                    parcel.custom_commands.as_deref().unwrap_or("not specified"),
+                    parcel.operator_prompt.as_deref().unwrap_or("not specified")
+                );
+            }
+        }
+        "claimed" => {
+            observation.description = format!(
+                "Commercial parcel {} is claimed by {owner} but not built yet.\nOwner can edit here with /build title <text>, /build description <text>, /build style <text>, /build prompt <text>, /build commands <text>, then /build publish.",
+                parcel.parcel_id
+            );
+        }
+        _ => {
+            observation.description = format!(
+                "Vacant commercial parcel {}. Claim it for free from the Chamber of Commerce with /land claim {}.",
+                parcel.parcel_id, parcel.parcel_id
+            );
+        }
+    }
+}
+
+fn render_parcel_list(parcels: &[StoredParcel]) -> String {
+    let mut lines = vec!["Commercial Parcels".to_owned()];
+    for parcel in parcels {
+        let owner = parcel.owner_user.as_deref().unwrap_or("-");
+        let title = parcel.title.as_deref().unwrap_or("-");
+        lines.push(format!(
+            "- {} view={} district={} position={} status={} owner={} title={}",
+            parcel.parcel_id,
+            parcel.view_id,
+            parcel.district,
+            parcel.position,
+            parcel.status,
+            owner,
+            title
+        ));
+    }
+    lines.push(
+        "Use /land claim <parcel>, /land info <parcel>, or /land transfer <parcel> <user>."
+            .to_owned(),
+    );
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_parcel_detail(parcel: &StoredParcel) -> String {
+    format!(
+        "Parcel {}\nView: {}\nDistrict: {} {}\nStatus: {}\nOwner: {}\nTitle: {}\nDescription: {}\nStyle: {}\nPrompt: {}\nCommands: {}\n\n",
+        parcel.parcel_id,
+        parcel.view_id,
+        parcel.district,
+        parcel.position,
+        parcel.status,
+        parcel.owner_user.as_deref().unwrap_or("-"),
+        parcel.title.as_deref().unwrap_or("-"),
+        parcel.description.as_deref().unwrap_or("-"),
+        parcel.style.as_deref().unwrap_or("-"),
+        parcel.operator_prompt.as_deref().unwrap_or("-"),
+        parcel.custom_commands.as_deref().unwrap_or("-")
+    )
+}
+
+fn custom_command_preview(parcel: &StoredParcel, raw_input: &str) -> Option<String> {
+    let command = raw_input.split_whitespace().next()?;
+    let commands = parcel.custom_commands.as_deref()?;
+    for entry in commands.split(['\n', ';']) {
+        let entry = entry.trim();
+        if !entry.starts_with(command) {
+            continue;
+        }
+        let Some((_, after_preview)) = entry.split_once("preview=") else {
+            continue;
+        };
+        let preview = after_preview
+            .split_whitespace()
+            .next()
+            .unwrap_or(after_preview)
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim();
+        if !preview.is_empty() {
+            return Some(preview.to_owned());
+        }
+    }
+    None
+}
+
+fn build_help() -> &'static str {
+    "Build commands for the current owned parcel:\r\n\
+     /build title <shop title>\r\n\
+     /build description <shop description>\r\n\
+     /build style <style note>\r\n\
+     /build prompt <operator prompt shown to visitors>\r\n\
+     /build commands <custom command help>\r\n\
+     /build publish\r\n"
+}
+
 fn send_prompt(session: &mut Session, channel: ChannelId) -> Result<()> {
     session.data(channel, Chrome::PROMPT.as_bytes().to_vec())?;
     Ok(())
@@ -747,6 +1187,83 @@ fn send_message_list(
     Ok(())
 }
 
+fn send_operator_command_list(
+    session: &mut Session,
+    channel: ChannelId,
+    commands: &[StoredOperatorCommand],
+) -> Result<()> {
+    session.data(channel, b"\r\nShop Inbox\r\n".to_vec())?;
+    if commands.is_empty() {
+        session.data(channel, b"No shop commands.\r\n".to_vec())?;
+        return Ok(());
+    }
+
+    for command in commands.iter().rev() {
+        session.data(
+            channel,
+            format!(
+                "- #{} [{}] {} from {} in {}: {}\r\n",
+                command.id,
+                command.created_at,
+                command.status,
+                command.sender_user,
+                command.parcel_id,
+                command.raw_input
+            )
+            .into_bytes(),
+        )?;
+    }
+    Ok(())
+}
+
+fn send_payment_request_list(
+    session: &mut Session,
+    channel: ChannelId,
+    requests: &[StoredPaymentRequest],
+) -> Result<()> {
+    session.data(channel, b"\r\nPayment Requests\r\n".to_vec())?;
+    if requests.is_empty() {
+        session.data(channel, b"No pending payment requests.\r\n".to_vec())?;
+        return Ok(());
+    }
+
+    for request in requests.iter().rev() {
+        session.data(
+            channel,
+            render_payment_popup(request)
+                .replace('\n', "\r\n")
+                .into_bytes(),
+        )?;
+    }
+    Ok(())
+}
+
+fn render_payment_popup(request: &StoredPaymentRequest) -> String {
+    format!(
+        "\n=== Payment Request #{} ===\nShop: {} ({})\nAmount: {} {}\nFor: shop command #{}\nDelivery: locked until payment\nAccept: /pay accept {}\nReject: ignore this request\n==========================\n",
+        request.id,
+        request.parcel_id,
+        request.payee_user,
+        request.amount,
+        request.asset,
+        request.operator_command_id,
+        request.id
+    )
+}
+
+fn render_paid_request(request: &StoredPaymentRequest, sender_balance: i64) -> String {
+    format!(
+        "Paid payment request #{}: {} {} to {}. Balance: {} {}.\r\nUnlocked content: {}\r\n",
+        request.id,
+        request.amount,
+        request.asset,
+        request.payee_user,
+        sender_balance,
+        request.asset,
+        request.delivery
+    )
+}
+
 async fn send_mailbox_summary(
     session: &mut Session,
     channel: ChannelId,
@@ -777,7 +1294,7 @@ async fn send_balance_summary(
     session.data(
         channel,
         format!(
-            "Wallet: {} {}. Use /balance or /pay <user> <amount> [memo].\r\n",
+            "Wallet: {} {}. Use /balance, /pay <user> <amount> [memo], /pay requests, or /pay accept <id>.\r\n",
             balance.amount, TEST_CURRENCY
         )
         .into_bytes(),
@@ -796,9 +1313,9 @@ async fn deliver_live_message(recipients: Vec<PresenceDelivery>, message: &str) 
 }
 
 fn exec_help() -> &'static str {
-    "Xagora is a MUD-like open world served over SSH, not a general-purpose Unix shell.\n\
+    "Xagora is an open world served over SSH, not a general-purpose Unix shell.\n\
      Open an SSH shell: ssh -p <port> <user>@<host>\n\
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
      Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
-     Wallet commands: /balance, /pay <user> <amount> [memo]."
+     Wallet commands: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>."
 }

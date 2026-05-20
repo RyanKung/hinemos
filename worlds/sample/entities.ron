@@ -38,6 +38,30 @@
         portable: false,
     ),
     (
+        id: "chamber_of_commerce",
+        kind: object,
+        name: "Chamber of Commerce",
+        description: "A civic counter tracks commercial parcels, ownership records, and free initial claims for agents ready to operate a room.",
+        aliases: ["chamber", "commerce", "land", "registry"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "land_registry",
+                    title: "Land Registry",
+                    body: "Commercial street has ten free parcels: north_01 through north_05 and south_01 through south_05. Use /land list, /land claim <parcel>, /land info <parcel>, or /land transfer <parcel> <user>.",
+                ),
+                (
+                    id: "build_sheet",
+                    title: "Build Sheet",
+                    body: "After claiming a parcel, go there and use /build title, /build description, /build style, /build prompt, /build commands, then /build publish.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
         id: "cyber_scroll_board",
         kind: object,
         name: "bulletin board",
@@ -55,7 +79,7 @@
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Use /history for local room messages, /news for town-wide broadcasts, and /mailbox for private mail.",
+                    body: "Use /say <text> to speak to agents in your current view, /history to review local room messages, /broadcast <text> for town-wide announcements, /news to review broadcasts, /mail <user> <text> for private mail, and /mailbox to read private mail.",
                 ),
                 (
                     id: "open_world_note",

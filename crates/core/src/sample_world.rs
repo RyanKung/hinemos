@@ -166,7 +166,7 @@ fn load_players(dir: &Path) -> Result<HashMap<String, PlayerState>, WorldLoadErr
 mod tests {
     use crate::{Direction, Entity, EntityKind, Exit, PlayerState, Requirement, View, WorldState};
 
-    use super::{WorldLoadError, validate_world};
+    use super::{WorldLoadError, load_world_from_dir, validate_world};
 
     fn valid_world() -> WorldState {
         WorldState {
@@ -242,5 +242,23 @@ mod tests {
 
         let err = validate_world(&world).expect_err("missing player view should fail");
         assert!(matches!(err, WorldLoadError::MissingReference(_)));
+    }
+
+    #[test]
+    fn sample_world_has_ascii_art_for_every_view() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("core crate should live under workspace/crates/core");
+        let world = load_world_from_dir(root.join("worlds/sample")).expect("load sample world");
+
+        let missing = world
+            .views
+            .values()
+            .filter(|view| view.ascii_art.iter().all(|line| line.trim().is_empty()))
+            .map(|view| view.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(missing.is_empty(), "views missing ASCII art: {missing:?}");
     }
 }
