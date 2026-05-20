@@ -170,15 +170,27 @@ impl ConnectionHandler {
             )
             .into_bytes(),
         )?;
-        send_balance_summary(session, channel, &self.shared.storage, identity).await?;
-        send_mailbox_summary(session, channel, &self.shared.storage, identity).await?;
-        let observation = self
-            .shared
-            .runtime
-            .observe_json(&identity.player_id)
-            .await?;
-        self.send_text_observation(channel, session, observation)
-            .await?;
+        if let Err(error) =
+            send_balance_summary(session, channel, &self.shared.storage, identity).await
+        {
+            send_command_error(session, channel, error, false)?;
+        }
+        if let Err(error) =
+            send_mailbox_summary(session, channel, &self.shared.storage, identity).await
+        {
+            send_command_error(session, channel, error, false)?;
+        }
+        match self.shared.runtime.observe_json(&identity.player_id).await {
+            Ok(observation) => {
+                if let Err(error) = self
+                    .send_text_observation(channel, session, observation)
+                    .await
+                {
+                    send_command_error(session, channel, error, false)?;
+                }
+            }
+            Err(error) => send_command_error(session, channel, error.into(), false)?,
+        }
         if prompt {
             send_prompt(session, channel)?;
         }
@@ -210,11 +222,18 @@ impl ConnectionHandler {
             Err(error) => {
                 if matches!(error, SlashParseError::UnknownCommand)
                     && line.trim_start().starts_with('/')
-                    && self
-                        .handle_operator_input(channel, session, line, identity, prompt)
-                        .await?
                 {
-                    return Ok(());
+                    match self
+                        .handle_operator_input(channel, session, line, identity, prompt)
+                        .await
+                    {
+                        Ok(true) => return Ok(()),
+                        Ok(false) => {}
+                        Err(error) => {
+                            send_command_error(session, channel, error, prompt)?;
+                            return Ok(());
+                        }
+                    }
                 }
                 session.data(channel, format!("{error}\r\n").into_bytes())?;
                 if prompt {
@@ -225,13 +244,23 @@ impl ConnectionHandler {
         };
 
         let should_quit = matches!(command, SemanticCommand::Quit);
-        if self
+        let handled_message_view = match self
             .handle_message_view_command(channel, session, &command, identity, prompt)
-            .await?
+            .await
         {
+            Ok(handled) => handled,
+            Err(error) => {
+                send_command_error(session, channel, error, prompt)?;
+                return Ok(());
+            }
+        };
+        if handled_message_view {
             return Ok(());
         }
-        self.dispatch_live_message(&command, identity).await?;
+        if let Err(error) = self.dispatch_live_message(&command, identity).await {
+            send_command_error(session, channel, error, prompt)?;
+            return Ok(());
+        }
         let (observation, player_state) = match self
             .shared
             .runtime
@@ -247,15 +276,25 @@ impl ConnectionHandler {
                 return Ok(());
             }
         };
-        PlayerStateStore::save_player_state(&self.shared.storage, &player_state).await?;
+        if let Err(error) =
+            PlayerStateStore::save_player_state(&self.shared.storage, &player_state).await
+        {
+            send_command_error(session, channel, error.into(), prompt)?;
+            return Ok(());
+        }
         self.shared
             .presence
             .lock()
             .await
             .update_view(self.connection_id, player_state.current_view.clone());
 
-        self.send_text_observation(channel, session, observation)
-            .await?;
+        if let Err(error) = self
+            .send_text_observation(channel, session, observation)
+            .await
+        {
+            send_command_error(session, channel, error, prompt)?;
+            return Ok(());
+        }
         if should_quit {
             session.exit_status_request(channel, 0)?;
             session.close(channel)?;
@@ -1121,6 +1160,19 @@ fn build_help() -> &'static str {
 
 fn send_prompt(session: &mut Session, channel: ChannelId) -> Result<()> {
     session.data(channel, Chrome::PROMPT.as_bytes().to_vec())?;
+    Ok(())
+}
+
+fn send_command_error(
+    session: &mut Session,
+    channel: ChannelId,
+    error: anyhow::Error,
+    prompt: bool,
+) -> Result<()> {
+    session.data(channel, format!("{error}\r\n").into_bytes())?;
+    if prompt {
+        send_prompt(session, channel)?;
+    }
     Ok(())
 }
 
