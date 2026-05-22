@@ -39,6 +39,16 @@ fn two_ssh_agents_can_chat_in_same_view() {
     );
     assert_contains(
         &speaker_output,
+        "Online here:",
+        "speaker sees same-view presence before speaking",
+    );
+    assert_contains(
+        &speaker_output,
+        &listener,
+        "speaker can identify the listener as an online user in the same view",
+    );
+    assert_contains(
+        &speaker_output,
         &message,
         "speaker can read room history after speaking",
     );

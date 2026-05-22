@@ -1,14 +1,15 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+static TEST_DATABASE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -122,11 +123,27 @@ pub fn spawn_xagora_server(
     log_path: &Path,
     database_url: &str,
 ) -> Child {
+    spawn_xagora_server_with_env(root, host, port, log_path, database_url, [])
+}
+
+pub fn spawn_xagora_server_with_env<const N: usize>(
+    root: &Path,
+    host: &str,
+    port: u16,
+    log_path: &Path,
+    database_url: &str,
+    envs: [(&str, &str); N],
+) -> Child {
     let log = fs::File::create(log_path).expect("create server log");
-    Command::new(env!("CARGO_BIN_EXE_xagora"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_xagora"));
+    command
         .current_dir(root)
         .args(["serve", "ssh", "--bind", &format!("{host}:{port}")])
-        .env("DATABASE_URL", database_url)
+        .env("DATABASE_URL", database_url);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    command
         .stdout(log.try_clone().expect("clone server log for stdout"))
         .stderr(log)
         .spawn()
@@ -466,7 +483,7 @@ fn has_world_agent_evidence(stdout: &str) -> bool {
     })
 }
 
-fn wait_with_timeout(mut child: Child, timeout: Duration) -> Output {
+pub fn wait_with_timeout(mut child: Child, timeout: Duration) -> Output {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if child.try_wait().expect("poll child").is_some() {
@@ -554,7 +571,12 @@ impl TestDatabase {
         assert_command_exists("createdb");
         assert_command_exists("dropdb");
         let base_url = assert_database_env(env);
-        let name = format!("xagora_test_{}_{}", std::process::id(), epoch_nanos());
+        let name = format!(
+            "xagora_test_{}_{}_{}",
+            std::process::id(),
+            epoch_nanos(),
+            TEST_DATABASE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
         let admin_url = database_url_with_name(&base_url, "postgres");
         let url = database_url_with_name(&base_url, &name);
 
@@ -575,6 +597,21 @@ impl TestDatabase {
             url,
             drop_on_exit: true,
         }
+    }
+
+    pub fn query_value(&self, sql: &str) -> String {
+        assert_command_exists("psql");
+        let output = Command::new("psql")
+            .args([&self.url, "--no-align", "--tuples-only", "--command", sql])
+            .output()
+            .expect("spawn psql");
+        assert!(
+            output.status.success(),
+            "psql query failed: {}\nsql:\n{}",
+            String::from_utf8_lossy(&output.stderr),
+            sql
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 }
 
@@ -641,4 +678,48 @@ impl Drop for TestTempDir {
             eprintln!("verifier logs kept at {}", self.path.display());
         }
     }
+}
+
+#[test]
+fn common_helpers_are_reachable_for_lints() {
+    let _ = workspace_root as fn() -> PathBuf;
+    let _ = load_local_env as fn(&Path) -> HashMap<String, String>;
+    let _ = assert_provider_env as fn(&HashMap<String, String>);
+    let _ = assert_command_exists as fn(&str);
+    let _ = free_local_port as fn() -> u16;
+    let _ = spawn_xagora_server as fn(&Path, &str, u16, &Path, &str) -> Child;
+    let _ = spawn_xagora_server_with_env::<0>
+        as fn(&Path, &str, u16, &Path, &str, [(&str, &str); 0]) -> Child;
+    let _ = wait_for_server as fn(&str, u16, &mut Child, &Path);
+    let _ = run_ssh_batch::<0> as fn(&str, u16, &str, [&str; 0]) -> String;
+    let _ = SshSession::spawn as fn(&str, u16, &str) -> SshSession;
+    let _ = SshSession::write_line as fn(&mut SshSession, &str);
+    let _ = SshSession::wait_for_stdout as fn(&SshSession, &str, Duration);
+    let _ = SshSession::wait_for_any_stdout as fn(&SshSession, &[&str], Duration) -> String;
+    let _ = SshSession::wait_success as fn(SshSession, Duration) -> String;
+    let _ = assert_contains as fn(&str, &str, &str);
+    let _ = assert_not_contains as fn(&str, &str, &str);
+    let _ = parse_hash_id as fn(&str, &str) -> i64;
+    let _ = run_claude_agent as fn(&str, &HashMap<String, String>, Duration) -> AgentRun;
+    let _ = wait_with_timeout as fn(Child, Duration) -> Output;
+    let _ = terminate as fn(&mut Child);
+    let _ = require_output as fn(&str, &[&str], &str, &TestTempDir);
+    let _ = epoch_seconds as fn() -> u64;
+    let _ = TestTempDir::new as fn(&str) -> TestTempDir;
+    let _ = TestTempDir::remove_on_drop as fn(TestTempDir);
+    let _ = TestDatabase::create as fn(&HashMap<String, String>) -> TestDatabase;
+    let _ = TestDatabase::query_value as fn(&TestDatabase, &str) -> String;
+
+    let run = AgentRun {
+        success: false,
+        timed_out: false,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    let _ = (
+        run.success,
+        run.timed_out,
+        run.stdout.len(),
+        run.stderr.len(),
+    );
 }

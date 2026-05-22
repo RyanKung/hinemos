@@ -98,8 +98,8 @@ fn same_view_say_reaches_only_players_in_that_view() {
     listener_session.wait_for_stdout("Available:", Duration::from_secs(10));
     let mut outsider_session = SshSession::spawn(host, port, &outsider);
     outsider_session.wait_for_stdout("Available:", Duration::from_secs(10));
-    outsider_session.write_line("/go east");
-    outsider_session.wait_for_stdout("Workshop Repair Bay", Duration::from_secs(10));
+    outsider_session.write_line("/go west");
+    outsider_session.wait_for_stdout("Blackstone Tavern", Duration::from_secs(10));
 
     let speaker_output = run_ssh_batch(
         host,
@@ -145,6 +145,69 @@ fn same_view_say_reaches_only_players_in_that_view() {
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
+fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("xagora-view-who");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let observer = format!("who_observer_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("xagora-server.log");
+
+    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let mut observer_session = SshSession::spawn(host, port, &observer);
+    observer_session.wait_for_stdout("Available:", Duration::from_secs(10));
+
+    let mut peer_sessions = Vec::new();
+    let mut peers = Vec::new();
+    for index in 0..11 {
+        let peer = format!(
+            "who_peer_{index}_{}_{}",
+            std::process::id(),
+            epoch_seconds()
+        );
+        let session = SshSession::spawn(host, port, &peer);
+        session.wait_for_stdout("Available:", Duration::from_secs(10));
+        peer_sessions.push(session);
+        peers.push(peer);
+    }
+
+    observer_session.write_line("/look");
+    observer_session.wait_for_stdout("Online here:", Duration::from_secs(10));
+    observer_session.wait_for_stdout("+1 more (use /who)", Duration::from_secs(10));
+
+    observer_session.write_line("/who");
+    observer_session.wait_for_stdout(
+        "Online here in arrival_street (11):",
+        Duration::from_secs(10),
+    );
+    observer_session.wait_for_stdout(&peers[0], Duration::from_secs(10));
+    observer_session.wait_for_stdout(&peers[10], Duration::from_secs(10));
+
+    observer_session.write_line("/quit");
+    let observer_output = observer_session.wait_success(Duration::from_secs(10));
+    assert_not_contains(
+        &observer_output,
+        "player_id",
+        "ordinary who output does not expose player ids",
+    );
+
+    for mut session in peer_sessions {
+        session.write_line("/quit");
+        let _output = session.wait_success(Duration::from_secs(10));
+    }
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
 fn broadcast_reaches_all_online_players_and_persists_in_news() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -171,8 +234,8 @@ fn broadcast_reaches_all_online_players_and_persists_in_news() {
     session_a.wait_for_stdout("Available:", Duration::from_secs(10));
     let mut session_b = SshSession::spawn(host, port, &listener_b);
     session_b.wait_for_stdout("Available:", Duration::from_secs(10));
-    session_b.write_line("/go east");
-    session_b.wait_for_stdout("Workshop Repair Bay", Duration::from_secs(10));
+    session_b.write_line("/go west");
+    session_b.wait_for_stdout("Blackstone Tavern", Duration::from_secs(10));
 
     let sender_output = run_ssh_batch(
         host,

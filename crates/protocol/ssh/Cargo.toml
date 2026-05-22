@@ -5,6 +5,7 @@ version.workspace = true
 
 [dependencies]
 xagora-admin-protocol = { version = "0.1.0", path = "../../admin-protocol" }
+xagora-blackstone = { version = "0.1.0", path = "../../blackstone" }
 xagora-core = { version = "0.1.0", path = "../../core" }
 xagora-runtime = { version = "0.1.0", path = "../../runtime" }
 anyhow = "1.0.102"

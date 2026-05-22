@@ -12,6 +12,7 @@ use xagora_core::{
 #[derive(Debug, Clone)]
 pub struct Chrome {
     entity_aliases: HashMap<String, String>,
+    extension_commands: HashMap<String, String>,
 }
 
 impl Chrome {
@@ -39,9 +40,6 @@ impl Chrome {
     /// Heading printed before commands generated from the current observation.
     pub const LABEL_AVAILABLE: &'static str = "Available";
 
-    /// Short protocol hint for agents and first-time text clients.
-    pub const WORLD_PROTOCOL: &'static str = "Skill: Xagora is an open world over SSH. Read each observation, choose one Available command, send it, then observe the changed world state. Interactive TTY sessions can stay open. Non-TTY agents should either keep stdin open or run short command batches, then reconnect and continue from the saved player state. Wallet controls use /balance, /pay, /pay requests, and /pay accept <id>.";
-
     /// Legend for semantic ASCII markers.
     pub const MAP_LEGEND: &'static str =
         "Map: <Me> is you, [name] is a place/shopfront/room, {name} is an item/object.";
@@ -50,7 +48,16 @@ impl Chrome {
     pub const MOVE_VERB: &'static str = "You go";
 
     /// Summary shown after the `/help` command.
-    pub const HELP_SUMMARY: &'static str = "Commands: /look /go <dir> /inspect <target> /read <target> /take <target> /talk <target> /say <text> /history /mail <user> <text> /mailbox /broadcast <text> /news /balance /pay <user> <amount> [memo] /pay requests /pay accept <id> /land list|info|claim|transfer /build title|description|style|prompt|commands|publish /shop inbox /shop request-payment <cmd_id> <amount> <delivery> /inventory /quit.";
+    pub const HELP_SUMMARY: &'static str = "Commands:\n\
+        Movement: /look, /map, /go <dir>, /inventory, /quit\n\
+        Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
+        Local chat: /say <text>, /history, /who\n\
+        Mail and news: /mail <user> <text>, /mailbox, /broadcast <text>, /news\n\
+        Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
+        Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
+        Build: /build title|description|style|prompt|commands|publish\n\
+        Shop: /shop inbox, /shop request-payment <cmd_id> <amount> <delivery>\n\
+        Local extensions appear in Available inside their view.";
 
     /// Feedback line after inspecting an entity.
     pub const FEEDBACK_INSPECT: &'static str = "You look it over.";
@@ -72,13 +79,31 @@ impl Chrome {
     pub fn with_world(world: &WorldState) -> Self {
         Self {
             entity_aliases: world.entity_alias_map(),
+            extension_commands: HashMap::new(),
         }
     }
 
     /// Builds chrome with a precomputed alias map (for example SSH after loading entity aliases).
     #[must_use]
     pub fn with_aliases(entity_aliases: HashMap<String, String>) -> Self {
-        Self { entity_aliases }
+        Self {
+            entity_aliases,
+            extension_commands: HashMap::new(),
+        }
+    }
+
+    /// Registers extension command names for slash parsing.
+    #[must_use]
+    pub fn with_extension_commands(
+        mut self,
+        commands: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Self {
+        for command in commands {
+            let command = command.as_ref();
+            self.extension_commands
+                .insert(command.to_ascii_lowercase(), command.to_owned());
+        }
+        self
     }
 
     /// Parses slash-prefixed player input into a semantic command.
@@ -97,11 +122,13 @@ impl Chrome {
             .to_ascii_lowercase();
         match cmd.as_str() {
             "look" | "l" => Ok(SemanticCommand::Look),
+            "map" | "m" => Ok(SemanticCommand::Map),
             "inventory" | "inv" | "i" => Ok(SemanticCommand::Inventory),
             "help" | "h" => Ok(SemanticCommand::Help),
             "quit" | "exit" | "q" => Ok(SemanticCommand::Quit),
             "mailbox" | "inbox" => Ok(SemanticCommand::Mailbox),
             "history" => Ok(SemanticCommand::History),
+            "who" => Ok(SemanticCommand::Who),
             "news" => Ok(SemanticCommand::News),
             "balance" | "bal" => Ok(SemanticCommand::Balance),
             "go" | "move" => {
@@ -156,6 +183,12 @@ impl Chrome {
             "land" => parse_land_command(&mut tokens),
             "build" => parse_build_command(trimmed, &mut tokens),
             "shop" => parse_shop_command(trimmed, &mut tokens),
+            _ if self.extension_commands.contains_key(cmd.as_str()) => {
+                Ok(SemanticCommand::Extension {
+                    name: cmd,
+                    input: trimmed.to_owned(),
+                })
+            }
             _ => Err(SlashParseError::UnknownCommand),
         }
     }
@@ -348,15 +381,13 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
     output.push('\n');
     if !observation.ascii_art.is_empty() {
         output.push('\n');
-        for line in &observation.ascii_art {
+        for line in compact_ascii_art(observation) {
             output.push_str(&highlight_ascii_markers(line));
             output.push('\n');
         }
     }
     output.push('\n');
     output.push_str(&observation.description);
-    output.push('\n');
-    output.push_str(Chrome::WORLD_PROTOCOL);
     output.push('\n');
     output.push_str(Chrome::MAP_LEGEND);
     output.push('\n');
@@ -381,12 +412,15 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
         output.push_str(&format!("{}: {entities}\n", Chrome::LABEL_VISIBLE));
     }
 
-    if !observation.available_commands.is_empty() {
+    if !observation.online_users.is_empty() {
         output.push_str(&format!(
-            "{}: {}\n",
-            Chrome::LABEL_AVAILABLE,
-            render_available_commands(&observation.available_commands)
+            "Online here: {}\n",
+            observation.online_users.join(", ")
         ));
+    }
+
+    if !observation.available_commands.is_empty() {
+        output.push_str(&render_available_summary(observation));
     }
 
     for event in &observation.events {
@@ -404,40 +438,98 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
     output
 }
 
-fn render_available_commands(commands: &[SemanticCommand]) -> String {
-    let mut rendered = Vec::new();
-    for command in commands {
-        let text = render_command(command);
-        if !rendered.contains(&text) {
-            rendered.push(text);
+/// Renders only command result events, without repeating the current room.
+#[must_use]
+pub fn render_text_events(observation: &JsonObservation) -> String {
+    let mut output = String::new();
+    for event in &observation.events {
+        match event {
+            ObservationEvent::Message { text } => {
+                output.push_str(text);
+                output.push('\n');
+            }
+            ObservationEvent::Move { direction, .. } => {
+                output.push_str(&format!("{} {}\n", Chrome::MOVE_VERB, direction.as_str()));
+            }
         }
     }
-    rendered.join(", ")
+    output
 }
 
-fn render_command(command: &SemanticCommand) -> String {
-    match command {
-        SemanticCommand::Look => "/look".to_owned(),
-        SemanticCommand::Move { direction } => format!("/go {}", direction.as_str()),
-        SemanticCommand::Inspect { target } => format!("/inspect {}", target.id),
-        SemanticCommand::Read { target } => format!("/read {}", target.id),
-        SemanticCommand::Take { target } => format!("/take {}", target.id),
-        SemanticCommand::Talk { target } => format!("/talk {}", target.id),
-        SemanticCommand::Say { .. } => "/say <text>".to_owned(),
-        SemanticCommand::Mail { .. } => "/mail <user> <text>".to_owned(),
-        SemanticCommand::Broadcast { .. } => "/broadcast <text>".to_owned(),
-        SemanticCommand::Mailbox => "/mailbox".to_owned(),
-        SemanticCommand::History => "/history".to_owned(),
-        SemanticCommand::News => "/news".to_owned(),
-        SemanticCommand::Balance => "/balance".to_owned(),
-        SemanticCommand::Pay { .. } => "/pay <user> <amount> [memo]".to_owned(),
-        SemanticCommand::Land { .. } => "/land list".to_owned(),
-        SemanticCommand::Build { .. } => "/build <field> <value>".to_owned(),
-        SemanticCommand::Shop { .. } => "/shop inbox".to_owned(),
-        SemanticCommand::Inventory => "/inventory".to_owned(),
-        SemanticCommand::Help => "/help".to_owned(),
-        SemanticCommand::Quit => "/quit".to_owned(),
+fn compact_ascii_art(observation: &JsonObservation) -> Vec<&str> {
+    let title = observation.title.trim().to_ascii_uppercase();
+    let mut lines = Vec::new();
+    let mut previous_blank = false;
+    for line in &observation.ascii_art {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            if !lines.is_empty() && !previous_blank {
+                lines.push(line.as_str());
+                previous_blank = true;
+            }
+            continue;
+        }
+        if trimmed.chars().all(|character| character == '=') || trimmed == title {
+            continue;
+        }
+        lines.push(line.as_str());
+        previous_blank = false;
     }
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
+    lines
+}
+
+fn render_available_summary(observation: &JsonObservation) -> String {
+    let mut parts = vec!["/look".to_owned(), "/map".to_owned(), "/help".to_owned()];
+    if observation
+        .available_commands
+        .iter()
+        .any(|command| matches!(command, SemanticCommand::Who))
+    {
+        parts.push("/who".to_owned());
+    }
+    if observation
+        .available_commands
+        .iter()
+        .any(|command| matches!(command, SemanticCommand::Say { .. }))
+    {
+        parts.push("/say <text>".to_owned());
+    }
+
+    let exits = observation
+        .exits
+        .iter()
+        .map(|exit| exit.direction.as_str())
+        .collect::<Vec<_>>();
+    if !exits.is_empty() {
+        parts.push(format!("go: {}", exits.join("/")));
+    }
+
+    if !observation.entities.is_empty() {
+        let names = observation
+            .entities
+            .iter()
+            .map(|entity| entity.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("interact: {names}"));
+    }
+
+    let extension_commands = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| match command {
+            SemanticCommand::Extension { input, .. } => Some(input.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !extension_commands.is_empty() {
+        parts.push(format!("local: {}", extension_commands.join(", ")));
+    }
+
+    format!("{}: {}\n", Chrome::LABEL_AVAILABLE, parts.join("; "))
 }
 
 fn highlight_ascii_markers(line: &str) -> String {
@@ -450,12 +542,8 @@ fn highlight_player_marker(line: &str) -> String {
 
 fn highlight_place_markers(line: &str) -> String {
     line.replace(
-        "[Tavern]",
-        &styled_marker("[Tavern]", Chrome::ANSI_PLACE_MARKER),
-    )
-    .replace(
-        "[Workshop]",
-        &styled_marker("[Workshop]", Chrome::ANSI_PLACE_MARKER),
+        "[Blackstone]",
+        &styled_marker("[Blackstone]", Chrome::ANSI_PLACE_MARKER),
     )
 }
 
@@ -490,6 +578,7 @@ mod tests {
             description: "A crossing.".to_owned(),
             exits: Vec::new(),
             entities: Vec::new(),
+            online_users: Vec::new(),
             available_commands: Vec::new(),
             events: vec![ObservationEvent::Message {
                 text: "hello".to_owned(),
@@ -507,16 +596,17 @@ mod tests {
             player_id: "local_player".to_owned(),
             view_id: "arrival_street".to_owned(),
             title: "Town Crossroads".to_owned(),
-            ascii_art: vec!["[Tavern] -- {bulletin board}".to_owned()],
+            ascii_art: vec!["[Blackstone] -- {bulletin board}".to_owned()],
             description: "A crossing.".to_owned(),
             exits: Vec::new(),
             entities: Vec::new(),
+            online_users: Vec::new(),
             available_commands: Vec::new(),
             events: Vec::new(),
         });
 
         assert!(rendered.contains(Chrome::ANSI_PLACE_MARKER));
-        assert!(rendered.contains("[Tavern]"));
+        assert!(rendered.contains("[Blackstone]"));
         assert!(rendered.contains(Chrome::ANSI_ITEM_MARKER));
         assert!(rendered.contains("{bulletin board}"));
     }

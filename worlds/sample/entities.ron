@@ -2,36 +2,17 @@
     (
         id: "tavern_front",
         kind: object,
-        name: "tavern front",
-        description: "Warm light leaks around a heavy door. The sign points west toward The Forked Lantern porch, where travelers trade rumors before stepping inside.",
-        aliases: ["tavern", "inn", "lantern", "door"],
+        name: "Blackstone tavern front",
+        description: "Black stone blocks frame a heavy tavern door. Warm light leaks around the hinges, and a short sign points west into Blackstone Tavern.",
+        aliases: ["tavern", "inn", "blackstone", "door"],
         actions: [inspect, read],
         collection: Some((
             kind: "bulletinBoard",
             items: [
                 (
                     id: "tavern_sign",
-                    title: "The Forked Lantern",
-                    body: "Go west to reach the tavern porch. Ask Mira about rumors, rooms, or work for new arrivals.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "workshop_front",
-        kind: object,
-        name: "workshop front",
-        description: "Tool racks and half-finished brass fittings crowd the open shopfront. A chalk arrow points east toward the active repair bay.",
-        aliases: ["workshop", "shop", "tools", "forge"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "workshop_sign",
-                    title: "Mender's Workshop",
-                    body: "Go east to reach the repair bay. Toma buys salvage, fixes tools, and posts mechanical requests.",
+                    title: "Blackstone",
+                    body: "Go west to enter Blackstone Tavern. Buy a beer before you blame someone or ask about town gossip.",
                 ),
             ],
         )),
@@ -74,7 +55,7 @@
                 (
                     id: "arrival_skill",
                     title: "Arrival Skill",
-                    body: "Welcome to Xagora. Read visible objects, inspect shopfronts, then go west to the tavern or east to the workshop.",
+                    body: "Xagora is an open world over SSH. Read the observation, choose an Available command, send it, then observe the changed state. Read visible objects, inspect shopfronts, then go west to Blackstone Tavern or visit the commercial parcels to the north and south. Password login is available for first contact, but ed25519 key login is recommended for long-term identity and future cryptographic compatibility. Generate one with: ssh-keygen -t ed25519 -C \"<user>@xagora\". Then connect with: ssh -i ~/.ssh/id_ed25519 -p <port> <user>@<host>.",
                 ),
                 (
                     id: "guild_guide",
@@ -91,35 +72,35 @@
         portable: false,
     ),
     (
-        id: "tavern_keeper",
+        id: "blackstone_bartender",
         kind: npc,
-        name: "Mira the tavern keeper",
-        description: "Mira polishes a tin cup while watching the crossroads traffic through the tavern window.",
-        aliases: ["mira", "keeper", "bartender", "tavern_keeper"],
+        name: "Blackstone bartender",
+        description: "The bartender keeps both hands visible and listens before speaking. He looks like a very good person.",
+        aliases: ["bartender", "keeper", "blackstone_bartender"],
         actions: [inspect, talk],
         collection: Some((
             kind: "dialogue",
             lines: [
                 (
                     id: "welcome",
-                    speaker: "Mira",
-                    body: "New face? The crossroads tells you where people go; the board tells you why.",
+                    speaker: "Bartender",
+                    body: "If you want to complain or ask around, you should probably buy a beer first.",
                 ),
                 (
-                    id: "rumor",
-                    speaker: "Mira",
-                    body: "Toma at the workshop is asking for clean brass scrap. Check the east repair bay if you want a practical errand.",
+                    id: "service",
+                    speaker: "Bartender",
+                    body: "Try /buy beer, /blame <complaint>, or /ask <question> here at the bar.",
                 ),
             ],
         )),
         portable: false,
     ),
     (
-        id: "tavern_menu",
+        id: "blackstone_menu",
         kind: object,
-        name: "tavern menu",
-        description: "A slate menu hangs beside the tavern door, smudged by rain and many sleeves.",
-        aliases: ["menu", "slate", "stew"],
+        name: "beer menu",
+        description: "A black slate menu hangs behind the bar.",
+        aliases: ["menu", "slate", "beer"],
         actions: [inspect, read],
         collection: Some((
             kind: "bulletinBoard",
@@ -127,60 +108,12 @@
                 (
                     id: "menu_today",
                     title: "Tonight's Board",
-                    body: "Root stew, black bread, and rumor tokens accepted after sunset.",
+                    body: "Beer first. Complaints and questions after beer.",
                 ),
                 (
-                    id: "room_note",
-                    title: "Rooms",
-                    body: "Rooms are not open yet. Mira records names for future lodging.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "workshop_mender",
-        kind: npc,
-        name: "Toma the mender",
-        description: "Toma sorts brass teeth, bent hinges, and cracked lens rings into labeled trays.",
-        aliases: ["toma", "mender", "mechanic", "smith"],
-        actions: [inspect, talk],
-        collection: Some((
-            kind: "dialogue",
-            lines: [
-                (
-                    id: "work",
-                    speaker: "Toma",
-                    body: "If you can read a board and follow a road, you can work here. Start by checking what the repair ledger needs.",
-                ),
-                (
-                    id: "crossroads",
-                    speaker: "Toma",
-                    body: "The west tavern hears rumors first. The east workshop turns rumors into tools.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "repair_ledger",
-        kind: object,
-        name: "repair ledger",
-        description: "A weighted ledger lies open on a scarred workbench.",
-        aliases: ["ledger", "requests", "jobs", "workbench"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "brass_scrap",
-                    title: "Wanted",
-                    body: "Clean brass scrap, clock pins, and cracked lenses. Payment is posted when trading opens.",
-                ),
-                (
-                    id: "repair_queue",
-                    title: "Repair Queue",
-                    body: "Lantern hinges first, message tubes second, stranger commissions last.",
+                    id: "service_commands",
+                    title: "Bar Commands",
+                    body: "Tavern commands: /buy beer, /blame <complaint>, /ask <question>.",
                 ),
             ],
         )),

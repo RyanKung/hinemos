@@ -5,7 +5,7 @@
 mod client_shell;
 mod reload;
 
-pub use client_shell::{Chrome, SlashParseError, render_text_observation};
+pub use client_shell::{Chrome, SlashParseError, render_text_events, render_text_observation};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -227,7 +227,7 @@ impl GameRuntime {
         command: &SemanticCommand,
     ) -> Result<JsonObservation, RuntimeError> {
         let events = match command {
-            SemanticCommand::Look | SemanticCommand::Inventory => Vec::new(),
+            SemanticCommand::Look | SemanticCommand::Map | SemanticCommand::Inventory => Vec::new(),
             SemanticCommand::Help => vec![message(Chrome::HELP_SUMMARY.to_owned())],
             SemanticCommand::Move { direction } => self.move_player(player_id, *direction)?,
             SemanticCommand::Inspect { target } => {
@@ -258,6 +258,9 @@ impl GameRuntime {
                     "Room history is available in SSH sessions.".to_owned(),
                 )]
             }
+            SemanticCommand::Who => {
+                vec![message("Who is available in SSH sessions.".to_owned())]
+            }
             SemanticCommand::News => {
                 vec![message("News is available in SSH sessions.".to_owned())]
             }
@@ -282,6 +285,11 @@ impl GameRuntime {
             SemanticCommand::Shop { .. } => {
                 vec![message(
                     "Shop tools are available in SSH sessions.".to_owned(),
+                )]
+            }
+            SemanticCommand::Extension { .. } => {
+                vec![message(
+                    "Extension commands are available in SSH sessions.".to_owned(),
                 )]
             }
             SemanticCommand::Quit => vec![message(Chrome::FEEDBACK_QUIT.to_owned())],
@@ -334,6 +342,7 @@ impl GameRuntime {
             description: view.description.clone(),
             exits,
             entities,
+            online_users: Vec::new(),
             available_commands: available_commands(&self.world, view, &visible_entities)?,
             events,
         })
@@ -367,6 +376,7 @@ impl GameRuntime {
                 .into_iter()
                 .map(|entity| entity.name)
                 .collect(),
+            online_users: json.online_users,
             events: json
                 .events
                 .into_iter()
@@ -494,38 +504,14 @@ fn available_commands(
 ) -> Result<Vec<SemanticCommand>, RuntimeError> {
     let mut commands = vec![
         SemanticCommand::Look,
+        SemanticCommand::Map,
         SemanticCommand::Inventory,
         SemanticCommand::Help,
         SemanticCommand::Say {
             text: "<text>".to_owned(),
         },
-        SemanticCommand::Mail {
-            target: "<user>".to_owned(),
-            text: "<text>".to_owned(),
-        },
-        SemanticCommand::Broadcast {
-            text: "<text>".to_owned(),
-        },
-        SemanticCommand::Mailbox,
         SemanticCommand::History,
-        SemanticCommand::News,
-        SemanticCommand::Balance,
-        SemanticCommand::Pay {
-            action: xagora_core::PayAction::Direct {
-                target: "<user>".to_owned(),
-                amount: 1,
-                memo: "<memo>".to_owned(),
-            },
-        },
-        SemanticCommand::Land {
-            action: xagora_core::LandAction::List,
-        },
-        SemanticCommand::Build {
-            action: xagora_core::BuildAction::Help,
-        },
-        SemanticCommand::Shop {
-            action: xagora_core::ShopAction::Inbox,
-        },
+        SemanticCommand::Who,
     ];
 
     commands.extend(view.exits.iter().map(|exit| SemanticCommand::Move {
@@ -677,12 +663,12 @@ mod tests {
             .execute(
                 LOCAL_PLAYER_ID,
                 &SemanticCommand::Move {
-                    direction: Direction::East,
+                    direction: Direction::West,
                 },
             )
             .expect("move should succeed");
 
-        assert_eq!(observation.view_id, "east_main_street");
+        assert_eq!(observation.view_id, "west_main_street");
     }
 
     #[test]
@@ -707,6 +693,6 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("Arrival Skill"));
-        assert!(text.contains("go west to the tavern"));
+        assert!(text.contains("go west to Blackstone Tavern"));
     }
 }

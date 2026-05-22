@@ -74,7 +74,8 @@ impl RuntimeHandle {
             .reload_from_world_dir_preserving_players(dir)?;
         let world = runtime.world()?;
         *state = RuntimeState {
-            chrome: Chrome::with_world(&world),
+            chrome: Chrome::with_world(&world)
+                .with_extension_commands(xagora_blackstone::extension_command_names()),
             runtime,
         };
         Ok(())
@@ -118,7 +119,8 @@ struct RuntimeState {
 
 impl RuntimeState {
     fn new(world: WorldState) -> Self {
-        let chrome = Chrome::with_world(&world);
+        let chrome = Chrome::with_world(&world)
+            .with_extension_commands(xagora_blackstone::extension_command_names());
         let runtime = GameRuntime::new(world);
         Self { runtime, chrome }
     }

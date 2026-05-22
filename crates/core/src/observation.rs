@@ -21,6 +21,9 @@ pub struct TextObservation {
     pub exits: Vec<String>,
     /// Visible entity names from world data.
     pub entities: Vec<String>,
+    /// Other online users visible in the current view.
+    #[serde(default)]
+    pub online_users: Vec<String>,
     /// Event lines produced by the last command.
     pub events: Vec<String>,
 }
@@ -44,6 +47,9 @@ pub struct JsonObservation {
     pub exits: Vec<ExitObservation>,
     /// Entities visible in the current view.
     pub entities: Vec<EntityObservation>,
+    /// Other online users visible in the current view.
+    #[serde(default)]
+    pub online_users: Vec<String>,
     /// Canonical commands available to the player.
     pub available_commands: Vec<SemanticCommand>,
     /// Recent world events caused by the last command.

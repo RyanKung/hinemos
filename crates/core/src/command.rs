@@ -58,6 +58,8 @@ impl EntityRef {
 pub enum SemanticCommand {
     /// Describe the current view again.
     Look,
+    /// Show the current view map again.
+    Map,
     /// Move through an exit.
     Move {
         /// Direction to move.
@@ -106,6 +108,8 @@ pub enum SemanticCommand {
     History,
     /// Show global broadcast news.
     News,
+    /// Show other online users in the current view.
+    Who,
     /// Show wallet balance.
     Balance,
     /// Wallet payment action.
@@ -127,6 +131,13 @@ pub enum SemanticCommand {
     Shop {
         /// Shop command action.
         action: ShopAction,
+    },
+    /// Run a registered extension command.
+    Extension {
+        /// Registered extension command name.
+        name: String,
+        /// Raw slash-prefixed input line.
+        input: String,
     },
     /// Show carried items.
     Inventory,

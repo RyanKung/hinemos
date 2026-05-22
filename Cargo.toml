@@ -5,6 +5,7 @@ members = [
     "crates/core",
     "crates/runtime",
     "crates/storage",
+    "crates/blackstone",
     "crates/protocol/ssh",
 ]
 resolver = "3"

@@ -1,0 +1,13 @@
+[package]
+name = "xagora-blackstone"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+xagora-core = { version = "0.1.0", path = "../core" }
+xagora-storage = { version = "0.1.0", path = "../storage" }
+reqwest = { version = "0.12.26", features = ["json", "rustls-tls"], default-features = false }
+serde = { version = "1.0.228", features = ["derive"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres"] }
+thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["sync", "rt", "time"] }

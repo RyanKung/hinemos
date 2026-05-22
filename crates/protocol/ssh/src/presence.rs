@@ -124,6 +124,35 @@ impl PresenceRegistry {
         users
     }
 
+    pub(crate) fn view_users(
+        &self,
+        current_connection_id: u64,
+        view_id: &str,
+    ) -> Vec<PresenceViewUser> {
+        let mut grouped = HashMap::<String, Instant>::new();
+        for (connection_id, record) in &self.connections {
+            if *connection_id == current_connection_id || record.current_view != view_id {
+                continue;
+            }
+            grouped
+                .entry(record.user.clone())
+                .and_modify(|last_seen_at| *last_seen_at = (*last_seen_at).max(record.last_seen_at))
+                .or_insert(record.last_seen_at);
+        }
+
+        let mut users = grouped
+            .into_iter()
+            .map(|(user, last_seen_at)| PresenceViewUser { user, last_seen_at })
+            .collect::<Vec<_>>();
+        users.sort_by(|left, right| {
+            right
+                .last_seen_at
+                .cmp(&left.last_seen_at)
+                .then_with(|| left.user.cmp(&right.user))
+        });
+        users
+    }
+
     pub(crate) fn request_kick(&mut self, connection_id: u64) -> bool {
         if self.connections.contains_key(&connection_id) {
             self.pending_kicks.insert(connection_id);
@@ -210,6 +239,12 @@ struct PresenceChannel {
 pub(crate) struct PresenceDelivery {
     pub(crate) handle: Handle,
     pub(crate) channel_id: ChannelId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PresenceViewUser {
+    pub(crate) user: String,
+    last_seen_at: Instant,
 }
 
 #[cfg(test)]
