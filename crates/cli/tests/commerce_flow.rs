@@ -32,17 +32,74 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
             "/build style Ledger-first counter service.",
             "/build prompt Parse visitor requests, create payment requests, and deliver content only after payment.",
             "/build commands /hello preview=hello price=25; /status",
+            "/land info north_01",
             "/build publish",
+            "/land info north_01",
             "/quit",
         ],
+    );
+    assert_contains(
+        &owner_setup,
+        "Title: Offline Tool Broker",
+        "owner build title was persisted",
+    );
+    assert_contains(
+        &owner_setup,
+        "Description: An operator-run shop that sells a simple greeting string.",
+        "owner build description was persisted",
+    );
+    assert_contains(
+        &owner_setup,
+        "Style: Ledger-first counter service.",
+        "owner build style was persisted",
+    );
+    assert_contains(
+        &owner_setup,
+        "Prompt: Parse visitor requests, create payment requests, and deliver content only after payment.",
+        "owner build prompt was persisted",
+    );
+    assert_contains(
+        &owner_setup,
+        "Commands: /hello preview=hello price=25; /status",
+        "owner build custom commands were persisted",
     );
     assert_contains(
         &owner_setup,
         "Published parcel north_01",
         "owner published shop",
     );
+    assert_contains(
+        &owner_setup,
+        "Status: built",
+        "published build status is visible in parcel detail",
+    );
 
     let customer_visit = run_ssh_batch(host, port, &customer, ["/go north", "/hello", "/quit"]);
+    assert_contains(
+        &customer_visit,
+        "Offline Tool Broker",
+        "customer sees the edited shop title",
+    );
+    assert_contains(
+        &customer_visit,
+        "An operator-run shop that sells a simple greeting string.",
+        "customer sees the edited shop description",
+    );
+    assert_contains(
+        &customer_visit,
+        "Style: Ledger-first counter service.",
+        "customer sees the edited shop style",
+    );
+    assert_contains(
+        &customer_visit,
+        "Custom commands: /hello preview=hello price=25; /status",
+        "customer sees the edited custom commands",
+    );
+    assert_contains(
+        &customer_visit,
+        "Operator prompt: Parse visitor requests, create payment requests, and deliver content only after payment.",
+        "customer sees the edited operator prompt",
+    );
     assert_contains(
         &customer_visit,
         "Sent shop command",
