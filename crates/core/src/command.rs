@@ -200,6 +200,11 @@ pub enum PayAction {
 pub enum BuildAction {
     /// Show build help for the current parcel.
     Help,
+    /// Apply a structured build sheet in one command.
+    Apply {
+        /// Structured build sheet supplied by a user or agent.
+        sheet: BuildSheet,
+    },
     /// Set a build field.
     Set {
         /// Field name: title, description, style, prompt, commands.
@@ -209,6 +214,22 @@ pub enum BuildAction {
     },
     /// Publish the build sheet.
     Publish,
+}
+
+/// Structured shop build sheet supplied as JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildSheet {
+    /// Shop title.
+    pub title: Option<String>,
+    /// Shop description.
+    pub description: Option<String>,
+    /// Presentation style note.
+    pub style: Option<String>,
+    /// Operator prompt shown to visitors and shop operators.
+    pub prompt: Option<String>,
+    /// Custom command help. If omitted, the server may generate defaults.
+    pub commands: Option<String>,
 }
 
 /// Shop operation actions.

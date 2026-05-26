@@ -9,7 +9,8 @@ pub mod observation;
 pub mod sample_world;
 
 pub use command::{
-    BuildAction, Direction, EntityRef, LandAction, PayAction, SemanticCommand, ShopAction,
+    BuildAction, BuildSheet, Direction, EntityRef, LandAction, PayAction, SemanticCommand,
+    ShopAction,
 };
 pub use ids::{EntityId, PlayerId, ViewId};
 pub use model::{

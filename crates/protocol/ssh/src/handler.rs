@@ -550,7 +550,7 @@ impl ConnectionHandler {
                 session.data(
                     channel,
                     format!(
-                        "Claimed parcel {}. Go to {} and use /build title, /build description, /build prompt, /build commands, then /build publish.\r\n",
+                        "Claimed parcel {}. Go to {} and use /build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /build publish. Custom commands are auto-filled if omitted.\r\n",
                         parcel.parcel_id, parcel.view_id
                     )
                     .into_bytes(),
@@ -591,6 +591,53 @@ impl ConnectionHandler {
         match action {
             BuildAction::Help => {
                 session.data(channel, build_help().as_bytes().to_vec())?;
+            }
+            BuildAction::Apply { sheet } => {
+                let mut updated = Vec::new();
+                for (field, value) in [
+                    ("title", sheet.title.as_deref()),
+                    ("description", sheet.description.as_deref()),
+                    ("style", sheet.style.as_deref()),
+                    ("prompt", sheet.prompt.as_deref()),
+                    ("commands", sheet.commands.as_deref()),
+                ] {
+                    let Some(value) = non_empty(value) else {
+                        continue;
+                    };
+                    self.shared
+                        .storage
+                        .update_parcel_build_field(
+                            &player.current_view,
+                            &identity.player_id,
+                            field,
+                            value,
+                        )
+                        .await?;
+                    updated.push(field);
+                }
+                if non_empty(sheet.commands.as_deref()).is_none() {
+                    self.shared
+                        .storage
+                        .update_parcel_build_field(
+                            &player.current_view,
+                            &identity.player_id,
+                            "commands",
+                            default_build_commands(),
+                        )
+                        .await?;
+                    updated.push("commands");
+                }
+                if updated.is_empty() {
+                    anyhow::bail!("build JSON did not include editable fields");
+                }
+                session.data(
+                    channel,
+                    format!(
+                        "Updated build sheet for current parcel: {}.\r\n",
+                        updated.join(", ")
+                    )
+                    .into_bytes(),
+                )?;
             }
             BuildAction::Set { field, value } => {
                 let parcel = self

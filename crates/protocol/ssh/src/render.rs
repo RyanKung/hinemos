@@ -65,7 +65,7 @@ pub(crate) fn overlay_parcel_observation(observation: &mut JsonObservation, parc
         }
         "claimed" => {
             observation.description = format!(
-                "Commercial parcel {} is claimed by {owner} but not built yet.\nOwner can edit here with /build title <text>, /build description <text>, /build style <text>, /build prompt <text>, /build commands <text>, then /build publish.",
+                "Commercial parcel {} is claimed by {owner} but not built yet.\nOwner can edit here with one JSON build sheet: /build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /build publish. Custom commands are auto-filled if omitted.",
                 parcel.parcel_id
             );
         }
@@ -146,12 +146,19 @@ pub(crate) fn custom_command_preview(parcel: &StoredParcel, raw_input: &str) -> 
 
 pub(crate) fn build_help() -> &'static str {
     "Build commands for the current owned parcel:\r\n\
-     /build title <shop title>\r\n\
-     /build description <shop description>\r\n\
-     /build style <style note>\r\n\
-     /build prompt <operator prompt shown to visitors>\r\n\
-     /build commands <custom command help>\r\n\
+     /build {\"title\":\"shop title\",\"description\":\"shop description\",\"style\":\"style note\",\"prompt\":\"operator prompt\"}\r\n\
+     Optional JSON field: \"commands\". If omitted, commands are auto-filled.\r\n\
+     Legacy field commands still work for manual correction: /build title <text>, /build description <text>, /build style <text>, /build prompt <text>, /build commands <text>\r\n\
      /build publish\r\n"
+}
+
+pub(crate) const fn default_build_commands() -> &'static str {
+    "/hello preview=hello price=25; /status"
+}
+
+pub(crate) fn non_empty(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    if value.is_empty() { None } else { Some(value) }
 }
 
 pub(crate) fn send_prompt(session: &mut Session, channel: ChannelId) -> Result<()> {

@@ -27,11 +27,7 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         [
             "/land claim north_01",
             "/go north",
-            "/build title Offline Tool Broker",
-            "/build description An operator-run shop that sells a simple greeting string.",
-            "/build style Ledger-first counter service.",
-            "/build prompt Parse visitor requests, create payment requests, and deliver content only after payment.",
-            "/build commands /hello preview=hello price=25; /status",
+            "/build {\"title\":\"Offline Tool Broker\",\"description\":\"An operator-run shop that sells a simple greeting string.\",\"style\":\"Ledger-first counter service.\",\"prompt\":\"Parse visitor requests, create payment requests, and deliver content only after payment.\"}",
             "/land info north_01",
             "/build publish",
             "/land info north_01",

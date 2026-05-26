@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 use xagora_core::{
-    BuildAction, Direction, EntityRef, JsonObservation, LandAction, ObservationEvent, PayAction,
-    SemanticCommand, ShopAction, WorldState,
+    BuildAction, BuildSheet, Direction, EntityRef, JsonObservation, LandAction, ObservationEvent,
+    PayAction, SemanticCommand, ShopAction, WorldState,
 };
 
 /// Engine chrome plus [`WorldState::entity_alias_map`] for slash targets.
@@ -55,7 +55,7 @@ impl Chrome {
         Mail and news: /mail <user> <text>, /mailbox, /broadcast <text>, /news\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
-        Build: /build title|description|style|prompt|commands|publish\n\
+        Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
         Shop: /shop inbox, /shop request-payment <cmd_id> <amount> <delivery>\n\
         Local extensions appear in Available inside their view.";
 
@@ -272,6 +272,25 @@ fn parse_build_command<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<SemanticCommand, SlashParseError> {
+    let build_input = trimmed
+        .strip_prefix("/build")
+        .ok_or(SlashParseError::MissingArgument)?
+        .trim();
+    if build_input.starts_with('{') {
+        let sheet = serde_json::from_str::<BuildSheet>(build_input)
+            .map_err(|_| SlashParseError::InvalidJson)?;
+        return Ok(SemanticCommand::Build {
+            action: BuildAction::Apply { sheet },
+        });
+    }
+    if let Some(json_input) = build_input.strip_prefix("json ") {
+        let sheet = serde_json::from_str::<BuildSheet>(json_input.trim())
+            .map_err(|_| SlashParseError::InvalidJson)?;
+        return Ok(SemanticCommand::Build {
+            action: BuildAction::Apply { sheet },
+        });
+    }
+
     let Some(field) = tokens.next() else {
         return Ok(SemanticCommand::Build {
             action: BuildAction::Help,
@@ -358,6 +377,9 @@ pub enum SlashParseError {
     /// Invalid integer amount.
     #[error("invalid amount")]
     InvalidAmount,
+    /// Invalid JSON payload.
+    #[error("invalid JSON")]
+    InvalidJson,
 }
 
 fn parse_direction(token: &str) -> Option<Direction> {
@@ -605,9 +627,11 @@ fn styled_marker(label: &str, ansi_style: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use xagora_core::{
-        ActionKind, Direction, EntityKind, EntityObservation, EntityRef, JsonObservation,
-        ObservationEvent, SemanticCommand,
+        ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef,
+        JsonObservation, ObservationEvent, SemanticCommand,
     };
 
     use super::{Chrome, render_text_observation};
@@ -710,5 +734,26 @@ mod tests {
         assert!(rendered.contains("/inspect cyber_scroll_board"));
         assert!(rendered.contains("/read cyber_scroll_board"));
         assert!(!rendered.contains("interact: bulletin board"));
+    }
+
+    #[test]
+    fn slash_parser_accepts_build_json() {
+        let command = Chrome::with_aliases(HashMap::new())
+            .parse_command(
+                "/build {\"title\":\"Tool Broker\",\"description\":\"Simple tools\",\"style\":\"ledger\",\"prompt\":\"reply tersely\"}",
+            )
+            .expect("build json parses");
+
+        let SemanticCommand::Build {
+            action: BuildAction::Apply { sheet },
+        } = command
+        else {
+            panic!("expected build sheet");
+        };
+        assert_eq!(sheet.title.as_deref(), Some("Tool Broker"));
+        assert_eq!(sheet.description.as_deref(), Some("Simple tools"));
+        assert_eq!(sheet.style.as_deref(), Some("ledger"));
+        assert_eq!(sheet.prompt.as_deref(), Some("reply tersely"));
+        assert_eq!(sheet.commands, None);
     }
 }
