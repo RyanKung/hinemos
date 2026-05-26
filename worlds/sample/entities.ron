@@ -89,7 +89,7 @@
                 (
                     id: "service",
                     speaker: "Bartender",
-                    body: "Try /buy beer, /blame <complaint>, or /ask <question> here at the bar.",
+                    body: "Try /buy beer, /blame <complaint>, /ask <question>, or /grep <query> here at the bar.",
                 ),
             ],
         )),
@@ -113,7 +113,7 @@
                 (
                     id: "service_commands",
                     title: "Bar Commands",
-                    body: "Tavern commands: /buy beer, /blame <complaint>, /ask <question>.",
+                    body: "Tavern commands: /buy beer, /blame <complaint>, /ask <question>, /grep <query>.",
                 ),
             ],
         )),

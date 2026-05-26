@@ -376,6 +376,7 @@ fn parse_direction(token: &str) -> Option<Direction> {
 #[must_use]
 pub fn render_text_observation(observation: &JsonObservation) -> String {
     let mut output = String::new();
+    output.push_str(&render_text_events(observation));
     output.push('\n');
     output.push_str(&observation.title);
     output.push('\n');
@@ -421,18 +422,6 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
 
     if !observation.available_commands.is_empty() {
         output.push_str(&render_available_summary(observation));
-    }
-
-    for event in &observation.events {
-        match event {
-            ObservationEvent::Message { text } => {
-                output.push_str(text);
-                output.push('\n');
-            }
-            ObservationEvent::Move { direction, .. } => {
-                output.push_str(&format!("{} {}\n", Chrome::MOVE_VERB, direction.as_str()));
-            }
-        }
     }
 
     output
@@ -482,7 +471,13 @@ fn compact_ascii_art(observation: &JsonObservation) -> Vec<&str> {
 }
 
 fn render_available_summary(observation: &JsonObservation) -> String {
-    let mut parts = vec!["/look".to_owned(), "/map".to_owned(), "/help".to_owned()];
+    let mut parts = vec![
+        "/look".to_owned(),
+        "/map".to_owned(),
+        "/inventory".to_owned(),
+        "/history".to_owned(),
+        "/help".to_owned(),
+    ];
     if observation
         .available_commands
         .iter()
@@ -498,24 +493,54 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         parts.push("/say <text>".to_owned());
     }
 
-    let exits = observation
-        .exits
+    let moves = observation
+        .available_commands
         .iter()
-        .map(|exit| exit.direction.as_str())
+        .filter_map(|command| match command {
+            SemanticCommand::Move { direction } => Some(format!("/go {}", direction.as_str())),
+            _ => None,
+        })
         .collect::<Vec<_>>();
-    if !exits.is_empty() {
-        parts.push(format!("go: {}", exits.join("/")));
+    if !moves.is_empty() {
+        parts.push(format!("move: {}", moves.join(", ")));
     }
 
-    if !observation.entities.is_empty() {
-        let names = observation
-            .entities
-            .iter()
-            .map(|entity| entity.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        parts.push(format!("interact: {names}"));
-    }
+    push_target_commands(
+        "inspect",
+        observation,
+        |command| match command {
+            SemanticCommand::Inspect { target } => Some(target.id.as_str()),
+            _ => None,
+        },
+        &mut parts,
+    );
+    push_target_commands(
+        "read",
+        observation,
+        |command| match command {
+            SemanticCommand::Read { target } => Some(target.id.as_str()),
+            _ => None,
+        },
+        &mut parts,
+    );
+    push_target_commands(
+        "talk",
+        observation,
+        |command| match command {
+            SemanticCommand::Talk { target } => Some(target.id.as_str()),
+            _ => None,
+        },
+        &mut parts,
+    );
+    push_target_commands(
+        "take",
+        observation,
+        |command| match command {
+            SemanticCommand::Take { target } => Some(target.id.as_str()),
+            _ => None,
+        },
+        &mut parts,
+    );
 
     let extension_commands = observation
         .available_commands
@@ -530,6 +555,22 @@ fn render_available_summary(observation: &JsonObservation) -> String {
     }
 
     format!("{}: {}\n", Chrome::LABEL_AVAILABLE, parts.join("; "))
+}
+
+fn push_target_commands<'a>(
+    verb: &str,
+    observation: &'a JsonObservation,
+    target_for: impl Fn(&'a SemanticCommand) -> Option<&'a str>,
+    parts: &mut Vec<String>,
+) {
+    let commands = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| target_for(command).map(|target| format!("/{verb} {target}")))
+        .collect::<Vec<_>>();
+    if !commands.is_empty() {
+        parts.push(format!("{verb}: {}", commands.join(", ")));
+    }
 }
 
 fn highlight_ascii_markers(line: &str) -> String {
@@ -564,7 +605,10 @@ fn styled_marker(label: &str, ansi_style: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use xagora_core::{JsonObservation, ObservationEvent};
+    use xagora_core::{
+        ActionKind, Direction, EntityKind, EntityObservation, EntityRef, JsonObservation,
+        ObservationEvent, SemanticCommand,
+    };
 
     use super::{Chrome, render_text_observation};
 
@@ -609,5 +653,62 @@ mod tests {
         assert!(rendered.contains("[Blackstone]"));
         assert!(rendered.contains(Chrome::ANSI_ITEM_MARKER));
         assert!(rendered.contains("{bulletin board}"));
+    }
+
+    #[test]
+    fn text_renderer_shows_events_before_room_context() {
+        let rendered = render_text_observation(&JsonObservation {
+            player_id: "local_player".to_owned(),
+            view_id: "north_parcel_01".to_owned(),
+            title: "North Parcel 01".to_owned(),
+            ascii_art: Vec::new(),
+            description: "A parcel.".to_owned(),
+            exits: Vec::new(),
+            entities: Vec::new(),
+            online_users: Vec::new(),
+            available_commands: Vec::new(),
+            events: vec![ObservationEvent::Move {
+                from: "arrival_street".to_owned(),
+                to: "north_parcel_01".to_owned(),
+                direction: Direction::North,
+            }],
+        });
+
+        let move_index = rendered.find("You go north").expect("move result");
+        let title_index = rendered.find("North Parcel 01").expect("room title");
+        assert!(move_index < title_index);
+    }
+
+    #[test]
+    fn text_renderer_lists_executable_entity_commands() {
+        let rendered = render_text_observation(&JsonObservation {
+            player_id: "local_player".to_owned(),
+            view_id: "arrival_street".to_owned(),
+            title: "Town Crossroads".to_owned(),
+            ascii_art: Vec::new(),
+            description: "A crossing.".to_owned(),
+            exits: Vec::new(),
+            entities: vec![EntityObservation {
+                id: "cyber_scroll_board".to_owned(),
+                kind: EntityKind::Object,
+                name: "bulletin board".to_owned(),
+                description: "A board.".to_owned(),
+                actions: vec![ActionKind::Inspect, ActionKind::Read],
+            }],
+            online_users: Vec::new(),
+            available_commands: vec![
+                SemanticCommand::Inspect {
+                    target: EntityRef::new("cyber_scroll_board"),
+                },
+                SemanticCommand::Read {
+                    target: EntityRef::new("cyber_scroll_board"),
+                },
+            ],
+            events: Vec::new(),
+        });
+
+        assert!(rendered.contains("/inspect cyber_scroll_board"));
+        assert!(rendered.contains("/read cyber_scroll_board"));
+        assert!(!rendered.contains("interact: bulletin board"));
     }
 }
