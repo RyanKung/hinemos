@@ -12,18 +12,20 @@ use std::pin::Pin;
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use rand_core::OsRng;
+use serde_json::json;
 use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use xagora_core::PlayerState;
 
+use messages::NewInboxItem;
 use types::{
     PlayerStateRow, credit_balance, debit_balance, ensure_balance_row, ensure_player_account,
     fetch_balance_pool, fetch_balance_tx, fetch_parcel_by_id, player_account_id,
     player_id_from_password_username, resolve_payment_target,
 };
 pub use types::{
-    StorageError, StoredBalance, StoredIdentity, StoredOperatorCommand, StoredParcel,
-    StoredPasswordIdentity, StoredPaymentRequest, StoredTransfer, StoredWorldMessage,
+    StorageError, StoredBalance, StoredIdentity, StoredInboxItem, StoredOperatorCommand,
+    StoredParcel, StoredPasswordIdentity, StoredPaymentRequest, StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
@@ -563,6 +565,25 @@ impl PgStorage {
         .bind(status)
         .fetch_one(&self.pool)
         .await?;
+        let subject = format!("Shop command for {}", parcel.parcel_id);
+        self.create_inbox_item(NewInboxItem {
+            kind: "shop_command",
+            recipient_user: owner_user,
+            recipient_player_id: owner_player_id,
+            sender_user,
+            sender_player_id,
+            subject: &subject,
+            body: raw_input,
+            source_kind: Some("operator_command"),
+            source_id: Some(command.id),
+            payload: json!({
+                "parcelId": parcel.parcel_id,
+                "viewId": parcel.view_id,
+                "commandId": command.id,
+                "rawInput": raw_input
+            }),
+        })
+        .await?;
         Ok(command)
     }
 
@@ -657,6 +678,35 @@ impl PgStorage {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        let subject = format!("Payment request #{}", request.id);
+        let body = format!(
+            "{} requests {} {} for shop command #{} in {}. Accept with /pay accept {}.",
+            request.payee_user,
+            request.amount,
+            request.asset,
+            request.operator_command_id,
+            request.parcel_id,
+            request.id
+        );
+        self.create_inbox_item(NewInboxItem {
+            kind: "payment_request",
+            recipient_user: &request.payer_user,
+            recipient_player_id: &request.payer_player_id,
+            sender_user: &request.payee_user,
+            sender_player_id: &request.payee_player_id,
+            subject: &subject,
+            body: &body,
+            source_kind: Some("payment_request"),
+            source_id: Some(request.id),
+            payload: json!({
+                "requestId": request.id,
+                "operatorCommandId": request.operator_command_id,
+                "parcelId": request.parcel_id,
+                "amount": request.amount,
+                "asset": request.asset
+            }),
+        })
+        .await?;
         Ok(request)
     }
 

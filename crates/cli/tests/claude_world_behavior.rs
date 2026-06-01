@@ -89,7 +89,16 @@ fn claude_can_discover_and_explore_world_over_ssh() {
     );
     require_output(
         &stdout,
-        &["claim", "build", "publish", "/build", "owned", "shop"],
+        &[
+            "claim",
+            "build",
+            "publish",
+            "/build",
+            "owned",
+            "shop",
+            "/shop inbox",
+            "/mailbox",
+        ],
         "evidence that it understood or exercised land build workflow",
         &temp,
     );

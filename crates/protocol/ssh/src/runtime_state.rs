@@ -63,6 +63,10 @@ impl RuntimeHandle {
         self.state.read().await.runtime.player_state(player_id)
     }
 
+    pub(crate) async fn set_player_state(&self, player: PlayerState) -> Result<(), RuntimeError> {
+        self.state.write().await.runtime.set_player_state(player)
+    }
+
     pub(crate) async fn reload_from_world_dir_preserving_players(
         &self,
         dir: impl Into<std::path::PathBuf>,

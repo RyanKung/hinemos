@@ -230,6 +230,9 @@ impl GameRuntime {
             SemanticCommand::Look | SemanticCommand::Map | SemanticCommand::Inventory => Vec::new(),
             SemanticCommand::Help => vec![message(Chrome::HELP_SUMMARY.to_owned())],
             SemanticCommand::Move { direction } => self.move_player(player_id, *direction)?,
+            SemanticCommand::Enter { .. } => {
+                vec![message("Enter is available in SSH sessions.".to_owned())]
+            }
             SemanticCommand::Inspect { target } => {
                 let entity = self.visible_entity(player_id, target)?;
                 vec![message(inspect_entity_message(entity))]
@@ -246,6 +249,9 @@ impl GameRuntime {
             SemanticCommand::Say { text } => vec![message(format!("You say: {text}"))],
             SemanticCommand::Mail { target, text } => {
                 vec![message(format!("You mail {target}: {text}"))]
+            }
+            SemanticCommand::Inbox { .. } => {
+                vec![message("Inbox is available in SSH sessions.".to_owned())]
             }
             SemanticCommand::Broadcast { text } => {
                 vec![message(format!("You broadcast: {text}"))]
@@ -512,6 +518,11 @@ fn available_commands(
         },
         SemanticCommand::History,
         SemanticCommand::Who,
+        SemanticCommand::Inbox {
+            action: xagora_core::InboxAction::List {
+                filter: "unread".to_owned(),
+            },
+        },
     ];
 
     commands.extend(view.exits.iter().map(|exit| SemanticCommand::Move {

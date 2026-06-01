@@ -65,6 +65,11 @@ pub enum SemanticCommand {
         /// Direction to move.
         direction: Direction,
     },
+    /// Enter an adjacent parcel or shopfront.
+    Enter {
+        /// Parcel id or visible shop title.
+        target: String,
+    },
     /// Inspect a visible entity.
     Inspect {
         /// Target entity.
@@ -96,6 +101,11 @@ pub enum SemanticCommand {
         target: String,
         /// Message body.
         text: String,
+    },
+    /// Manage the durable inbox.
+    Inbox {
+        /// Inbox command action.
+        action: InboxAction,
     },
     /// Send a global message to all connected players.
     Broadcast {
@@ -191,6 +201,37 @@ pub enum PayAction {
     Accept {
         /// Payment request id.
         request_id: i64,
+    },
+}
+
+/// Durable inbox actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum InboxAction {
+    /// List inbox items.
+    List {
+        /// Filter: open, unread, claimed, done, or all.
+        filter: String,
+    },
+    /// Read one inbox item.
+    Read {
+        /// Inbox item id.
+        item_id: i64,
+    },
+    /// Claim one inbox item for processing.
+    Claim {
+        /// Inbox item id.
+        item_id: i64,
+    },
+    /// Mark one inbox item handled.
+    Ack {
+        /// Inbox item id.
+        item_id: i64,
+    },
+    /// Archive one inbox item without handling.
+    Archive {
+        /// Inbox item id.
+        item_id: i64,
     },
 }
 

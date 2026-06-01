@@ -6,6 +6,7 @@ mod session;
 
 use crate::auth::{AuthIdentity, AuthOnboarding};
 use crate::render::*;
+use xagora_storage::StoredParcel;
 
 pub(crate) struct ConnectionHandler {
     shared: Arc<SharedState>,
@@ -247,12 +248,17 @@ impl ConnectionHandler {
     ) -> Result<bool> {
         match command {
             SemanticCommand::Mailbox => {
-                let messages = self
+                let items = self
                     .shared
                     .storage
-                    .recent_mailbox_messages(&identity.user, &identity.player_id, 20)
+                    .list_inbox_items(&identity.user, &identity.player_id, Some("open"), 20)
                     .await?;
-                send_message_list(session, channel, "Mailbox", &messages, "No mail.")?;
+                session.data(
+                    channel,
+                    render_inbox_items("Mailbox", &items)
+                        .replace('\n', "\r\n")
+                        .into_bytes(),
+                )?;
             }
             SemanticCommand::History => {
                 let player = self
@@ -317,6 +323,14 @@ impl ConnectionHandler {
                 self.handle_pay_command(channel, session, action, identity)
                     .await?;
             }
+            SemanticCommand::Inbox { action } => {
+                self.handle_inbox_command(channel, session, action, identity)
+                    .await?;
+            }
+            SemanticCommand::Enter { target } => {
+                self.handle_enter_command(channel, session, target, identity)
+                    .await?;
+            }
             SemanticCommand::Land { action } => {
                 self.handle_land_command(channel, session, action, identity)
                     .await?;
@@ -342,6 +356,45 @@ impl ConnectionHandler {
             send_prompt(session, channel)?;
         }
         Ok(true)
+    }
+
+    async fn handle_enter_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        target: &str,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        let mut player = self
+            .shared
+            .runtime
+            .player_state(&identity.player_id)
+            .await?;
+        let parcels = self.shared.storage.list_commercial_parcels().await?;
+        let visible = visible_street_parcels(&player.current_view, &parcels);
+        let parcel = resolve_enter_target(&visible, target)?;
+
+        player.current_view = parcel.view_id.clone();
+        self.shared.runtime.set_player_state(player.clone()).await?;
+        PlayerStateStore::save_player_state(&self.shared.storage, &player).await?;
+        self.shared
+            .presence
+            .lock()
+            .await
+            .update_view(self.connection_id, player.current_view.clone());
+
+        session.data(
+            channel,
+            format!("You enter {}.\r\n", parcel.parcel_id).into_bytes(),
+        )?;
+        let observation = self
+            .shared
+            .runtime
+            .observe_json(&identity.player_id)
+            .await?;
+        self.send_text_observation(channel, session, observation)
+            .await?;
+        Ok(())
     }
 
     async fn handle_operator_input(
@@ -393,12 +446,21 @@ impl ConnectionHandler {
                 delivered,
             )
             .await?;
+        let inbox_item = self
+            .shared
+            .storage
+            .inbox_item_by_source(owner_player_id, "operator_command", command.id)
+            .await?;
         if delivered {
             deliver_live_message(
                 recipients,
                 &format!(
-                    "[shop command #{} in {} from {}] {}",
-                    command.id, command.parcel_id, command.sender_user, command.raw_input
+                    "[inbox new id={} kind=shop_command from={} parcel={} command_id={}] {}",
+                    inbox_item.id,
+                    command.sender_user,
+                    command.parcel_id,
+                    command.id,
+                    command.raw_input
                 ),
             )
             .await;
@@ -510,6 +572,82 @@ impl ConnectionHandler {
                     )
                     .await;
                 }
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_inbox_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        action: &InboxAction,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        match action {
+            InboxAction::List { filter } => {
+                let items = self
+                    .shared
+                    .storage
+                    .list_inbox_items(&identity.user, &identity.player_id, Some(filter), 20)
+                    .await?;
+                session.data(
+                    channel,
+                    render_inbox_items("Inbox", &items)
+                        .replace('\n', "\r\n")
+                        .into_bytes(),
+                )?;
+            }
+            InboxAction::Read { item_id } => {
+                let item = self
+                    .shared
+                    .storage
+                    .read_inbox_item(&identity.user, &identity.player_id, *item_id)
+                    .await?;
+                session.data(
+                    channel,
+                    render_inbox_item(&item).replace('\n', "\r\n").into_bytes(),
+                )?;
+            }
+            InboxAction::Claim { item_id } => {
+                let item = self
+                    .shared
+                    .storage
+                    .claim_inbox_item(&identity.user, &identity.player_id, *item_id)
+                    .await?;
+                session.data(
+                    channel,
+                    format!(
+                        "Claimed inbox #{} kind={} subject={}. Lease until {}.\r\n",
+                        item.id,
+                        item.kind,
+                        item.subject,
+                        item.lease_until.as_deref().unwrap_or("unknown")
+                    )
+                    .into_bytes(),
+                )?;
+            }
+            InboxAction::Ack { item_id } => {
+                let item = self
+                    .shared
+                    .storage
+                    .finish_inbox_item(&identity.user, &identity.player_id, *item_id, "acked")
+                    .await?;
+                session.data(
+                    channel,
+                    format!("Acked inbox #{} kind={}.\r\n", item.id, item.kind).into_bytes(),
+                )?;
+            }
+            InboxAction::Archive { item_id } => {
+                let item = self
+                    .shared
+                    .storage
+                    .finish_inbox_item(&identity.user, &identity.player_id, *item_id, "archived")
+                    .await?;
+                session.data(
+                    channel,
+                    format!("Archived inbox #{} kind={}.\r\n", item.id, item.kind).into_bytes(),
+                )?;
             }
         }
         Ok(())
@@ -697,6 +835,11 @@ impl ConnectionHandler {
                     .storage
                     .create_payment_request(*command_id, &identity.player_id, *amount, delivery)
                     .await?;
+                let inbox_item = self
+                    .shared
+                    .storage
+                    .inbox_item_by_source(&request.payer_player_id, "payment_request", request.id)
+                    .await?;
                 session.data(
                     channel,
                     format!(
@@ -712,7 +855,17 @@ impl ConnectionHandler {
                     .await
                     .direct_recipients(self.connection_id, &request.payer_player_id);
                 if !recipients.is_empty() {
-                    deliver_live_message(recipients, &render_payment_popup(&request)).await;
+                    deliver_live_message(
+                        recipients,
+                        &format!(
+                            "[inbox new id={} kind=payment_request from={} request_id={}]\n{}",
+                            inbox_item.id,
+                            request.payee_user,
+                            request.id,
+                            render_payment_popup(&request)
+                        ),
+                    )
+                    .await;
                 }
             }
         }
@@ -784,6 +937,7 @@ impl ConnectionHandler {
         session: &mut Session,
         mut observation: JsonObservation,
     ) -> Result<()> {
+        let parcels = self.shared.storage.list_commercial_parcels().await?;
         if let Some(parcel) = self
             .shared
             .storage
@@ -791,6 +945,9 @@ impl ConnectionHandler {
             .await?
         {
             overlay_parcel_observation(&mut observation, &parcel);
+        } else {
+            let visible = visible_street_parcels(&observation.view_id, &parcels);
+            overlay_street_parcels(&mut observation, &visible);
         }
         let player_id = observation.player_id.clone();
         self.shared
@@ -854,7 +1011,8 @@ impl ConnectionHandler {
                 (recipients, format!("[say from {}] {text}", identity.user))
             }
             SemanticCommand::Mail { target, text } => {
-                self.shared
+                let inbox_item = self
+                    .shared
                     .storage
                     .save_mail_message(&identity.user, &identity.player_id, target, text)
                     .await?;
@@ -866,7 +1024,10 @@ impl ConnectionHandler {
                     .direct_recipients(self.connection_id, target);
                 (
                     recipients,
-                    format!("[mail from {} to {target}] {text}", identity.user),
+                    format!(
+                        "[inbox new id={} kind=mail from={}] {}",
+                        inbox_item.id, identity.user, text
+                    ),
                 )
             }
             SemanticCommand::Broadcast { text } => {
@@ -966,4 +1127,57 @@ impl ConnectionHandler {
 
         Ok(())
     }
+}
+
+fn visible_street_parcels<'a>(view_id: &str, parcels: &'a [StoredParcel]) -> Vec<&'a StoredParcel> {
+    let Some(parcel_id) = street_parcel_id(view_id) else {
+        return Vec::new();
+    };
+    parcels
+        .iter()
+        .filter(|parcel| parcel.parcel_id == parcel_id)
+        .collect()
+}
+
+fn street_parcel_id(view_id: &str) -> Option<&str> {
+    view_id.strip_prefix("street_")
+}
+
+fn resolve_enter_target<'a>(
+    visible: &[&'a StoredParcel],
+    target: &str,
+) -> Result<&'a StoredParcel> {
+    let normalized = normalize_enter_target(target);
+    if normalized.is_empty() {
+        anyhow::bail!("missing command argument");
+    }
+
+    visible
+        .iter()
+        .copied()
+        .find(|parcel| {
+            normalize_enter_target(&parcel.parcel_id) == normalized
+                || parcel
+                    .title
+                    .as_deref()
+                    .is_some_and(|title| normalize_enter_target(title) == normalized)
+        })
+        .ok_or_else(|| {
+            let available = visible
+                .iter()
+                .map(|parcel| parcel.parcel_id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            if available.is_empty() {
+                anyhow::anyhow!(
+                    "no adjacent parcel here; move along the street with /go, then use /enter <parcel>"
+                )
+            } else {
+                anyhow::anyhow!("parcel not adjacent here: {target}. Available: {available}")
+            }
+        })
+}
+
+fn normalize_enter_target(target: &str) -> String {
+    target.trim().to_ascii_lowercase()
 }

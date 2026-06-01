@@ -6,8 +6,8 @@ use russh::server::Session;
 use xagora_core::{JsonObservation, SemanticCommand};
 use xagora_runtime::{Chrome, render_text_events, render_text_observation};
 use xagora_storage::{
-    PgStorage, StoredOperatorCommand, StoredParcel, StoredPaymentRequest, StoredWorldMessage,
-    TEST_CURRENCY,
+    PgStorage, StoredInboxItem, StoredOperatorCommand, StoredParcel, StoredPaymentRequest,
+    StoredWorldMessage, TEST_CURRENCY,
 };
 
 use crate::auth::AuthIdentity;
@@ -42,7 +42,10 @@ pub(crate) fn send_text_events(
 pub(crate) fn should_render_full_observation(command: &SemanticCommand) -> bool {
     matches!(
         command,
-        SemanticCommand::Look | SemanticCommand::Map | SemanticCommand::Move { .. }
+        SemanticCommand::Look
+            | SemanticCommand::Map
+            | SemanticCommand::Move { .. }
+            | SemanticCommand::Enter { .. }
     )
 }
 
@@ -51,6 +54,7 @@ pub(crate) fn overlay_parcel_observation(observation: &mut JsonObservation, parc
     match parcel.status.as_str() {
         "built" => {
             if let Some(title) = &parcel.title {
+                overlay_ascii_title(observation, title);
                 observation.title = title.clone();
             }
             if let Some(description) = &parcel.description {
@@ -78,6 +82,51 @@ pub(crate) fn overlay_parcel_observation(observation: &mut JsonObservation, parc
     }
 }
 
+pub(crate) fn overlay_street_parcels(observation: &mut JsonObservation, parcels: &[&StoredParcel]) {
+    if parcels.is_empty() {
+        return;
+    }
+
+    let mut lines = vec!["Street parcels:".to_owned()];
+    for parcel in parcels {
+        let label = match parcel.status.as_str() {
+            "built" => parcel
+                .title
+                .as_deref()
+                .unwrap_or(&parcel.parcel_id)
+                .to_owned(),
+            "claimed" => format!(
+                "{} claimed by {}",
+                parcel.parcel_id,
+                parcel.owner_user.as_deref().unwrap_or("unknown")
+            ),
+            _ => format!("{} vacant", parcel.parcel_id),
+        };
+        lines.push(format!("- {label}. Enter: /enter {}.", parcel.parcel_id));
+    }
+
+    observation.description = format!("{}\n{}", observation.description, lines.join("\n"));
+    observation
+        .available_commands
+        .extend(parcels.iter().map(|parcel| SemanticCommand::Enter {
+            target: parcel.parcel_id.clone(),
+        }));
+}
+
+fn overlay_ascii_title(observation: &mut JsonObservation, title: &str) {
+    let old_title = observation.title.trim().to_ascii_uppercase();
+    if old_title.is_empty() {
+        return;
+    }
+
+    for line in &mut observation.ascii_art {
+        if line.trim() == old_title {
+            let indent = line.len() - line.trim_start().len();
+            *line = format!("{}[{title}]", " ".repeat(indent));
+        }
+    }
+}
+
 pub(crate) fn render_parcel_list(parcels: &[StoredParcel]) -> String {
     let mut lines = vec!["Commercial Parcels".to_owned()];
     for parcel in parcels {
@@ -100,6 +149,55 @@ pub(crate) fn render_parcel_list(parcels: &[StoredParcel]) -> String {
     );
     lines.push(String::new());
     lines.join("\n")
+}
+
+pub(crate) fn render_inbox_items(title: &str, items: &[StoredInboxItem]) -> String {
+    let mut lines = vec![title.to_owned()];
+    if items.is_empty() {
+        lines.push("No inbox items.".to_owned());
+    } else {
+        for item in items {
+            let lease = item
+                .lease_until
+                .as_deref()
+                .map(|value| format!(" lease_until={value}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "#{} kind={} status={} from={} subject={} body={} attempts={}{}",
+                item.id,
+                item.kind,
+                item.status,
+                compact_inbox_field(&item.sender_user),
+                compact_inbox_field(&item.subject),
+                compact_inbox_field(&item.body),
+                item.attempts,
+                lease
+            ));
+        }
+    }
+    lines.push(
+        "Use /mail read <id>, /mail claim <id>, /mail ack <id>, or /mail archive <id>.".to_owned(),
+    );
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+pub(crate) fn render_inbox_item(item: &StoredInboxItem) -> String {
+    format!(
+        "Inbox #{}\nKind: {}\nStatus: {}\nFrom: {}\nSubject: {}\nCreated: {}\nAttempts: {}\nBody: {}\n\n",
+        item.id,
+        item.kind,
+        item.status,
+        item.sender_user,
+        item.subject,
+        item.created_at,
+        item.attempts,
+        item.body
+    )
+}
+
+fn compact_inbox_field(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub(crate) fn render_parcel_detail(parcel: &StoredParcel) -> String {
@@ -149,7 +247,8 @@ pub(crate) fn build_help() -> &'static str {
      /build {\"title\":\"shop title\",\"description\":\"shop description\",\"style\":\"style note\",\"prompt\":\"operator prompt\"}\r\n\
      Optional JSON field: \"commands\". If omitted, commands are auto-filled.\r\n\
      Legacy field commands still work for manual correction: /build title <text>, /build description <text>, /build style <text>, /build prompt <text>, /build commands <text>\r\n\
-     /build publish\r\n"
+     /build publish\r\n\
+     After publishing, operate the shop by polling /shop inbox and /mailbox. Visitor slash commands inside the shop become shop inbox items.\r\n"
 }
 
 pub(crate) const fn default_build_commands() -> &'static str {
@@ -350,16 +449,20 @@ pub(crate) async fn send_mailbox_summary(
     storage: &PgStorage,
     identity: &AuthIdentity,
 ) -> Result<()> {
-    let messages = storage
-        .recent_mailbox_messages(&identity.user, &identity.player_id, 10)
+    let items = storage
+        .list_inbox_items(&identity.user, &identity.player_id, Some("open"), 10)
         .await?;
-    if messages.is_empty() {
+    if items.is_empty() {
         return Ok(());
     }
 
     session.data(
         channel,
-        format!("Mailbox: {} message(s). Use /mailbox.\r\n", messages.len()).into_bytes(),
+        format!(
+            "Inbox: {} open item(s). Use /mail list unread or /mailbox.\r\n",
+            items.len()
+        )
+        .into_bytes(),
     )?;
     Ok(())
 }
@@ -398,4 +501,54 @@ pub(crate) fn exec_help() -> &'static str {
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
      Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
      Wallet commands: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>."
+}
+
+#[cfg(test)]
+mod tests {
+    use xagora_core::JsonObservation;
+    use xagora_runtime::render_text_observation;
+    use xagora_storage::StoredParcel;
+
+    use super::overlay_parcel_observation;
+
+    #[test]
+    fn built_parcel_replaces_static_ascii_title_with_shop_title() {
+        let mut observation = JsonObservation {
+            player_id: "player".to_owned(),
+            view_id: "north_parcel_01".to_owned(),
+            title: "North Commercial Parcel 01".to_owned(),
+            ascii_art: vec![
+                "               NORTH COMMERCIAL PARCEL 01".to_owned(),
+                "                       |".to_owned(),
+                "                    <Me>".to_owned(),
+            ],
+            description: "Static parcel description.".to_owned(),
+            exits: Vec::new(),
+            entities: Vec::new(),
+            online_users: Vec::new(),
+            available_commands: Vec::new(),
+            events: Vec::new(),
+        };
+        let parcel = StoredParcel {
+            parcel_id: "north_01".to_owned(),
+            view_id: "north_parcel_01".to_owned(),
+            district: "north".to_owned(),
+            position: 1,
+            owner_user: Some("mainiu".to_owned()),
+            owner_player_id: Some("player".to_owned()),
+            status: "built".to_owned(),
+            title: Some("Offline Tool Broker".to_owned()),
+            description: Some("Simple tools.".to_owned()),
+            style: Some("ledger".to_owned()),
+            operator_prompt: Some("reply tersely".to_owned()),
+            custom_commands: Some("/hello preview=hello price=25".to_owned()),
+        };
+
+        overlay_parcel_observation(&mut observation, &parcel);
+        let rendered = render_text_observation(&observation);
+
+        assert!(rendered.contains("Offline Tool Broker"));
+        assert!(rendered.contains("[Offline Tool Broker]"));
+        assert!(!rendered.contains("NORTH COMMERCIAL PARCEL 01"));
+    }
 }

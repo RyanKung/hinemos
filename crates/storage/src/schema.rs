@@ -165,6 +165,42 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
+            create table if not exists inbox_items (
+                id bigserial primary key,
+                kind text not null,
+                recipient_user text not null,
+                recipient_player_id text not null,
+                sender_user text not null,
+                sender_player_id text not null,
+                subject text not null,
+                body text not null,
+                status text not null default 'unread'
+                    check (status in ('unread', 'claimed', 'acked', 'archived')),
+                source_kind text,
+                source_id bigint,
+                payload jsonb not null default '{}'::jsonb,
+                attempts integer not null default 0,
+                lease_until timestamptz,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (source_kind, source_id, recipient_player_id)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists inbox_items_recipient_idx
+            on inbox_items (recipient_player_id, status, created_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
             create table if not exists world_accounts (
                 account_id text primary key,
                 kind text not null check (kind in ('player', 'room', 'system')),

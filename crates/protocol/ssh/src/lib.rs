@@ -26,7 +26,7 @@ use russh::{Channel, ChannelId, server};
 use tokio::sync::Mutex;
 use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
 use xagora_core::{
-    BuildAction, JsonObservation, LandAction, PayAction, SemanticCommand, ShopAction,
+    BuildAction, InboxAction, JsonObservation, LandAction, PayAction, SemanticCommand, ShopAction,
 };
 use xagora_runtime::{Chrome, SlashParseError};
 use xagora_storage::{PgStorage, PlayerStateStore};

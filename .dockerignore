@@ -1,0 +1,13 @@
+.git
+.gitignore
+.dockerignore
+
+target
+.cargo
+.xagora
+
+.env
+.env.*
+
+.DS_Store
+docs

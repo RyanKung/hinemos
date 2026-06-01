@@ -27,6 +27,7 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         [
             "/land claim north_01",
             "/go north",
+            "/enter north_01",
             "/build {\"title\":\"Offline Tool Broker\",\"description\":\"An operator-run shop that sells a simple greeting string.\",\"style\":\"Ledger-first counter service.\",\"prompt\":\"Parse visitor requests, create payment requests, and deliver content only after payment.\"}",
             "/land info north_01",
             "/build publish",
@@ -70,7 +71,12 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         "published build status is visible in parcel detail",
     );
 
-    let customer_visit = run_ssh_batch(host, port, &customer, ["/go north", "/hello", "/quit"]);
+    let customer_visit = run_ssh_batch(
+        host,
+        port,
+        &customer,
+        ["/go north", "/enter north_01", "/hello", "/quit"],
+    );
     assert_contains(
         &customer_visit,
         "Offline Tool Broker",

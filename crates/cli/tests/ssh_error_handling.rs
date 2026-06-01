@@ -252,6 +252,50 @@ fn help_output_is_grouped_across_lines() {
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
+fn password_auth_works_without_local_ssh_keys() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("xagora-no-local-key-password-auth");
+    let isolated_home = temp.path.join("empty-home");
+    fs::create_dir_all(isolated_home.join(".ssh")).expect("create isolated ssh home");
+
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("no_key_probe_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("xagora-server.log");
+
+    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let output = run_ssh_password_batch_with_home(
+        &temp,
+        host,
+        port,
+        &user,
+        "first-use-password",
+        &isolated_home,
+        ["/quit"],
+    );
+    assert_contains(
+        &output,
+        "First password login recorded",
+        "password login works when the client has no local SSH keys",
+    );
+    assert_contains(
+        &output,
+        "Welcome to Xagora",
+        "no-local-key first contact still reaches the world",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
 fn password_auth_records_first_password_and_reuses_identity() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -319,7 +363,7 @@ fn password_auth_records_first_password_and_reuses_identity() {
 
 #[test]
 #[ignore = "requires local Postgres, SSH client, and ssh-keygen"]
-fn first_ed25519_key_login_gets_welcome_without_key_warning() {
+fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -347,7 +391,7 @@ fn first_ed25519_key_login_gets_welcome_without_key_warning() {
     let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let first_output = run_ssh_key_batch(host, port, &user, &ed25519_key, ["/quit"]);
+    let first_output = run_ssh_key_batch(&temp, host, port, &user, &ed25519_key, ["/quit"]);
     assert_contains(
         &first_output,
         "Welcome to Xagora",
@@ -374,7 +418,7 @@ fn first_ed25519_key_login_gets_welcome_without_key_warning() {
         "ed25519 login should not inline key registration commands",
     );
 
-    let second_output = run_ssh_key_batch(host, port, &user, &ed25519_key, ["/quit"]);
+    let second_output = run_ssh_key_batch(&temp, host, port, &user, &ed25519_key, ["/quit"]);
     assert_not_contains(
         &second_output,
         "Welcome to Xagora",
@@ -392,7 +436,7 @@ fn first_ed25519_key_login_gets_welcome_without_key_warning() {
 
 #[test]
 #[ignore = "requires local Postgres, SSH client, and ssh-keygen"]
-fn first_non_ed25519_key_login_recommends_ed25519() {
+fn first_login_with_only_rsa_key_recommends_ed25519() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -420,7 +464,7 @@ fn first_non_ed25519_key_login_recommends_ed25519() {
     let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let first_output = run_ssh_key_batch(host, port, &user, &rsa_key, ["/quit"]);
+    let first_output = run_ssh_key_batch(&temp, host, port, &user, &rsa_key, ["/quit"]);
     assert_contains(
         &first_output,
         "Welcome to Xagora",
@@ -447,7 +491,7 @@ fn first_non_ed25519_key_login_recommends_ed25519() {
         "first RSA login should not inline key registration commands",
     );
 
-    let second_output = run_ssh_key_batch(host, port, &user, &rsa_key, ["/quit"]);
+    let second_output = run_ssh_key_batch(&temp, host, port, &user, &rsa_key, ["/quit"]);
     assert_not_contains(
         &second_output,
         "/read board",
@@ -472,11 +516,36 @@ fn run_ssh_password_batch<const N: usize>(
     commands: [&str; N],
 ) -> String {
     let output = run_ssh_password_batch_raw(temp, host, port, user, password, commands);
+    ssh_output_stdout(output, user, "password ssh batch")
+}
+
+fn run_ssh_password_batch_with_home<const N: usize>(
+    temp: &TestTempDir,
+    host: &str,
+    port: u16,
+    user: &str,
+    password: &str,
+    home: &std::path::Path,
+    commands: [&str; N],
+) -> String {
+    let output = run_ssh_password_batch_raw_with_home(
+        temp,
+        host,
+        port,
+        user,
+        password,
+        Some(home),
+        commands,
+    );
+    ssh_output_stdout(output, user, "password ssh batch")
+}
+
+fn ssh_output_stdout(output: std::process::Output, user: &str, label: &str) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "password ssh batch failed for {user}: {}\nstdout:\n{}",
+        "{label} failed for {user}: {}\nstdout:\n{}",
         stderr,
         stdout
     );
@@ -491,6 +560,18 @@ fn run_ssh_password_batch_raw<const N: usize>(
     password: &str,
     commands: [&str; N],
 ) -> std::process::Output {
+    run_ssh_password_batch_raw_with_home(temp, host, port, user, password, None, commands)
+}
+
+fn run_ssh_password_batch_raw_with_home<const N: usize>(
+    temp: &TestTempDir,
+    host: &str,
+    port: u16,
+    user: &str,
+    password: &str,
+    home: Option<&std::path::Path>,
+    commands: [&str; N],
+) -> std::process::Output {
     let askpass = temp.path.join("askpass.sh");
     fs::write(
         &askpass,
@@ -501,7 +582,8 @@ fn run_ssh_password_batch_raw<const N: usize>(
     fs::set_permissions(&askpass, fs::Permissions::from_mode(0o700)).expect("chmod askpass helper");
 
     let input = format!("{}\n", commands.join("\n"));
-    let mut child = Command::new("ssh")
+    let mut command = Command::new("ssh");
+    command
         .args([
             "-T",
             "-o",
@@ -521,7 +603,11 @@ fn run_ssh_password_batch_raw<const N: usize>(
         .env("SSH_ASKPASS", &askpass)
         .env("SSH_ASKPASS_REQUIRE", "force")
         .env("DISPLAY", "xagora-test")
-        .env("XAGORA_TEST_SSH_PASSWORD", password)
+        .env("XAGORA_TEST_SSH_PASSWORD", password);
+    if let Some(home) = home {
+        command.env("HOME", home);
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -538,12 +624,22 @@ fn run_ssh_password_batch_raw<const N: usize>(
 }
 
 fn run_ssh_key_batch<const N: usize>(
+    temp: &TestTempDir,
     host: &str,
     port: u16,
     user: &str,
     key_path: &std::path::Path,
     commands: [&str; N],
 ) -> String {
+    let isolated_home = temp.path.join(format!("key-home-{user}"));
+    fs::create_dir_all(isolated_home.join(".ssh")).expect("create isolated key ssh home");
+    let known_hosts = isolated_home.join(".ssh/known_hosts");
+    let known_hosts_option = format!(
+        "UserKnownHostsFile={}",
+        known_hosts
+            .to_str()
+            .expect("known_hosts path is valid utf-8")
+    );
     let input = format!("{}\n", commands.join("\n"));
     let mut child = Command::new("ssh")
         .args([
@@ -551,17 +647,21 @@ fn run_ssh_key_batch<const N: usize>(
             "-o",
             "StrictHostKeyChecking=no",
             "-o",
-            "UserKnownHostsFile=/dev/null",
+            &known_hosts_option,
             "-o",
             "PreferredAuthentications=publickey",
             "-o",
             "PasswordAuthentication=no",
             "-o",
             "IdentitiesOnly=yes",
+            "-o",
+            "IdentityAgent=none",
             "-i",
         ])
         .arg(key_path)
         .args(["-p", &port.to_string(), &format!("{user}@{host}")])
+        .env("HOME", &isolated_home)
+        .env_remove("SSH_AUTH_SOCK")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

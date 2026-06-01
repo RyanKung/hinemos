@@ -53,7 +53,7 @@ fn external_agent_learns_from_unscripted_world_contact() {
             session.wait_for_any_stdout(
                 &[
                     &format!("[say from {learner}]"),
-                    &format!("[mail from {learner} to {greeter}]"),
+                    &format!("kind=mail from={learner}"),
                 ],
                 Duration::from_secs(90),
             );
@@ -71,6 +71,7 @@ fn external_agent_learns_from_unscripted_world_contact() {
             && lower.contains("available")
             && lower.contains("guild guide")
             && lower.contains("/say <text>")
+            && lower.contains("/shop inbox")
             && (lower.contains("you say:") || lower.contains(&format!("mail {greeter}")))
             && (lower.contains("/mailbox")
                 || lower.contains("/news")

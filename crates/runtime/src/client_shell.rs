@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 use xagora_core::{
-    BuildAction, BuildSheet, Direction, EntityRef, JsonObservation, LandAction, ObservationEvent,
-    PayAction, SemanticCommand, ShopAction, WorldState,
+    BuildAction, BuildSheet, Direction, EntityRef, InboxAction, JsonObservation, LandAction,
+    ObservationEvent, PayAction, SemanticCommand, ShopAction, WorldState,
 };
 
 /// Engine chrome plus [`WorldState::entity_alias_map`] for slash targets.
@@ -49,14 +49,14 @@ impl Chrome {
 
     /// Summary shown after the `/help` command.
     pub const HELP_SUMMARY: &'static str = "Commands:\n\
-        Movement: /look, /map, /go <dir>, /inventory, /quit\n\
+        Movement: /look, /map, /go <dir>, /enter <parcel>, /inventory, /quit\n\
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
-        Mail and news: /mail <user> <text>, /mailbox, /broadcast <text>, /news\n\
+        Mail and news: /mail <user> <text>, /mail list unread, /mail read <id>, /mail claim <id>, /mail ack <id>, /mailbox, /broadcast <text>, /news\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
-        Shop: /shop inbox, /shop request-payment <cmd_id> <amount> <delivery>\n\
+        Shop: owners poll /shop inbox and /mailbox; reply with /shop request-payment <cmd_id> <amount> <delivery>\n\
         Local extensions appear in Available inside their view.";
 
     /// Feedback line after inspecting an entity.
@@ -137,6 +137,11 @@ impl Chrome {
                     parse_direction(direction_token).ok_or(SlashParseError::MissingArgument)?;
                 Ok(SemanticCommand::Move { direction })
             }
+            "enter" | "visit" => {
+                tokens.next().ok_or(SlashParseError::MissingArgument)?;
+                let target = rest_after_command(trimmed, rest, cmd.as_str())?;
+                Ok(SemanticCommand::Enter { target })
+            }
             "inspect" | "x" | "examine" => {
                 let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
                 Ok(SemanticCommand::Inspect {
@@ -167,6 +172,9 @@ impl Chrome {
             }
             "mail" => {
                 let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+                if let Some(action) = parse_inbox_action(target, &mut tokens)? {
+                    return Ok(SemanticCommand::Inbox { action });
+                }
                 let text = rest_after_token(trimmed, target)?;
                 Ok(SemanticCommand::Mail {
                     target: target.to_owned(),
@@ -199,6 +207,45 @@ impl Chrome {
             .get(&lower)
             .cloned()
             .unwrap_or_else(|| token.to_owned())
+    }
+}
+
+fn parse_inbox_action<'a>(
+    first: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<Option<InboxAction>, SlashParseError> {
+    let action = match first.to_ascii_lowercase().as_str() {
+        "list" | "ls" => InboxAction::List {
+            filter: parse_inbox_filter(tokens.next().unwrap_or("open"))?.to_owned(),
+        },
+        "read" => InboxAction::Read {
+            item_id: parse_inbox_id(tokens.next())?,
+        },
+        "claim" => InboxAction::Claim {
+            item_id: parse_inbox_id(tokens.next())?,
+        },
+        "ack" | "done" => InboxAction::Ack {
+            item_id: parse_inbox_id(tokens.next())?,
+        },
+        "archive" => InboxAction::Archive {
+            item_id: parse_inbox_id(tokens.next())?,
+        },
+        _ => return Ok(None),
+    };
+    Ok(Some(action))
+}
+
+fn parse_inbox_id(value: Option<&str>) -> Result<i64, SlashParseError> {
+    value
+        .ok_or(SlashParseError::MissingArgument)?
+        .parse::<i64>()
+        .map_err(|_| SlashParseError::InvalidAmount)
+}
+
+fn parse_inbox_filter(value: &str) -> Result<&str, SlashParseError> {
+    match value {
+        "open" | "unread" | "claimed" | "done" | "all" => Ok(value),
+        _ => Err(SlashParseError::InvalidInboxFilter),
     }
 }
 
@@ -377,6 +424,9 @@ pub enum SlashParseError {
     /// Invalid integer amount.
     #[error("invalid amount")]
     InvalidAmount,
+    /// Invalid inbox filter.
+    #[error("invalid inbox filter")]
+    InvalidInboxFilter,
     /// Invalid JSON payload.
     #[error("invalid JSON")]
     InvalidJson,
@@ -520,11 +570,26 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         .iter()
         .filter_map(|command| match command {
             SemanticCommand::Move { direction } => Some(format!("/go {}", direction.as_str())),
+            SemanticCommand::Enter { target } => Some(format!("/enter {target}")),
             _ => None,
         })
         .collect::<Vec<_>>();
     if !moves.is_empty() {
         parts.push(format!("move: {}", moves.join(", ")));
+    }
+
+    let inbox = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| match command {
+            SemanticCommand::Inbox {
+                action: InboxAction::List { .. },
+            } => Some("/mail list unread".to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !inbox.is_empty() {
+        parts.push(format!("inbox: {}", inbox.join(", ")));
     }
 
     push_target_commands(
@@ -630,11 +695,11 @@ mod tests {
     use std::collections::HashMap;
 
     use xagora_core::{
-        ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef,
+        ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef, InboxAction,
         JsonObservation, ObservationEvent, SemanticCommand,
     };
 
-    use super::{Chrome, render_text_observation};
+    use super::{Chrome, SlashParseError, render_text_observation};
 
     #[test]
     fn text_renderer_highlights_player_marker() {
@@ -755,5 +820,42 @@ mod tests {
         assert_eq!(sheet.style.as_deref(), Some("ledger"));
         assert_eq!(sheet.prompt.as_deref(), Some("reply tersely"));
         assert_eq!(sheet.commands, None);
+    }
+
+    #[test]
+    fn slash_parser_accepts_enter_target_with_spaces() {
+        let command = Chrome::with_aliases(HashMap::new())
+            .parse_command("/enter Offline Tool Broker")
+            .expect("enter parses");
+
+        assert_eq!(
+            command,
+            SemanticCommand::Enter {
+                target: "Offline Tool Broker".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn slash_parser_accepts_inbox_actions() {
+        let command = Chrome::with_aliases(HashMap::new())
+            .parse_command("/mail claim 42")
+            .expect("mail claim parses");
+
+        assert_eq!(
+            command,
+            SemanticCommand::Inbox {
+                action: InboxAction::Claim { item_id: 42 }
+            }
+        );
+    }
+
+    #[test]
+    fn slash_parser_rejects_unknown_inbox_filter() {
+        let error = Chrome::with_aliases(HashMap::new())
+            .parse_command("/mail list stale")
+            .expect_err("unknown inbox filter is rejected");
+
+        assert_eq!(error, SlashParseError::InvalidInboxFilter);
     }
 }

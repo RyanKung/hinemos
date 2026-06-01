@@ -47,6 +47,35 @@ pub struct StoredWorldMessage {
     pub expires_at: Option<String>,
 }
 
+/// Stored actionable inbox item for an agent or human player.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredInboxItem {
+    /// Database id.
+    pub id: i64,
+    /// Item kind, for example mail, shop_command, or payment_request.
+    pub kind: String,
+    /// Recipient SSH user.
+    pub recipient_user: String,
+    /// Recipient player id.
+    pub recipient_player_id: String,
+    /// Sender SSH user.
+    pub sender_user: String,
+    /// Sender player id.
+    pub sender_player_id: String,
+    /// Short subject for list views.
+    pub subject: String,
+    /// Full body.
+    pub body: String,
+    /// unread, claimed, acked, or archived.
+    pub status: String,
+    /// Number of processing claims.
+    pub attempts: i32,
+    /// Database formatted lease expiry, if claimed.
+    pub lease_until: Option<String>,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
 /// Stored balance for a single account and asset.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredBalance {
@@ -245,6 +274,12 @@ pub enum StorageError {
     /// Player is not allowed to act on this payment request.
     #[error("payment request does not belong to this player: {0}")]
     PaymentRequestForbidden(i64),
+    /// Inbox item was not found or is not visible to the player.
+    #[error("inbox item not found: {0}")]
+    InboxItemNotFound(i64),
+    /// Inbox filter is not supported.
+    #[error("invalid inbox filter: {0}")]
+    InvalidInboxFilter(String),
 }
 
 impl StorageError {

@@ -40,19 +40,23 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
         &format!("You mail {target}: {message}"),
         "sender sees mail confirmation",
     );
-    target_session.wait_for_stdout(
-        &format!("[mail from {sender} to {target}] {message}"),
-        Duration::from_secs(10),
-    );
+    target_session.wait_for_stdout("[inbox new id=", Duration::from_secs(10));
+    target_session.wait_for_stdout(&format!("kind=mail from={sender}"), Duration::from_secs(10));
 
     target_session.write_line("/mailbox");
     target_session.wait_for_stdout("Mailbox", Duration::from_secs(10));
     target_session.wait_for_stdout(&message, Duration::from_secs(10));
+    target_session.write_line("/mail read 1");
+    target_session.wait_for_stdout("Inbox #1", Duration::from_secs(10));
+    target_session.write_line("/mail claim 1");
+    target_session.wait_for_stdout("Claimed inbox #1", Duration::from_secs(10));
+    target_session.write_line("/mail ack 1");
+    target_session.wait_for_stdout("Acked inbox #1", Duration::from_secs(10));
     target_session.write_line("/quit");
     let target_output = target_session.wait_success(Duration::from_secs(10));
     assert_contains(
         &target_output,
-        &format!("[mail from {sender} to {target}] {message}"),
+        &format!("kind=mail from={sender}"),
         "target receives live direct mail",
     );
     assert_contains(
