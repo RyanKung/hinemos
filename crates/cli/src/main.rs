@@ -1,19 +1,19 @@
 #![deny(missing_docs)]
 
-//! Local stdin/stdout CLI adapter for the Xagora open-world runtime.
+//! Local stdin/stdout CLI adapter for the Hinemos open-world runtime.
 
 use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use xagora_admin_protocol::{AdminRequest, AdminResponse};
-use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-use xagora_core::{JsonObservation, SemanticCommand};
-use xagora_runtime::{Chrome, GameRuntime, render_text_observation};
+use hinemos_admin_protocol::{AdminRequest, AdminResponse};
+use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
+use hinemos_core::{JsonObservation, SemanticCommand};
+use hinemos_runtime::{Chrome, GameRuntime, render_text_observation};
 
 #[derive(Debug, Parser)]
-#[command(name = "xagora")]
+#[command(name = "hinemos")]
 #[command(about = "A local open-world prototype for agent exploration")]
 struct Cli {
     #[cfg(unix)]
@@ -38,9 +38,9 @@ enum TopCommand {
 #[derive(Debug, Subcommand)]
 enum ServeCli {
     /// Run the SSH adapter.
-    Ssh(xagora_ssh::SshArgs),
+    Ssh(hinemos_ssh::SshArgs),
     /// Run the SMTP/IMAP mail sidecar.
-    Mail(xagora_ssh::MailArgs),
+    Mail(hinemos_ssh::MailArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -60,7 +60,7 @@ enum OutputFormat {
 
 #[derive(Debug, Parser)]
 struct AdminCli {
-    #[arg(long, default_value = ".xagora/admin.sock")]
+    #[arg(long, default_value = ".hinemos/admin.sock")]
     socket: PathBuf,
 
     #[command(subcommand)]
@@ -102,8 +102,8 @@ async fn main() -> Result<()> {
     if let Some(sub) = cli.sub {
         return match sub {
             TopCommand::Admin(admin) => run_admin(admin),
-            TopCommand::Serve(ServeCli::Ssh(args)) => xagora_ssh::run_daemon(args).await,
-            TopCommand::Serve(ServeCli::Mail(args)) => xagora_ssh::run_mail_daemon(args).await,
+            TopCommand::Serve(ServeCli::Ssh(args)) => hinemos_ssh::run_daemon(args).await,
+            TopCommand::Serve(ServeCli::Mail(args)) => hinemos_ssh::run_mail_daemon(args).await,
         };
     }
 
@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
 
 #[cfg(unix)]
 fn run_admin(admin: AdminCli) -> Result<()> {
-    use xagora_admin_protocol::unix_admin_call;
+    use hinemos_admin_protocol::unix_admin_call;
 
     let request = match admin.cmd {
         AdminCmd::Ping => AdminRequest::Ping,

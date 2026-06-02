@@ -264,7 +264,7 @@ pub fn unix_admin_call(
 fn stable_connect_not_found_message() {
     let err = std::io::Error::new(std::io::ErrorKind::NotFound, "ENOENT");
     let msg = admin_rpc_failure_message(
-        Path::new("/run/xagora/admin.sock"),
+        Path::new("/run/hinemos/admin.sock"),
         AdminRpcPhase::Connect,
         &err,
     );

@@ -14,13 +14,13 @@ fn claude_can_discover_and_explore_world_over_ssh() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("claude");
 
-    let temp = TestTempDir::new("xagora-claude-world");
+    let temp = TestTempDir::new("hinemos-claude-world");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let prompt = format!(
@@ -47,7 +47,7 @@ fn claude_can_discover_and_explore_world_over_ssh() {
     require_output(&stdout, &["ssh", "SSH"], "evidence that it used SSH", &temp);
     require_output(
         &stdout,
-        &["Xagora", "open world"],
+        &["Hinemos", "open world"],
         "evidence that it identified the world",
         &temp,
     );

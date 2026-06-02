@@ -11,11 +11,11 @@ use std::pin::Pin;
 
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use hinemos_core::PlayerState;
 use rand_core::OsRng;
 use serde_json::json;
 use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use xagora_core::PlayerState;
 
 use messages::NewInboxItem;
 use types::{

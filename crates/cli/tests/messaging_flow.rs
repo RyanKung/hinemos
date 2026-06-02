@@ -12,16 +12,16 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-direct-mail");
+    let temp = TestTempDir::new("hinemos-direct-mail");
     let host = "127.0.0.1";
     let port = free_local_port();
     let sender = format!("mail_sender_{}_{}", std::process::id(), epoch_seconds());
     let target = format!("mail_target_{}_{}", std::process::id(), epoch_seconds());
     let bystander = format!("mail_bystander_{}_{}", std::process::id(), epoch_seconds());
     let message = format!("direct_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut target_session = SshSession::spawn(host, port, &target);
@@ -93,23 +93,23 @@ fn configured_mail_domain_addresses_deliver_to_local_user() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-mail-domain");
+    let temp = TestTempDir::new("hinemos-mail-domain");
     let host = "127.0.0.1";
     let port = free_local_port();
     let sender = format!("domain_sender_{}_{}", std::process::id(), epoch_seconds());
     let target = format!("domain_target_{}_{}", std::process::id(), epoch_seconds());
-    let target_address = format!("{target}@xagora.local");
+    let target_address = format!("{target}@hinemos.local");
     let external_address = format!("{target}@example.com");
     let message = format!("domain_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
         &server_log,
         &test_database.url,
-        [("XAGORA_MAIL_DOMAIN", "xagora.local")],
+        [("HINEMOS_MAIL_DOMAIN", "hinemos.local")],
     );
     wait_for_server(host, port, &mut server, &server_log);
 
@@ -128,7 +128,7 @@ fn configured_mail_domain_addresses_deliver_to_local_user() {
     );
     assert_contains(
         &sender_output,
-        "external mail domain is not available: example.com; local domain is xagora.local",
+        "external mail domain is not available: example.com; local domain is hinemos.local",
         "external domain is rejected",
     );
     assert_contains(
@@ -138,13 +138,13 @@ fn configured_mail_domain_addresses_deliver_to_local_user() {
     );
 
     target_session.wait_for_stdout(
-        &format!("Inbox: new mail #1 from {sender}@xagora.local"),
+        &format!("Inbox: new mail #1 from {sender}@hinemos.local"),
         Duration::from_secs(10),
     );
     target_session.write_line("/mail read 1");
     target_session.wait_for_stdout("Inbox #1", Duration::from_secs(10));
     target_session.wait_for_stdout(
-        &format!("From: {sender}@xagora.local"),
+        &format!("From: {sender}@hinemos.local"),
         Duration::from_secs(10),
     );
     target_session.wait_for_stdout(&message, Duration::from_secs(10));
@@ -163,7 +163,7 @@ fn ssh_mailbox_protocol_receives_newmail_without_polling() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-mailbox-protocol");
+    let temp = TestTempDir::new("hinemos-mailbox-protocol");
     let host = "127.0.0.1";
     let port = free_local_port();
     let sender = format!("mailbox_sender_{}_{}", std::process::id(), epoch_seconds());
@@ -173,21 +173,21 @@ fn ssh_mailbox_protocol_receives_newmail_without_polling() {
         std::process::id(),
         epoch_seconds()
     );
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
         &server_log,
         &test_database.url,
-        [("XAGORA_MAIL_DOMAIN", "xagora.local")],
+        [("HINEMOS_MAIL_DOMAIN", "hinemos.local")],
     );
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut mailbox_session = SshSession::spawn_exec(host, port, &target, ["mailbox"]);
     mailbox_session.wait_for_stdout(
-        &format!("OK XAGORA-MAIL ready user {target}@xagora.local"),
+        &format!("OK HINEMOS-MAIL ready user {target}@hinemos.local"),
         Duration::from_secs(10),
     );
     mailbox_session.write_line("IDLE");
@@ -206,13 +206,13 @@ fn ssh_mailbox_protocol_receives_newmail_without_polling() {
     );
 
     mailbox_session.wait_for_stdout(
-        &format!("* NEWMAIL 1 KIND mail FROM {sender}@xagora.local SUBJECT Private mail"),
+        &format!("* NEWMAIL 1 KIND mail FROM {sender}@hinemos.local SUBJECT Private mail"),
         Duration::from_secs(10),
     );
     mailbox_session.write_line("READ 1");
     mailbox_session.wait_for_stdout("* MESSAGE 1", Duration::from_secs(10));
     mailbox_session.wait_for_stdout(
-        &format!("FROM {sender}@xagora.local"),
+        &format!("FROM {sender}@hinemos.local"),
         Duration::from_secs(10),
     );
     mailbox_session.wait_for_stdout(&format!("BODY {message}"), Duration::from_secs(10));
@@ -238,7 +238,7 @@ fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-agent-live-inbox");
+    let temp = TestTempDir::new("hinemos-agent-live-inbox");
     let host = "127.0.0.1";
     let port = free_local_port();
     let sender = format!(
@@ -256,9 +256,9 @@ fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
         std::process::id(),
         epoch_seconds()
     );
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut agent_session = SshSession::spawn(host, port, &agent);
@@ -311,16 +311,16 @@ fn same_view_say_reaches_only_players_in_that_view() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-view-multicast");
+    let temp = TestTempDir::new("hinemos-view-multicast");
     let host = "127.0.0.1";
     let port = free_local_port();
     let speaker = format!("say_speaker_{}_{}", std::process::id(), epoch_seconds());
     let listener = format!("say_listener_{}_{}", std::process::id(), epoch_seconds());
     let outsider = format!("say_outsider_{}_{}", std::process::id(), epoch_seconds());
     let message = format!("view_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut listener_session = SshSession::spawn(host, port, &listener);
@@ -380,13 +380,13 @@ fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-view-who");
+    let temp = TestTempDir::new("hinemos-view-who");
     let host = "127.0.0.1";
     let port = free_local_port();
     let observer = format!("who_observer_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut observer_session = SshSession::spawn(host, port, &observer);
@@ -443,7 +443,7 @@ fn broadcast_reaches_all_online_players_and_persists_in_news() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-broadcast");
+    let temp = TestTempDir::new("hinemos-broadcast");
     let host = "127.0.0.1";
     let port = free_local_port();
     let sender = format!(
@@ -454,9 +454,9 @@ fn broadcast_reaches_all_online_players_and_persists_in_news() {
     let listener_a = format!("broadcast_a_{}_{}", std::process::id(), epoch_seconds());
     let listener_b = format!("broadcast_b_{}_{}", std::process::id(), epoch_seconds());
     let message = format!("broadcast_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut session_a = SshSession::spawn(host, port, &listener_a);

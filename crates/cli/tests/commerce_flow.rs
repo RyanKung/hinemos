@@ -10,14 +10,14 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-two-agent-trade");
+    let temp = TestTempDir::new("hinemos-two-agent-trade");
     let host = "127.0.0.1";
     let port = free_local_port();
     let owner = format!("owner_{}_{}", std::process::id(), epoch_seconds());
     let customer = format!("customer_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let owner_setup = run_ssh_batch(

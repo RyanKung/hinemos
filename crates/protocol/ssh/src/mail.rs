@@ -8,9 +8,9 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::Args;
+use hinemos_storage::{PgStorage, StoredInboxItem, StoredMailAuthToken};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use xagora_storage::{PgStorage, StoredInboxItem, StoredMailAuthToken};
 
 use crate::config::{mail_domain_from_env, mask_database_url, normalize_mail_target};
 
@@ -50,8 +50,8 @@ pub async fn run_mail_daemon(args: MailArgs) -> Result<()> {
         mail_domain: mail_domain_from_env(),
     });
 
-    println!("Xagora SMTP sidecar listening on {}", args.smtp_bind);
-    println!("Xagora IMAP sidecar listening on {}", args.imap_bind);
+    println!("Hinemos SMTP sidecar listening on {}", args.smtp_bind);
+    println!("Hinemos IMAP sidecar listening on {}", args.imap_bind);
     println!("Database configured: {}", mask_database_url(&database_url));
     if let Some(domain) = &state.mail_domain {
         println!("Mail domain configured: {domain}");
@@ -104,7 +104,7 @@ async fn run_smtp_listener(bind: SocketAddr, state: Arc<MailState>) -> Result<()
 
 async fn handle_smtp_connection(stream: TcpStream, state: Arc<MailState>) -> Result<()> {
     let mut reader = BufReader::new(stream);
-    write_line(&mut reader, "220 xagora ESMTP ready").await?;
+    write_line(&mut reader, "220 hinemos ESMTP ready").await?;
     let mut identity: Option<MailIdentity> = None;
     let mut sender = String::new();
     let mut recipients = Vec::<String>::new();
@@ -116,7 +116,7 @@ async fn handle_smtp_connection(stream: TcpStream, state: Arc<MailState>) -> Res
         let (command, rest) = split_command(&line);
         match command.as_str() {
             "EHLO" | "HELO" => {
-                write_line(&mut reader, "250-xagora").await?;
+                write_line(&mut reader, "250-hinemos").await?;
                 write_line(&mut reader, "250-AUTH PLAIN LOGIN").await?;
                 write_line(&mut reader, "250 SIZE 1048576").await?;
             }
@@ -257,7 +257,7 @@ async fn run_imap_listener(bind: SocketAddr, state: Arc<MailState>) -> Result<()
 
 async fn handle_imap_connection(stream: TcpStream, state: Arc<MailState>) -> Result<()> {
     let mut reader = BufReader::new(stream);
-    write_line(&mut reader, "* OK Xagora IMAP4rev1 ready").await?;
+    write_line(&mut reader, "* OK Hinemos IMAP4rev1 ready").await?;
     let mut identity: Option<MailIdentity> = None;
     let mut selected = Vec::<StoredInboxItem>::new();
 
@@ -286,7 +286,7 @@ async fn handle_imap_connection(stream: TcpStream, state: Arc<MailState>) -> Res
             }
             "NOOP" => tagged_ok(&mut reader, tag, "NOOP completed").await?,
             "LOGOUT" => {
-                write_line(&mut reader, "* BYE Xagora IMAP logging out").await?;
+                write_line(&mut reader, "* BYE Hinemos IMAP logging out").await?;
                 tagged_ok(&mut reader, tag, "LOGOUT completed").await?;
                 break;
             }
@@ -496,7 +496,7 @@ fn imap_literal_size(input: &str) -> Option<usize> {
 
 fn render_rfc822_message(item: &StoredInboxItem) -> String {
     format!(
-        "From: {}\r\nTo: {}\r\nSubject: {}\r\nDate: {}\r\nMessage-ID: <xagora-{}@local>\r\n\r\n{}\r\n",
+        "From: {}\r\nTo: {}\r\nSubject: {}\r\nDate: {}\r\nMessage-ID: <hinemos-{}@local>\r\n\r\n{}\r\n",
         item.sender_user,
         item.recipient_user,
         sanitize_header(&item.subject),
@@ -514,7 +514,7 @@ fn render_imap_envelope(item: &StoredInboxItem) -> String {
     let from = render_imap_address(&item.sender_user);
     let to = render_imap_address(&item.recipient_user);
     format!(
-        "(\"{}\" \"{}\" ({from}) ({from}) ({from}) ({to}) NIL NIL NIL \"<xagora-{}@local>\")",
+        "(\"{}\" \"{}\" ({from}) ({from}) ({from}) ({to}) NIL NIL NIL \"<hinemos-{}@local>\")",
         imap_internal_date(item),
         imap_quote(&item.subject),
         item.id
@@ -531,7 +531,7 @@ fn render_bodystructure(item: &StoredInboxItem) -> String {
 
 fn render_imap_address(user: &str) -> String {
     let local = imap_quote(user);
-    format!("(NIL NIL \"{local}\" \"xagora.local\")")
+    format!("(NIL NIL \"{local}\" \"hinemos.local\")")
 }
 
 fn imap_quote(value: &str) -> String {
@@ -776,8 +776,8 @@ mod tests {
     #[test]
     fn extracts_smtp_paths_case_insensitively() {
         assert_eq!(
-            smtp_path_after("to:<bob@xagora.local>", "TO:"),
-            Some("bob@xagora.local".to_owned())
+            smtp_path_after("to:<bob@hinemos.local>", "TO:"),
+            Some("bob@hinemos.local".to_owned())
         );
     }
 

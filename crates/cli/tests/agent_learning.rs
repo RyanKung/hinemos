@@ -16,7 +16,7 @@ fn external_agent_learns_from_unscripted_world_contact() {
     assert_command_exists("claude");
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-agent-learning");
+    let temp = TestTempDir::new("hinemos-agent-learning");
     let host = "127.0.0.1";
     let port = free_local_port();
     let learner = format!("learner_{}_{}", std::process::id(), epoch_seconds());
@@ -26,9 +26,9 @@ fn external_agent_learns_from_unscripted_world_contact() {
         std::process::id(),
         epoch_seconds()
     );
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let greeter_thread = {

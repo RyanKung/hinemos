@@ -1,6 +1,6 @@
 #![deny(missing_docs)]
 
-//! SSH adapter for the Xagora open-world runtime.
+//! SSH adapter for the Hinemos open-world runtime.
 
 use std::fs;
 use std::net::SocketAddr;
@@ -20,18 +20,18 @@ mod render;
 mod runtime_state;
 
 use anyhow::{Context, Result};
+use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
+use hinemos_core::{
+    BuildAction, InboxAction, JsonObservation, LandAction, PayAction, SemanticCommand,
+    SettingsAction, ShopAction,
+};
+use hinemos_runtime::{Chrome, SlashParseError};
+use hinemos_storage::{PgStorage, PlayerStateStore};
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::{Algorithm, PrivateKey, ssh_key};
 use russh::server::{Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, server};
 use tokio::sync::Mutex;
-use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-use xagora_core::{
-    BuildAction, InboxAction, JsonObservation, LandAction, PayAction, SemanticCommand,
-    SettingsAction, ShopAction,
-};
-use xagora_runtime::{Chrome, SlashParseError};
-use xagora_storage::{PgStorage, PlayerStateStore};
 
 use auth::PublicKeyAuthPolicy;
 pub use config::SshArgs;
@@ -50,7 +50,7 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
     let mail_domain = mail_domain_from_env();
     let storage = PgStorage::connect(&database_url).await?;
     storage.migrate().await?;
-    xagora_blackstone::migrate(&storage).await?;
+    hinemos_blackstone::migrate(&storage).await?;
     let world = load_world_from_dir(&cli.world)
         .with_context(|| format!("failed to load world from {}", cli.world.display()))?;
     let runtime = RuntimeHandle::new(world);
@@ -64,8 +64,8 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
         keys: vec![host_key],
         ..Default::default()
     });
-    let blackstone = xagora_blackstone::BlackstoneService::new(storage.clone());
-    println!("Xagora SSH adapter listening on {}", cli.bind);
+    let blackstone = hinemos_blackstone::BlackstoneService::new(storage.clone());
+    println!("Hinemos SSH adapter listening on {}", cli.bind);
     println!("Database configured: {}", mask_database_url(&database_url));
     if let Some(domain) = &mail_domain {
         println!("Mail domain configured: {domain}");
@@ -122,7 +122,7 @@ pub(crate) struct SharedState {
     presence: Mutex<PresenceRegistry>,
     next_connection_id: AtomicU64,
     auth_policy: PublicKeyAuthPolicy,
-    blackstone: xagora_blackstone::BlackstoneService,
+    blackstone: hinemos_blackstone::BlackstoneService,
     storage: PgStorage,
     mail_domain: Option<String>,
 }

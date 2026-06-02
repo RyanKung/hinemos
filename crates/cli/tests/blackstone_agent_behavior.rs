@@ -15,7 +15,7 @@ fn external_agents_create_and_investigate_blackstone_complaint() {
     assert_command_exists("claude");
     assert_command_exists("psql");
 
-    let temp = TestTempDir::new("xagora-blackstone-three-agents");
+    let temp = TestTempDir::new("hinemos-blackstone-three-agents");
     let host = "127.0.0.1";
     let port = free_local_port();
     let suffix = format!("{}_{}", std::process::id(), epoch_seconds());
@@ -23,9 +23,9 @@ fn external_agents_create_and_investigate_blackstone_complaint() {
     let customer = format!("buyer_{suffix}");
     let investigator = format!("scout_{suffix}");
     let claim = format!("cobalt_gear_delay_from_{merchant}");
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,

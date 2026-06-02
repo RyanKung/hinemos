@@ -3,9 +3,9 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use hinemos_admin_protocol::{AdminSession, AdminUser};
 use russh::ChannelId;
 use russh::server::Handle;
-use xagora_admin_protocol::{AdminSession, AdminUser};
 
 #[derive(Debug, Default)]
 pub(crate) struct PresenceRegistry {

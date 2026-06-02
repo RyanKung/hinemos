@@ -20,7 +20,7 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
-    let storage = xagora_storage::PgStorage::connect(&test_database.url)
+    let storage = hinemos_storage::PgStorage::connect(&test_database.url)
         .await
         .expect("connect test database");
     storage.migrate().await.expect("migrate test database");
@@ -28,7 +28,7 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
         .set_mail_auth_token("mail_user", "player_mail_user", "mail-token")
         .await
         .expect("seed mail auth token");
-    let temp = TestTempDir::new("xagora-mail-sidecar");
+    let temp = TestTempDir::new("hinemos-mail-sidecar");
     let smtp_port = free_local_port();
     let imap_port = free_local_port();
     let log_path = temp.path.join("mail-sidecar.log");
@@ -45,7 +45,7 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     wait_for_tcp("127.0.0.1", imap_port, &mut server, &log_path);
 
     let mut imap = ProtocolClient::connect(("127.0.0.1", imap_port));
-    imap.expect_contains("OK Xagora IMAP4rev1 ready");
+    imap.expect_contains("OK Hinemos IMAP4rev1 ready");
     imap.send("a1 LOGIN mail_user wrong-token");
     imap.expect_contains("a1 NO authentication failed");
     imap.send("a2 LOGIN mail_user mail-token");
@@ -54,7 +54,7 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     imap.expect_contains("a3 OK LOGOUT completed");
 
     let mut smtp = ProtocolClient::connect(("127.0.0.1", smtp_port));
-    smtp.expect_contains("220 xagora ESMTP ready");
+    smtp.expect_contains("220 hinemos ESMTP ready");
     smtp.send("EHLO local");
     smtp.expect_contains("250-AUTH PLAIN LOGIN");
     smtp.expect_contains("250 SIZE");
@@ -62,9 +62,9 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     smtp.expect_contains("334 UGFzc3dvcmQ6");
     smtp.send("bWFpbC10b2tlbg==");
     smtp.expect_contains("235 2.7.0 Authentication successful");
-    smtp.send("MAIL FROM:<mail_user@xagora.local>");
+    smtp.send("MAIL FROM:<mail_user@hinemos.local>");
     smtp.expect_contains("250 2.1.0 Sender OK");
-    smtp.send("RCPT TO:<mail_user@xagora.local>");
+    smtp.send("RCPT TO:<mail_user@hinemos.local>");
     smtp.expect_contains("250 2.1.5 Recipient OK");
     smtp.send("DATA");
     smtp.expect_contains("354 End data");
@@ -77,7 +77,7 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     smtp.expect_contains("221 2.0.0 Bye");
 
     let mut imap = ProtocolClient::connect(("127.0.0.1", imap_port));
-    imap.expect_contains("OK Xagora IMAP4rev1 ready");
+    imap.expect_contains("OK Hinemos IMAP4rev1 ready");
     imap.send("b1 LOGIN mail_user mail-token");
     imap.expect_contains("b1 OK LOGIN completed");
     imap.send("b2 SELECT INBOX");
@@ -107,8 +107,8 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
 async fn agent_imap_idle_listener_handles_ten_messages_from_outside_docker() {
     install_test_rustls_provider();
     assert_docker_available();
-    let temp = TestTempDir::new("xagora-agent-mail-compat");
-    let stalwart_name = format!("xagora-stalwart-{}", std::process::id());
+    let temp = TestTempDir::new("hinemos-agent-mail-compat");
+    let stalwart_name = format!("hinemos-stalwart-{}", std::process::id());
     let stalwart_path = temp.path.join("stalwart");
     let imap_port = free_local_port();
     fs::create_dir_all(&stalwart_path).expect("create Stalwart volume");
@@ -211,7 +211,7 @@ fn spawn_mail_sidecar(
     database_url: &str,
 ) -> Child {
     let log = fs::File::create(log_path).expect("create server log");
-    Command::new(env!("CARGO_BIN_EXE_xagora"))
+    Command::new(env!("CARGO_BIN_EXE_hinemos"))
         .current_dir(root)
         .args([
             "serve",
@@ -222,11 +222,11 @@ fn spawn_mail_sidecar(
             &format!("{imap_host}:{imap_port}"),
         ])
         .env("DATABASE_URL", database_url)
-        .env("XAGORA_MAIL_DOMAIN", "xagora.local")
+        .env("HINEMOS_MAIL_DOMAIN", "hinemos.local")
         .stdout(log.try_clone().expect("clone mail sidecar log for stdout"))
         .stderr(log)
         .spawn()
-        .expect("spawn xagora mail sidecar")
+        .expect("spawn hinemos mail sidecar")
 }
 
 fn assert_docker_available() {

@@ -10,9 +10,9 @@ use crate::presence::PresenceDeliveryMode;
 use crate::render::*;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use hinemos_storage::StoredParcel;
 use rand::Rng;
 use russh::keys::HashAlg;
-use xagora_storage::StoredParcel;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConnectionMode {
@@ -362,7 +362,7 @@ impl ConnectionHandler {
                     .await?;
             }
             SemanticCommand::Extension { name, input }
-                if xagora_blackstone::extension_command_names().contains(&name.as_str()) =>
+                if hinemos_blackstone::extension_command_names().contains(&name.as_str()) =>
             {
                 self.handle_extension_command(channel, session, input, identity)
                     .await?;
@@ -1215,7 +1215,7 @@ impl ConnectionHandler {
         session.data(
             channel,
             format!(
-                "OK XAGORA-MAIL ready user {}\r\n{}\r\n",
+                "OK HINEMOS-MAIL ready user {}\r\n{}\r\n",
                 format_mail_user(&identity.user, self.shared.mail_domain.as_deref()),
                 mailbox_help()
             )

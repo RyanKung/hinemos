@@ -1157,6 +1157,95 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e712f64ec3850b98572bffac52e2c6f282b29fe6c5fa6d42334b30be438d95c1"
 
 [[package]]
+name = "hinemos-admin-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "hinemos-blackstone"
+version = "0.1.0"
+dependencies = [
+ "hinemos-core",
+ "hinemos-storage",
+ "reqwest",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "hinemos-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hinemos-admin-protocol",
+ "hinemos-core",
+ "hinemos-runtime",
+ "hinemos-ssh",
+ "hinemos-storage",
+ "rustls",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hinemos-core"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "hinemos-runtime"
+version = "0.1.0"
+dependencies = [
+ "hinemos-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "hinemos-ssh"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "dotenvy",
+ "hinemos-admin-protocol",
+ "hinemos-blackstone",
+ "hinemos-core",
+ "hinemos-runtime",
+ "hinemos-storage",
+ "rand 0.10.1",
+ "russh",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hinemos-storage"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "hinemos-core",
+ "rand_core 0.6.4",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3985,95 +4074,6 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
-
-[[package]]
-name = "xagora-admin-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "xagora-blackstone"
-version = "0.1.0"
-dependencies = [
- "reqwest",
- "serde",
- "sqlx",
- "thiserror 2.0.18",
- "tokio",
- "xagora-core",
- "xagora-storage",
-]
-
-[[package]]
-name = "xagora-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "rustls",
- "serde_json",
- "tokio",
- "xagora-admin-protocol",
- "xagora-core",
- "xagora-runtime",
- "xagora-ssh",
- "xagora-storage",
-]
-
-[[package]]
-name = "xagora-core"
-version = "0.1.0"
-dependencies = [
- "ron",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "xagora-runtime"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "xagora-core",
-]
-
-[[package]]
-name = "xagora-ssh"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "clap",
- "dotenvy",
- "rand 0.10.1",
- "russh",
- "serde",
- "serde_json",
- "tokio",
- "xagora-admin-protocol",
- "xagora-blackstone",
- "xagora-core",
- "xagora-runtime",
- "xagora-storage",
-]
-
-[[package]]
-name = "xagora-storage"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "rand_core 0.6.4",
- "serde_json",
- "sqlx",
- "thiserror 2.0.18",
- "xagora-core",
-]
 
 [[package]]
 name = "yoke"

@@ -3,17 +3,17 @@ set -euo pipefail
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'USAGE'
-Usage: agentopia-release-build [repo]
+Usage: hinemos-release-build [repo]
 
-Build xagora on the host in release mode, copy the final binary to
-<repo>/.host-build/xagora, then remove temporary cargo build files.
+Build hinemos on the host in release mode, copy the final binary to
+<repo>/.host-build/hinemos, then remove temporary cargo build files.
 USAGE
   exit 0
 fi
 
-repo="${1:-/opt/agentopia}"
+repo="${1:-/opt/hinemos}"
 target_dir="${CARGO_TARGET_DIR:-$repo/.cargo-target}"
-output_dir="${AGENTOPIA_HOST_BUILD_DIR:-$repo/.host-build}"
+output_dir="${HINEMOS_HOST_BUILD_DIR:-$repo/.host-build}"
 export CARGO_TARGET_DIR="$target_dir"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
@@ -26,7 +26,7 @@ trap cleanup EXIT
 cd "$repo"
 mkdir -p "$output_dir"
 
-cargo build --release --bin xagora --jobs "$CARGO_BUILD_JOBS"
-install -m 0755 "$target_dir/release/xagora" "$output_dir/xagora"
+cargo build --release --bin hinemos --jobs "$CARGO_BUILD_JOBS"
+install -m 0755 "$target_dir/release/hinemos" "$output_dir/hinemos"
 
-printf 'Built release binary: %s\n' "$output_dir/xagora"
+printf 'Built release binary: %s\n' "$output_dir/hinemos"

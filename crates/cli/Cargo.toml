@@ -1,22 +1,22 @@
 [package]
-name = "xagora-cli"
+name = "hinemos-cli"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-xagora-admin-protocol = { version = "0.1.0", path = "../admin-protocol" }
-xagora-core = { version = "0.1.0", path = "../core" }
-xagora-runtime = { version = "0.1.0", path = "../runtime" }
-xagora-ssh = { version = "0.1.0", path = "../protocol/ssh" }
+hinemos-admin-protocol = { version = "0.1.0", path = "../admin-protocol" }
+hinemos-core = { version = "0.1.0", path = "../core" }
+hinemos-runtime = { version = "0.1.0", path = "../runtime" }
+hinemos-ssh = { version = "0.1.0", path = "../protocol/ssh" }
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
-xagora-storage = { version = "0.1.0", path = "../storage" }
+hinemos-storage = { version = "0.1.0", path = "../storage" }
 rustls = "0.23.40"
 
 [[bin]]
-name = "xagora"
+name = "hinemos"
 path = "src/main.rs"

@@ -1,5 +1,5 @@
 [package]
-name = "xagora-admin-protocol"
+name = "hinemos-admin-protocol"
 edition.workspace = true
 version.workspace = true
 

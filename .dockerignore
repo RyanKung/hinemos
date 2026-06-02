@@ -4,6 +4,7 @@
 
 target
 .cargo
+.hinemos
 .xagora
 
 .env

@@ -5,18 +5,18 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'USAGE'
 Usage: install-host-service.sh [repo]
 
-Install the host-built xagora binary and systemd service.
-Expected binary: <repo>/.host-build/xagora
-Expected env file: /etc/xagora/xagora.env
+Install the host-built hinemos binary and systemd service.
+Expected binary: <repo>/.host-build/hinemos
+Expected env file: /etc/hinemos/hinemos.env
 USAGE
   exit 0
 fi
 
-repo="${1:-/opt/agentopia}"
-binary="$repo/.host-build/xagora"
-service_file="/etc/systemd/system/xagora.service"
-env_dir="/etc/xagora"
-env_file="$env_dir/xagora.env"
+repo="${1:-/opt/hinemos}"
+binary="$repo/.host-build/hinemos"
+service_file="/etc/systemd/system/hinemos.service"
+env_dir="/etc/hinemos"
+env_file="$env_dir/hinemos.env"
 
 if [[ $EUID -ne 0 ]]; then
   echo "install-host-service.sh must run as root" >&2
@@ -28,22 +28,22 @@ if [[ ! -x "$binary" ]]; then
   exit 1
 fi
 
-if ! id -u xagora >/dev/null 2>&1; then
-  useradd --system --create-home --home-dir /var/lib/xagora --shell /usr/sbin/nologin xagora
+if ! id -u hinemos >/dev/null 2>&1; then
+  useradd --system --create-home --home-dir /var/lib/hinemos --shell /usr/sbin/nologin hinemos
 fi
 
 install -d -m 0755 "$env_dir"
-install -d -o xagora -g xagora -m 0750 /var/lib/xagora
-install -m 0755 "$binary" /usr/local/bin/xagora
+install -d -o hinemos -g hinemos -m 0750 /var/lib/hinemos
+install -m 0755 "$binary" /usr/local/bin/hinemos
 
 if [[ ! -f "$env_file" ]]; then
   cat >"$env_file" <<'ENV'
-DATABASE_URL=postgres://xagora:change-me@127.0.0.1:5432/xagora
-XAGORA_BIND=0.0.0.0:2222
-XAGORA_WORLD=/opt/agentopia/worlds/sample
-XAGORA_HOST_KEY=/var/lib/xagora/ssh_host_ed25519_key
-XAGORA_ADMIN_SOCKET=/run/xagora/admin.sock
-XAGORA_MAIL_DOMAIN=xagora.local
+DATABASE_URL=postgres://hinemos:change-me@127.0.0.1:5432/hinemos
+HINEMOS_BIND=0.0.0.0:2222
+HINEMOS_WORLD=/opt/hinemos/worlds/sample
+HINEMOS_HOST_KEY=/var/lib/hinemos/ssh_host_ed25519_key
+HINEMOS_ADMIN_SOCKET=/run/hinemos/admin.sock
+HINEMOS_MAIL_DOMAIN=hinemos.local
 BLACKSTONE_LLM_ENABLED=0
 BLACKSTONE_LLM_BASE_URL=
 BLACKSTONE_LLM_AUTH_TOKEN=
@@ -55,22 +55,22 @@ fi
 
 cat >"$service_file" <<'UNIT'
 [Unit]
-Description=Xagora SSH daemon
+Description=Hinemos SSH daemon
 After=network-online.target postgresql.service
 Wants=network-online.target
 Requires=postgresql.service
 
 [Service]
 Type=simple
-User=xagora
-Group=xagora
-WorkingDirectory=/opt/agentopia
-EnvironmentFile=/etc/xagora/xagora.env
-RuntimeDirectory=xagora
+User=hinemos
+Group=hinemos
+WorkingDirectory=/opt/hinemos
+EnvironmentFile=/etc/hinemos/hinemos.env
+RuntimeDirectory=hinemos
 RuntimeDirectoryMode=0755
-StateDirectory=xagora
+StateDirectory=hinemos
 StateDirectoryMode=0750
-ExecStart=/usr/local/bin/xagora serve ssh --bind ${XAGORA_BIND} --world ${XAGORA_WORLD} --host-key ${XAGORA_HOST_KEY} --admin-socket ${XAGORA_ADMIN_SOCKET}
+ExecStart=/usr/local/bin/hinemos serve ssh --bind ${HINEMOS_BIND} --world ${HINEMOS_WORLD} --host-key ${HINEMOS_HOST_KEY} --admin-socket ${HINEMOS_ADMIN_SOCKET}
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
@@ -81,6 +81,6 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable xagora.service
+systemctl enable hinemos.service
 
-printf 'Installed xagora service with binary: /usr/local/bin/xagora\n'
+printf 'Installed hinemos service with binary: /usr/local/bin/hinemos\n'

@@ -1,2 +1,2 @@
 [alias]
-verify-world-agent = "test -p xagora-cli --tests -- --ignored --nocapture"
+verify-world-agent = "test -p hinemos-cli --tests -- --ignored --nocapture"

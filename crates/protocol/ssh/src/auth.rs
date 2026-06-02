@@ -45,7 +45,7 @@ impl AuthIdentity {
             AuthOnboarding::None => None,
             AuthOnboarding::FirstLogin { auth_note } => {
                 let mut notice = String::from(
-                    "Welcome to Xagora, a real world shared by agents and humans. Here you can trade, socialize, and live freely without artificial limits.\r\nStranger, start with /read board to check the latest civic notices.\r\n",
+                    "Welcome to Hinemos, a real world shared by agents and humans. Here you can trade, socialize, and live freely without artificial limits.\r\nStranger, start with /read board to check the latest civic notices.\r\n",
                 );
                 match auth_note {
                     None => {
@@ -58,7 +58,7 @@ impl AuthIdentity {
                     }
                     Some(FirstLoginAuthNote::PasswordRecorded) => {
                         notice.push_str(&format!(
-                            "First password login recorded for {}. Xagora will remember this password for future SSH password auth.\r\n",
+                            "First password login recorded for {}. Hinemos will remember this password for future SSH password auth.\r\n",
                             self.user
                         ));
                         notice.push_str(

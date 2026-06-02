@@ -1,10 +1,10 @@
 //! Storage row types and low-level helpers.
 
+use hinemos_core::PlayerState;
 use serde_json::Value;
 use sqlx::Row;
 use sqlx::postgres::PgPool;
 use thiserror::Error;
-use xagora_core::PlayerState;
 
 /// Stored SSH identity mapping.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]

@@ -17,13 +17,13 @@ fn command_errors_do_not_close_ssh_session() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-ssh-error-handling");
+    let temp = TestTempDir::new("hinemos-ssh-error-handling");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("typo_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut session = SshSession::spawn(host, port, &user);
@@ -74,13 +74,13 @@ fn business_command_errors_do_not_close_ssh_session() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-business-error-handling");
+    let temp = TestTempDir::new("hinemos-business-error-handling");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("business_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut session = SshSession::spawn(host, port, &user);
@@ -156,13 +156,13 @@ fn read_and_inspect_return_results_without_repainting_room() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-ssh-compact-actions");
+    let temp = TestTempDir::new("hinemos-ssh-compact-actions");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("compact_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let output = run_ssh_batch(
@@ -220,13 +220,13 @@ fn help_output_is_grouped_across_lines() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-help-formatting");
+    let temp = TestTempDir::new("hinemos-help-formatting");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("help_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let output = run_ssh_batch(host, port, &user, ["/help", "/quit"]);
@@ -258,16 +258,16 @@ fn password_auth_works_without_local_ssh_keys() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-no-local-key-password-auth");
+    let temp = TestTempDir::new("hinemos-no-local-key-password-auth");
     let isolated_home = temp.path.join("empty-home");
     fs::create_dir_all(isolated_home.join(".ssh")).expect("create isolated ssh home");
 
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("no_key_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let output = run_ssh_password_batch_with_home(
@@ -286,7 +286,7 @@ fn password_auth_works_without_local_ssh_keys() {
     );
     assert_contains(
         &output,
-        "Welcome to Xagora",
+        "Welcome to Hinemos",
         "no-local-key first contact still reaches the world",
     );
 
@@ -302,20 +302,20 @@ fn password_auth_records_first_password_and_reuses_identity() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-password-auth");
+    let temp = TestTempDir::new("hinemos-password-auth");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("password_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let password = "first-use-password";
     let first_output = run_ssh_password_batch(&temp, host, port, &user, password, ["/quit"]);
     assert_contains(
         &first_output,
-        "Welcome to Xagora",
+        "Welcome to Hinemos",
         "first password login shows the welcome",
     );
     assert_contains(
@@ -347,7 +347,7 @@ fn password_auth_records_first_password_and_reuses_identity() {
     );
     assert_not_contains(
         &second_output,
-        "Welcome to Xagora",
+        "Welcome to Hinemos",
         "subsequent password login should not repeat the welcome",
     );
 
@@ -370,7 +370,7 @@ fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
     assert_command_exists("ssh");
     assert_command_exists("ssh-keygen");
 
-    let temp = TestTempDir::new("xagora-ed25519-onboarding");
+    let temp = TestTempDir::new("hinemos-ed25519-onboarding");
     let ed25519_key = temp.path.join("id_ed25519");
     let keygen = Command::new("ssh-keygen")
         .args(["-q", "-t", "ed25519", "-N", "", "-f"])
@@ -386,15 +386,15 @@ fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("ed25519_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let first_output = run_ssh_key_batch(&temp, host, port, &user, &ed25519_key, ["/quit"]);
     assert_contains(
         &first_output,
-        "Welcome to Xagora",
+        "Welcome to Hinemos",
         "first ed25519 login shows the welcome",
     );
     assert_contains(
@@ -421,7 +421,7 @@ fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
     let second_output = run_ssh_key_batch(&temp, host, port, &user, &ed25519_key, ["/quit"]);
     assert_not_contains(
         &second_output,
-        "Welcome to Xagora",
+        "Welcome to Hinemos",
         "existing ed25519 identity should not repeat the welcome",
     );
     assert_not_contains(
@@ -443,7 +443,7 @@ fn first_login_with_only_rsa_key_recommends_ed25519() {
     assert_command_exists("ssh");
     assert_command_exists("ssh-keygen");
 
-    let temp = TestTempDir::new("xagora-rsa-onboarding");
+    let temp = TestTempDir::new("hinemos-rsa-onboarding");
     let rsa_key = temp.path.join("id_rsa");
     let keygen = Command::new("ssh-keygen")
         .args(["-q", "-t", "rsa", "-N", "", "-f"])
@@ -459,15 +459,15 @@ fn first_login_with_only_rsa_key_recommends_ed25519() {
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("rsa_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let first_output = run_ssh_key_batch(&temp, host, port, &user, &rsa_key, ["/quit"]);
     assert_contains(
         &first_output,
-        "Welcome to Xagora",
+        "Welcome to Hinemos",
         "first RSA login shows the welcome",
     );
     assert_contains(
@@ -499,7 +499,7 @@ fn first_login_with_only_rsa_key_recommends_ed25519() {
     );
     assert_not_contains(
         &second_output,
-        "Welcome to Xagora",
+        "Welcome to Hinemos",
         "existing RSA identity should not repeat the welcome",
     );
 
@@ -575,7 +575,7 @@ fn run_ssh_password_batch_raw_with_home<const N: usize>(
     let askpass = temp.path.join("askpass.sh");
     fs::write(
         &askpass,
-        "#!/bin/sh\nprintf '%s\\n' \"$XAGORA_TEST_SSH_PASSWORD\"\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$HINEMOS_TEST_SSH_PASSWORD\"\n",
     )
     .expect("write askpass helper");
     #[cfg(unix)]
@@ -602,8 +602,8 @@ fn run_ssh_password_batch_raw_with_home<const N: usize>(
         ])
         .env("SSH_ASKPASS", &askpass)
         .env("SSH_ASKPASS_REQUIRE", "force")
-        .env("DISPLAY", "xagora-test")
-        .env("XAGORA_TEST_SSH_PASSWORD", password);
+        .env("DISPLAY", "hinemos-test")
+        .env("HINEMOS_TEST_SSH_PASSWORD", password);
     if let Some(home) = home {
         command.env("HOME", home);
     }

@@ -1,6 +1,6 @@
 #![deny(missing_docs)]
 
-//! Runtime command execution for the Xagora world.
+//! Runtime command execution for the Hinemos world.
 
 mod client_shell;
 mod reload;
@@ -10,12 +10,12 @@ pub use client_shell::{Chrome, SlashParseError, render_text_events, render_text_
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-use thiserror::Error;
-use xagora_core::{
+use hinemos_core::{
     ActionKind, Entity, EntityCollection, EntityId, EntityObservation, EntityRef, ExitObservation,
     JsonObservation, ObservationEvent, PlayerId, PlayerState, SemanticCommand, TextObservation,
     View, ViewId, WorldDefinition, WorldState,
 };
+use thiserror::Error;
 
 /// Errors produced by command execution and observation building.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -48,7 +48,7 @@ pub enum RuntimeError {
 pub enum ReloadError {
     /// World files could not be loaded.
     #[error(transparent)]
-    World(#[from] xagora_core::sample_world::WorldLoadError),
+    World(#[from] hinemos_core::sample_world::WorldLoadError),
     /// Snapshot of the old runtime failed (for example lock poison).
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
@@ -65,7 +65,7 @@ pub struct GameRuntime {
 #[derive(Debug)]
 struct StaticWorld {
     views: HashMap<ViewId, View>,
-    entities: HashMap<EntityId, xagora_core::Entity>,
+    entities: HashMap<EntityId, hinemos_core::Entity>,
     template_players: HashMap<PlayerId, PlayerState>,
 }
 
@@ -404,7 +404,7 @@ impl GameRuntime {
     fn move_player(
         &self,
         player_id: &str,
-        direction: xagora_core::Direction,
+        direction: hinemos_core::Direction,
     ) -> Result<Vec<ObservationEvent>, RuntimeError> {
         let player = self.player(player_id)?;
         let mut player = player.lock().map_err(|_| RuntimeError::StatePoisoned)?;
@@ -524,10 +524,10 @@ fn available_commands(
         SemanticCommand::History,
         SemanticCommand::Who,
         SemanticCommand::Settings {
-            action: xagora_core::SettingsAction::Show,
+            action: hinemos_core::SettingsAction::Show,
         },
         SemanticCommand::Inbox {
-            action: xagora_core::InboxAction::List {
+            action: hinemos_core::InboxAction::List {
                 filter: "unread".to_owned(),
             },
         },
@@ -665,8 +665,8 @@ fn render_ascii_art_for_view(view: &View) -> Vec<String> {
 mod tests {
     use std::path::Path;
 
-    use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-    use xagora_core::{Direction, EntityRef, ObservationEvent, SemanticCommand};
+    use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
+    use hinemos_core::{Direction, EntityRef, ObservationEvent, SemanticCommand};
 
     use super::*;
 

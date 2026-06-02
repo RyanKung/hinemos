@@ -14,16 +14,16 @@ pub struct SshArgs {
     #[arg(long, default_value = "worlds/sample")]
     pub(crate) world: PathBuf,
 
-    #[arg(long, default_value = ".xagora/ssh_host_ed25519_key")]
+    #[arg(long, default_value = ".hinemos/ssh_host_ed25519_key")]
     pub(crate) host_key: PathBuf,
 
     /// Idle timeout in seconds; 0 disables automatic idle disconnects.
     #[arg(long, default_value_t = 0)]
     pub(crate) idle_timeout_seconds: u64,
 
-    /// Unix domain socket path for local admin commands (`xagora admin`).
+    /// Unix domain socket path for local admin commands (`hinemos admin`).
     #[cfg(unix)]
-    #[arg(long, default_value = ".xagora/admin.sock")]
+    #[arg(long, default_value = ".hinemos/admin.sock")]
     pub(crate) admin_socket: PathBuf,
 }
 
@@ -72,7 +72,7 @@ pub(crate) fn mask_database_url(database_url: &str) -> String {
 }
 
 pub(crate) fn mail_domain_from_env() -> Option<String> {
-    std::env::var("XAGORA_MAIL_DOMAIN")
+    std::env::var("HINEMOS_MAIL_DOMAIN")
         .ok()
         .map(|domain| domain.trim().trim_matches('.').to_ascii_lowercase())
         .filter(|domain| !domain.is_empty())
@@ -93,7 +93,7 @@ pub(crate) fn normalize_mail_target(
     }
     let Some(local_domain) = mail_domain else {
         anyhow::bail!(
-            "mail domain is not configured; use a bare Xagora username or set XAGORA_MAIL_DOMAIN"
+            "mail domain is not configured; use a bare Hinemos username or set HINEMOS_MAIL_DOMAIN"
         );
     };
     if domain != local_domain {
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn mail_target_accepts_bare_user() {
         assert_eq!(
-            normalize_mail_target("alice", Some("xagora.local")).expect("normalize"),
+            normalize_mail_target("alice", Some("hinemos.local")).expect("normalize"),
             "alice"
         );
     }
@@ -126,29 +126,29 @@ mod tests {
     #[test]
     fn mail_target_accepts_configured_domain_case_insensitively() {
         assert_eq!(
-            normalize_mail_target("alice@XAGORA.LOCAL", Some("xagora.local")).expect("normalize"),
+            normalize_mail_target("alice@HINEMOS.LOCAL", Some("hinemos.local")).expect("normalize"),
             "alice"
         );
     }
 
     #[test]
     fn mail_target_rejects_address_without_domain_config() {
-        let error = normalize_mail_target("alice@xagora.local", None).expect_err("reject");
+        let error = normalize_mail_target("alice@hinemos.local", None).expect_err("reject");
         assert!(error.to_string().contains("mail domain is not configured"));
     }
 
     #[test]
     fn mail_target_rejects_external_domain() {
         let error =
-            normalize_mail_target("alice@example.com", Some("xagora.local")).expect_err("reject");
+            normalize_mail_target("alice@example.com", Some("hinemos.local")).expect_err("reject");
         assert!(error.to_string().contains("external mail domain"));
     }
 
     #[test]
     fn mail_user_formats_configured_domain() {
         assert_eq!(
-            format_mail_user("alice", Some("xagora.local")),
-            "alice@xagora.local"
+            format_mail_user("alice", Some("hinemos.local")),
+            "alice@hinemos.local"
         );
         assert_eq!(format_mail_user("alice", None), "alice");
     }

@@ -2,11 +2,11 @@
 
 use std::collections::HashMap;
 
-use thiserror::Error;
-use xagora_core::{
+use hinemos_core::{
     BuildAction, BuildSheet, Direction, EntityRef, InboxAction, JsonObservation, LandAction,
     ObservationEvent, PayAction, SemanticCommand, SettingsAction, ShopAction, WorldState,
 };
+use thiserror::Error;
 
 /// Engine chrome plus [`WorldState::entity_alias_map`] for slash targets.
 #[derive(Debug, Clone)]
@@ -54,7 +54,7 @@ impl Chrome {
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
         Settings: /settings, /settings mail-token, /settings password <new-password>, /settings key <openssh-public-key>\n\
-        Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Xagora username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
+        Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
@@ -735,7 +735,7 @@ fn styled_marker(label: &str, ansi_style: &str) -> String {
 mod tests {
     use std::collections::HashMap;
 
-    use xagora_core::{
+    use hinemos_core::{
         ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef, InboxAction,
         JsonObservation, ObservationEvent, SemanticCommand, SettingsAction,
     };

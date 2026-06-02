@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use xagora_core::sample_world::{self, LOCAL_PLAYER_ID};
-use xagora_core::{PlayerState, WorldState};
+use hinemos_core::sample_world::{self, LOCAL_PLAYER_ID};
+use hinemos_core::{PlayerState, WorldState};
 
 use crate::{GameRuntime, ReloadError};
 

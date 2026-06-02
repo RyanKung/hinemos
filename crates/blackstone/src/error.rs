@@ -1,7 +1,7 @@
 //! Error types for the Blackstone Tavern extension.
 
+use hinemos_storage::StorageError;
 use thiserror::Error;
-use xagora_storage::StorageError;
 
 /// Blackstone service error.
 #[derive(Debug, Error)]

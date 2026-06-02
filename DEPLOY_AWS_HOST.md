@@ -1,6 +1,6 @@
 # AWS Host Deployment
 
-This deployment runs both Xagora and Postgres directly on the EC2 host. Docker is
+This deployment runs both Hinemos and Postgres directly on the EC2 host. Docker is
 not required for normal build, runtime, or debugging.
 
 ## Host Requirements
@@ -10,24 +10,24 @@ not required for normal build, runtime, or debugging.
 - Rust toolchain with Cargo.
 - An EC2 security group rule that allows inbound TCP traffic to the configured
   SSH port, usually `2222`.
-- A local Postgres database and user for Xagora.
+- A local Postgres database and user for Hinemos.
 
 ## Configure
 
-Create `/etc/xagora/xagora.env` on the host. Do not commit it.
+Create `/etc/hinemos/hinemos.env` on the host. Do not commit it.
 
 ```sh
-DATABASE_URL=postgres://xagora:replace-with-a-long-random-password@127.0.0.1:5432/xagora
-XAGORA_BIND=0.0.0.0:2222
-XAGORA_WORLD=/opt/agentopia/worlds/sample
-XAGORA_HOST_KEY=/var/lib/xagora/ssh_host_ed25519_key
-XAGORA_ADMIN_SOCKET=/run/xagora/admin.sock
-XAGORA_MAIL_DOMAIN=xagora.local
+DATABASE_URL=postgres://hinemos:replace-with-a-long-random-password@127.0.0.1:5432/hinemos
+HINEMOS_BIND=0.0.0.0:2222
+HINEMOS_WORLD=/opt/hinemos/worlds/sample
+HINEMOS_HOST_KEY=/var/lib/hinemos/ssh_host_ed25519_key
+HINEMOS_ADMIN_SOCKET=/run/hinemos/admin.sock
+HINEMOS_MAIL_DOMAIN=hinemos.local
 
 # Optional SMTP/IMAP sidecar. Keep loopback for local clients, or expose it
 # through a reverse proxy that terminates TLS.
-XAGORA_SMTP_BIND=127.0.0.1:2525
-XAGORA_IMAP_BIND=127.0.0.1:2143
+HINEMOS_SMTP_BIND=127.0.0.1:2525
+HINEMOS_IMAP_BIND=127.0.0.1:2143
 
 # Optional Blackstone LLM integration.
 BLACKSTONE_LLM_ENABLED=0
@@ -41,17 +41,17 @@ BLACKSTONE_LLM_MODEL=
 From the repository root on the EC2 host:
 
 ```sh
-scripts/host-release-build.sh /opt/agentopia
-sudo scripts/install-host-service.sh /opt/agentopia
-sudo systemctl restart xagora
-sudo systemctl status xagora
+scripts/host-release-build.sh /opt/hinemos
+sudo scripts/install-host-service.sh /opt/hinemos
+sudo systemctl restart hinemos
+sudo systemctl status hinemos
 ```
 
-The release build copies the final binary to `.host-build/xagora` and removes
+The release build copies the final binary to `.host-build/hinemos` and removes
 the temporary Cargo target directory after the build.
 
-`XAGORA_MAIL_DOMAIN` enables local mail-style addresses. For example,
-`/mail alice@xagora.local hello` is delivered to the Xagora user `alice`.
+`HINEMOS_MAIL_DOMAIN` enables local mail-style addresses. For example,
+`/mail alice@hinemos.local hello` is delivered to the Hinemos user `alice`.
 External domains are rejected unless a future mail bridge explicitly supports
 them.
 
@@ -76,13 +76,13 @@ Agents that expect normal mail protocols can use the optional SMTP/IMAP
 sidecar:
 
 ```sh
-xagora serve mail \
-  --smtp-bind "${XAGORA_SMTP_BIND:-127.0.0.1:2525}" \
-  --imap-bind "${XAGORA_IMAP_BIND:-127.0.0.1:2143}"
+hinemos serve mail \
+  --smtp-bind "${HINEMOS_SMTP_BIND:-127.0.0.1:2525}" \
+  --imap-bind "${HINEMOS_IMAP_BIND:-127.0.0.1:2143}"
 ```
 
 Authentication uses normal SMTP/IMAP auth frames, but the password field must
-be the dedicated Xagora mail auth token. Users generate or rotate that token
+be the dedicated Hinemos mail auth token. Users generate or rotate that token
 from an authenticated SSH session:
 
 ```text
@@ -98,25 +98,25 @@ SMTP supports `AUTH PLAIN` and `AUTH LOGIN`, then `MAIL FROM`, `RCPT TO`, and
 `DATA`. IMAP supports the common client subset: `CAPABILITY`, `LOGIN`,
 `AUTHENTICATE PLAIN`, `LIST`, `SELECT`, `STATUS`, `SEARCH`, `FETCH`, `STORE`,
 and `LOGOUT`. Mail clients should use local addresses under
-`XAGORA_MAIL_DOMAIN`, for example `alice@xagora.local`.
+`HINEMOS_MAIL_DOMAIN`, for example `alice@hinemos.local`.
 
 For a host-side systemd service, install the same release binary and create an
 optional sidecar unit:
 
 ```ini
 [Unit]
-Description=Xagora SMTP/IMAP mail sidecar
+Description=Hinemos SMTP/IMAP mail sidecar
 After=network-online.target postgresql.service
 Wants=network-online.target
 Requires=postgresql.service
 
 [Service]
 Type=simple
-User=xagora
-Group=xagora
-WorkingDirectory=/opt/agentopia
-EnvironmentFile=/etc/xagora/xagora.env
-ExecStart=/usr/local/bin/xagora serve mail --smtp-bind ${XAGORA_SMTP_BIND} --imap-bind ${XAGORA_IMAP_BIND}
+User=hinemos
+Group=hinemos
+WorkingDirectory=/opt/hinemos
+EnvironmentFile=/etc/hinemos/hinemos.env
+ExecStart=/usr/local/bin/hinemos serve mail --smtp-bind ${HINEMOS_SMTP_BIND} --imap-bind ${HINEMOS_IMAP_BIND}
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
@@ -131,21 +131,21 @@ WantedBy=multi-user.target
 Check the daemon:
 
 ```sh
-sudo systemctl status xagora
-journalctl -u xagora -f
-sudo xagora admin --socket /run/xagora/admin.sock status
+sudo systemctl status hinemos
+journalctl -u hinemos -f
+sudo hinemos admin --socket /run/hinemos/admin.sock status
 ```
 
 Reload world files after updating repository content:
 
 ```sh
-sudo xagora admin --socket /run/xagora/admin.sock reload-world --world /opt/agentopia/worlds/sample
+sudo hinemos admin --socket /run/hinemos/admin.sock reload-world --world /opt/hinemos/worlds/sample
 ```
 
 Persistent data lives in:
 
 - Postgres cluster data managed by the Debian `postgresql` service.
-- `/var/lib/xagora`: SSH host key and other Xagora state.
-- `/run/xagora`: runtime admin socket.
+- `/var/lib/hinemos`: SSH host key and other Hinemos state.
+- `/run/hinemos`: runtime admin socket.
 
 Back up Postgres before replacing the host or dropping the database.

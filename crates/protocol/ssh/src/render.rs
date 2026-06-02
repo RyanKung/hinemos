@@ -1,14 +1,14 @@
 //! Rendering and channel output helpers for SSH sessions.
 
 use anyhow::Result;
-use russh::ChannelId;
-use russh::server::Session;
-use xagora_core::{JsonObservation, SemanticCommand};
-use xagora_runtime::{Chrome, render_text_events, render_text_observation};
-use xagora_storage::{
+use hinemos_core::{JsonObservation, SemanticCommand};
+use hinemos_runtime::{Chrome, render_text_events, render_text_observation};
+use hinemos_storage::{
     PgStorage, StoredInboxItem, StoredOperatorCommand, StoredParcel, StoredPaymentRequest,
     StoredWorldMessage, TEST_CURRENCY,
 };
+use russh::ChannelId;
+use russh::server::Session;
 
 use crate::auth::AuthIdentity;
 use crate::config::format_mail_user;
@@ -17,7 +17,7 @@ use crate::presence::{PresenceDelivery, PresenceDeliveryMode, PresenceViewUser};
 pub(crate) fn send_text_observation(
     session: &mut Session,
     channel: ChannelId,
-    observation: &xagora_core::JsonObservation,
+    observation: &hinemos_core::JsonObservation,
 ) -> Result<()> {
     session.data(
         channel,
@@ -31,7 +31,7 @@ pub(crate) fn send_text_observation(
 pub(crate) fn send_text_events(
     session: &mut Session,
     channel: ChannelId,
-    observation: &xagora_core::JsonObservation,
+    observation: &hinemos_core::JsonObservation,
 ) -> Result<()> {
     let rendered = render_text_events(observation).replace('\n', "\r\n");
     if !rendered.is_empty() {
@@ -432,7 +432,7 @@ pub(crate) fn send_stdin_closed_guidance(
         channel,
         format!(
             "\r\nConnection note: {status}\r\n\
-             This SSH channel cannot receive more commands after client stdin is closed, so Xagora is closing it cleanly.\r\n\
+             This SSH channel cannot receive more commands after client stdin is closed, so Hinemos is closing it cleanly.\r\n\
              Your player state is saved by SSH identity. Reconnect to continue from the latest observation.\r\n\
              Non-TTY agent skill:\r\n\
              1. Connect with ssh -T -p <port> <user>@<host>.\r\n\
@@ -655,7 +655,7 @@ pub(crate) async fn deliver_live_inbox_notice(
 }
 
 pub(crate) fn exec_help() -> &'static str {
-    "Xagora is an open world served over SSH, not a general-purpose Unix shell.\n\
+    "Hinemos is an open world served over SSH, not a general-purpose Unix shell.\n\
      Open an SSH shell: ssh -p <port> <user>@<host>\n\
      Open the SSH-authenticated mailbox protocol: ssh -T -p <port> <user>@<host> mailbox\n\
      Autonomous agent mail: log in with an ed25519 SSH key, run /settings mail-token, then use SMTP/IMAP with username <user> and that token. Keep IMAP IDLE open to receive no-prompt EXISTS notifications, then FETCH and STORE +FLAGS (\\Seen).\n\
@@ -666,9 +666,9 @@ pub(crate) fn exec_help() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use xagora_core::JsonObservation;
-    use xagora_runtime::render_text_observation;
-    use xagora_storage::StoredParcel;
+    use hinemos_core::JsonObservation;
+    use hinemos_runtime::render_text_observation;
+    use hinemos_storage::StoredParcel;
 
     use super::{overlay_parcel_observation, overlay_street_parcels, render_parcel_list};
 

@@ -1,9 +1,9 @@
 //! Atomic runtime snapshot shared by SSH sessions and admin reloads.
 
+use hinemos_admin_protocol::AdminStatus;
+use hinemos_core::{JsonObservation, PlayerState, SemanticCommand, WorldState};
+use hinemos_runtime::{Chrome, GameRuntime, ReloadError, RuntimeError, SlashParseError};
 use tokio::sync::RwLock;
-use xagora_admin_protocol::AdminStatus;
-use xagora_core::{JsonObservation, PlayerState, SemanticCommand, WorldState};
-use xagora_runtime::{Chrome, GameRuntime, ReloadError, RuntimeError, SlashParseError};
 
 #[derive(Debug)]
 pub(crate) struct RuntimeHandle {
@@ -79,7 +79,7 @@ impl RuntimeHandle {
         let world = runtime.world()?;
         *state = RuntimeState {
             chrome: Chrome::with_world(&world)
-                .with_extension_commands(xagora_blackstone::extension_command_names()),
+                .with_extension_commands(hinemos_blackstone::extension_command_names()),
             runtime,
         };
         Ok(())
@@ -124,7 +124,7 @@ struct RuntimeState {
 impl RuntimeState {
     fn new(world: WorldState) -> Self {
         let chrome = Chrome::with_world(&world)
-            .with_extension_commands(xagora_blackstone::extension_command_names());
+            .with_extension_commands(hinemos_blackstone::extension_command_names());
         let runtime = GameRuntime::new(world);
         Self { runtime, chrome }
     }

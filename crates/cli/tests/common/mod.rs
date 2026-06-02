@@ -116,17 +116,17 @@ pub fn free_local_port() -> u16 {
     listener.local_addr().expect("read local addr").port()
 }
 
-pub fn spawn_xagora_server(
+pub fn spawn_hinemos_server(
     root: &Path,
     host: &str,
     port: u16,
     log_path: &Path,
     database_url: &str,
 ) -> Child {
-    spawn_xagora_server_with_env(root, host, port, log_path, database_url, [])
+    spawn_hinemos_server_with_env(root, host, port, log_path, database_url, [])
 }
 
-pub fn spawn_xagora_server_with_env<const N: usize>(
+pub fn spawn_hinemos_server_with_env<const N: usize>(
     root: &Path,
     host: &str,
     port: u16,
@@ -135,7 +135,7 @@ pub fn spawn_xagora_server_with_env<const N: usize>(
     envs: [(&str, &str); N],
 ) -> Child {
     let log = fs::File::create(log_path).expect("create server log");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xagora"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_hinemos"));
     command
         .current_dir(root)
         .args(["serve", "ssh", "--bind", &format!("{host}:{port}")])
@@ -147,7 +147,7 @@ pub fn spawn_xagora_server_with_env<const N: usize>(
         .stdout(log.try_clone().expect("clone server log for stdout"))
         .stderr(log)
         .spawn()
-        .expect("spawn xagora ssh server")
+        .expect("spawn hinemos ssh server")
 }
 
 pub fn wait_for_server(host: &str, port: u16, server: &mut Child, log_path: &Path) {
@@ -158,14 +158,14 @@ pub fn wait_for_server(host: &str, port: u16, server: &mut Child, log_path: &Pat
         }
         if let Some(status) = server.try_wait().expect("poll server") {
             panic!(
-                "xagora server exited before accepting SSH connections: {status}\n{}",
+                "hinemos server exited before accepting SSH connections: {status}\n{}",
                 read_lossy(log_path)
             );
         }
         thread::sleep(Duration::from_millis(250));
     }
     panic!(
-        "xagora server did not listen on {host}:{port}\n{}",
+        "hinemos server did not listen on {host}:{port}\n{}",
         read_lossy(log_path)
     );
 }
@@ -478,7 +478,7 @@ fn take_buffer(buffer: Arc<Mutex<Vec<u8>>>) -> Vec<u8> {
 fn has_world_agent_evidence(stdout: &str) -> bool {
     [
         &["ssh", "SSH"][..],
-        &["Xagora", "open world"],
+        &["Hinemos", "open world"],
         &["Available", "/look", "/go"],
         &["Chamber", "commercial", "parcel", "north_01", "/land"],
         &["claim", "build", "publish", "/build", "owned", "shop"],
@@ -582,7 +582,7 @@ impl TestDatabase {
         assert_command_exists("dropdb");
         let base_url = assert_database_env(env);
         let name = format!(
-            "xagora_test_{}_{}_{}",
+            "hinemos_test_{}_{}_{}",
             std::process::id(),
             epoch_nanos(),
             TEST_DATABASE_COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -627,7 +627,8 @@ impl TestDatabase {
 
 impl Drop for TestDatabase {
     fn drop(&mut self) {
-        if !self.drop_on_exit || std::env::var("XAGORA_VERIFY_KEEP_DB").ok().as_deref() == Some("1")
+        if !self.drop_on_exit
+            || std::env::var("HINEMOS_VERIFY_KEEP_DB").ok().as_deref() == Some("1")
         {
             eprintln!("test database kept: {}", self.name);
             return;
@@ -681,7 +682,7 @@ impl TestTempDir {
 impl Drop for TestTempDir {
     fn drop(&mut self) {
         if self.remove_on_drop
-            && std::env::var("XAGORA_VERIFY_KEEP_LOGS").ok().as_deref() != Some("1")
+            && std::env::var("HINEMOS_VERIFY_KEEP_LOGS").ok().as_deref() != Some("1")
         {
             fs::remove_dir_all(&self.path).ok();
         } else {
@@ -697,8 +698,8 @@ fn common_helpers_are_reachable_for_lints() {
     let _ = assert_provider_env as fn(&HashMap<String, String>);
     let _ = assert_command_exists as fn(&str);
     let _ = free_local_port as fn() -> u16;
-    let _ = spawn_xagora_server as fn(&Path, &str, u16, &Path, &str) -> Child;
-    let _ = spawn_xagora_server_with_env::<0>
+    let _ = spawn_hinemos_server as fn(&Path, &str, u16, &Path, &str) -> Child;
+    let _ = spawn_hinemos_server_with_env::<0>
         as fn(&Path, &str, u16, &Path, &str, [(&str, &str); 0]) -> Child;
     let _ = wait_for_server as fn(&str, u16, &mut Child, &Path);
     let _ = run_ssh_batch::<0> as fn(&str, u16, &str, [&str; 0]) -> String;

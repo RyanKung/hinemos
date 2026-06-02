@@ -12,15 +12,15 @@ fn two_ssh_agents_can_chat_in_same_view() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-two-agent-chat");
+    let temp = TestTempDir::new("hinemos-two-agent-chat");
     let host = "127.0.0.1";
     let port = free_local_port();
     let listener = format!("listener_{}_{}", std::process::id(), epoch_seconds());
     let speaker = format!("speaker_{}_{}", std::process::id(), epoch_seconds());
     let message = format!("chat_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
     let mut listener_session = SshSession::spawn(host, port, &listener);

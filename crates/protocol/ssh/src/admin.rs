@@ -1,13 +1,13 @@
-//! Unix domain socket for [`xagora_admin_protocol::AdminRequest`] control messages.
+//! Unix domain socket for [`hinemos_admin_protocol::AdminRequest`] control messages.
 
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use hinemos_admin_protocol::{AdminRequest, AdminResponse, MAX_ADMIN_FRAME};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use xagora_admin_protocol::{AdminRequest, AdminResponse, MAX_ADMIN_FRAME};
 
 use super::SharedState;
 
@@ -41,7 +41,10 @@ pub(super) async fn run_admin_listener(
             .with_context(|| format!("chmod admin socket {}", socket_path.display()))?;
     }
 
-    eprintln!("Xagora admin socket listening on {}", socket_path.display());
+    eprintln!(
+        "Hinemos admin socket listening on {}",
+        socket_path.display()
+    );
 
     loop {
         let (stream, _) = listener

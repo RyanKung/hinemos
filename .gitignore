@@ -2,6 +2,7 @@ docs
 target
 .cargo-target
 .host-build
+.hinemos
 .xagora
 .env
 .env.test

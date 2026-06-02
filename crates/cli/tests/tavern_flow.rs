@@ -10,13 +10,13 @@ fn blackstone_tavern_is_closed_when_agent_is_offline() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-blackstone-closed");
+    let temp = TestTempDir::new("hinemos-blackstone-closed");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("closed_guest_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
@@ -93,13 +93,13 @@ fn blackstone_tavern_is_open_when_agent_is_online() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-blackstone-open");
+    let temp = TestTempDir::new("hinemos-blackstone-open");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("open_guest_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
@@ -145,13 +145,13 @@ fn blackstone_tavern_advertises_bar_commands_after_a_drink() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-blackstone-drink-window");
+    let temp = TestTempDir::new("hinemos-blackstone-drink-window");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("drink_guest_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
@@ -198,13 +198,13 @@ fn blackstone_tavern_handles_buy_blame_ask_and_grep() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-blackstone-tavern");
+    let temp = TestTempDir::new("hinemos-blackstone-tavern");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("tavern_guest_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
@@ -274,14 +274,14 @@ fn blackstone_tavern_chat_records_complaints_and_answers_within_drink_window() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-blackstone-chat");
+    let temp = TestTempDir::new("hinemos-blackstone-chat");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("chat_guest_{}_{}", std::process::id(), epoch_seconds());
     let claim = format!("amber_delivery_failed_from_{user}");
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
@@ -344,13 +344,13 @@ fn blackstone_tavern_chat_window_expires_after_five_minutes() {
     assert_command_exists("ssh");
     assert_command_exists("psql");
 
-    let temp = TestTempDir::new("xagora-blackstone-chat-expiry");
+    let temp = TestTempDir::new("hinemos-blackstone-chat-expiry");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("expiry_guest_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
@@ -418,14 +418,14 @@ fn blackstone_tavern_persists_searchable_service_history() {
     assert_command_exists("ssh");
     assert_command_exists("psql");
 
-    let temp = TestTempDir::new("xagora-blackstone-history");
+    let temp = TestTempDir::new("hinemos-blackstone-history");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("history_guest_{}_{}", std::process::id(), epoch_seconds());
     let claim = format!("silver_widget_delay_from_{user}");
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,
@@ -505,14 +505,14 @@ fn blackstone_tavern_falls_back_when_llm_provider_fails() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("xagora-blackstone-llm-fallback");
+    let temp = TestTempDir::new("hinemos-blackstone-llm-fallback");
     let host = "127.0.0.1";
     let port = free_local_port();
     let user = format!("fallback_guest_{}_{}", std::process::id(), epoch_seconds());
     let claim = format!("fallback_claim_from_{user}");
-    let server_log = temp.path.join("xagora-server.log");
+    let server_log = temp.path.join("hinemos-server.log");
 
-    let mut server = spawn_xagora_server_with_env(
+    let mut server = spawn_hinemos_server_with_env(
         &root,
         host,
         port,

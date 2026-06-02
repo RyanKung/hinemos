@@ -12,10 +12,10 @@ mod error;
 use std::sync::Arc;
 use std::time::Duration;
 
+use hinemos_core::{JsonObservation, SemanticCommand};
+use hinemos_storage::{PgStorage, StoredWorldMessage};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
-use xagora_core::{JsonObservation, SemanticCommand};
-use xagora_storage::{PgStorage, StoredWorldMessage};
 
 use command::ParsedCommand;
 pub use error::BlackstoneError;
@@ -910,7 +910,7 @@ impl LlmClient {
                 messages: vec![
                     ChatCompletionMessage {
                         role: "system",
-                        content: "You are the resident bartender at Blackstone Tavern inside Xagora. You help visitors reason from rumors, complaints, and public broadcasts without claiming official authority.",
+                        content: "You are the resident bartender at Blackstone Tavern inside Hinemos. You help visitors reason from rumors, complaints, and public broadcasts without claiming official authority.",
                     },
                     ChatCompletionMessage {
                         role: "user",

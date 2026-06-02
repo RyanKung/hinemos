@@ -1,6 +1,6 @@
 #![deny(missing_docs)]
 
-//! Shared domain types for the Xagora open world.
+//! Shared domain types for the Hinemos open world.
 
 pub mod command;
 pub mod ids;
