@@ -10,7 +10,7 @@ pub mod sample_world;
 
 pub use command::{
     BuildAction, BuildSheet, Direction, EntityRef, InboxAction, LandAction, PayAction,
-    SemanticCommand, ShopAction,
+    SemanticCommand, SettingsAction, ShopAction,
 };
 pub use ids::{EntityId, PlayerId, ViewId};
 pub use model::{

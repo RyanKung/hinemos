@@ -24,8 +24,9 @@ use types::{
     player_id_from_password_username, resolve_payment_target,
 };
 pub use types::{
-    StorageError, StoredBalance, StoredIdentity, StoredInboxItem, StoredOperatorCommand,
-    StoredParcel, StoredPasswordIdentity, StoredPaymentRequest, StoredTransfer, StoredWorldMessage,
+    StorageError, StoredAccountSettings, StoredBalance, StoredIdentity, StoredInboxItem,
+    StoredMailAuthToken, StoredOperatorCommand, StoredParcel, StoredPasswordIdentity,
+    StoredPaymentRequest, StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
@@ -131,6 +132,82 @@ impl PgStorage {
         Ok(identity)
     }
 
+    /// Authenticates an SSH public-key identity, preserving stored player bindings.
+    pub async fn authenticate_ssh_identity(
+        &self,
+        username: &str,
+        key_fingerprint: &str,
+        fallback_player_id: &str,
+    ) -> Result<StoredIdentity, StorageError> {
+        if let Some(identity) = sqlx::query_as::<_, StoredIdentity>(
+            r#"
+            update ssh_identities
+            set last_seen_at = now()
+            where username = $1 and key_fingerprint = $2
+            returning username, key_fingerprint, player_id, false as created
+            "#,
+        )
+        .bind(username)
+        .bind(key_fingerprint)
+        .fetch_optional(&self.pool)
+        .await?
+        {
+            return Ok(identity);
+        }
+
+        self.upsert_ssh_identity(username, key_fingerprint, fallback_player_id)
+            .await
+    }
+
+    /// Replaces the SSH public key bound to an existing player identity.
+    pub async fn replace_ssh_identity(
+        &self,
+        username: &str,
+        player_id: &str,
+        key_fingerprint: &str,
+    ) -> Result<StoredIdentity, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            r#"
+            insert into player_profiles (player_id, display_name)
+            values ($1, $2)
+            on conflict (player_id) do update
+            set display_name = excluded.display_name,
+                updated_at = now()
+            "#,
+        )
+        .bind(player_id)
+        .bind(username)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            delete from ssh_identities
+            where username = $1 or player_id = $2
+            "#,
+        )
+        .bind(username)
+        .bind(player_id)
+        .execute(&mut *tx)
+        .await?;
+
+        let identity = sqlx::query_as::<_, StoredIdentity>(
+            r#"
+            insert into ssh_identities (username, key_fingerprint, player_id)
+            values ($1, $2, $3)
+            returning username, key_fingerprint, player_id, true as created
+            "#,
+        )
+        .bind(username)
+        .bind(key_fingerprint)
+        .bind(player_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(identity)
+    }
+
     /// Authenticates or creates the SSH password identity for a username.
     pub async fn authenticate_password_identity(
         &self,
@@ -149,6 +226,198 @@ impl PgStorage {
         }
 
         self.create_password_identity(username, password).await
+    }
+
+    /// Sets or rotates the SSH password login secret for an existing player.
+    pub async fn set_password_identity(
+        &self,
+        username: &str,
+        player_id: &str,
+        password: &str,
+    ) -> Result<StoredPasswordIdentity, StorageError> {
+        if password.is_empty() {
+            return Err(StorageError::InvalidAccountSetting(
+                "password must not be empty".to_owned(),
+            ));
+        }
+        let salt = SaltString::generate(&mut OsRng);
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(StorageError::from_password_hash)?
+            .to_string();
+
+        sqlx::query(
+            r#"
+            insert into player_profiles (player_id, display_name)
+            values ($1, $2)
+            on conflict (player_id) do update
+            set display_name = excluded.display_name,
+                updated_at = now()
+            "#,
+        )
+        .bind(player_id)
+        .bind(username)
+        .execute(&self.pool)
+        .await?;
+
+        let identity = sqlx::query_as::<_, StoredPasswordIdentity>(
+            r#"
+            insert into password_identities (username, player_id, password_hash)
+            values ($1, $2, $3)
+            on conflict (username) do update
+            set player_id = excluded.player_id,
+                password_hash = excluded.password_hash,
+                last_seen_at = now()
+            returning username, player_id, false as created
+            "#,
+        )
+        .bind(username)
+        .bind(player_id)
+        .bind(password_hash)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(identity)
+    }
+
+    /// Sets or rotates the SMTP/IMAP auth token for a player.
+    pub async fn set_mail_auth_token(
+        &self,
+        username: &str,
+        player_id: &str,
+        token: &str,
+    ) -> Result<StoredMailAuthToken, StorageError> {
+        if token.is_empty() {
+            return Err(StorageError::InvalidAccountSetting(
+                "mail auth token must not be empty".to_owned(),
+            ));
+        }
+        let salt = SaltString::generate(&mut OsRng);
+        let token_hash = Argon2::default()
+            .hash_password(token.as_bytes(), &salt)
+            .map_err(StorageError::from_password_hash)?
+            .to_string();
+
+        sqlx::query(
+            r#"
+            insert into player_profiles (player_id, display_name)
+            values ($1, $2)
+            on conflict (player_id) do update
+            set display_name = excluded.display_name,
+                updated_at = now()
+            "#,
+        )
+        .bind(player_id)
+        .bind(username)
+        .execute(&self.pool)
+        .await?;
+
+        let token = sqlx::query_as::<_, StoredMailAuthToken>(
+            r#"
+            insert into mail_auth_tokens (username, player_id, token_hash)
+            values ($1, $2, $3)
+            on conflict (username) do update
+            set player_id = excluded.player_id,
+                token_hash = excluded.token_hash,
+                updated_at = now()
+            returning username, player_id
+            "#,
+        )
+        .bind(username)
+        .bind(player_id)
+        .bind(token_hash)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(token)
+    }
+
+    /// Authenticates a SMTP/IMAP username with its dedicated mail auth token.
+    pub async fn verify_mail_auth_token(
+        &self,
+        username: &str,
+        token: &str,
+    ) -> Result<Option<StoredMailAuthToken>, StorageError> {
+        if token.is_empty() {
+            return Ok(None);
+        }
+        let Some(row) = sqlx::query(
+            r#"
+            select username, player_id, token_hash
+            from mail_auth_tokens
+            where username = $1
+            "#,
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+
+        let token_hash: String = row.get("token_hash");
+        let parsed_hash =
+            PasswordHash::new(&token_hash).map_err(StorageError::from_password_hash)?;
+        if Argon2::default()
+            .verify_password(token.as_bytes(), &parsed_hash)
+            .is_err()
+        {
+            return Ok(None);
+        }
+
+        sqlx::query(
+            r#"
+            update mail_auth_tokens
+            set last_seen_at = now()
+            where username = $1
+            "#,
+        )
+        .bind(username)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(Some(StoredMailAuthToken {
+            username: row.get("username"),
+            player_id: row.get("player_id"),
+        }))
+    }
+
+    /// Loads account settings for display in SSH sessions.
+    pub async fn account_settings(
+        &self,
+        username: &str,
+        player_id: &str,
+    ) -> Result<StoredAccountSettings, StorageError> {
+        let settings = sqlx::query_as::<_, StoredAccountSettings>(
+            r#"
+            select
+                profile.player_id,
+                profile.display_name,
+                greatest(1, floor(extract(epoch from (now() - profile.created_at)) / 86400)::int + 1) as online_days,
+                exists (
+                    select 1 from password_identities password
+                    where password.username = $1 and password.player_id = $2
+                ) as has_password,
+                exists (
+                    select 1 from mail_auth_tokens token
+                    where token.username = $1 and token.player_id = $2
+                ) as has_mail_token,
+                (
+                    select key_fingerprint
+                    from ssh_identities ssh
+                    where ssh.username = $1 and ssh.player_id = $2
+                    order by ssh.last_seen_at desc
+                    limit 1
+                ) as key_fingerprint
+            from player_profiles profile
+            where profile.player_id = $2
+            "#,
+        )
+        .bind(username)
+        .bind(player_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(settings)
     }
 
     async fn verify_existing_password_identity(

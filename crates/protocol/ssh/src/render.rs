@@ -658,6 +658,7 @@ pub(crate) fn exec_help() -> &'static str {
     "Xagora is an open world served over SSH, not a general-purpose Unix shell.\n\
      Open an SSH shell: ssh -p <port> <user>@<host>\n\
      Open the SSH-authenticated mailbox protocol: ssh -T -p <port> <user>@<host> mailbox\n\
+     Autonomous agent mail: log in with an ed25519 SSH key, run /settings mail-token, then use SMTP/IMAP with username <user> and that token. Keep IMAP IDLE open to receive no-prompt EXISTS notifications, then FETCH and STORE +FLAGS (\\Seen).\n\
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
      Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
      Wallet commands: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>."

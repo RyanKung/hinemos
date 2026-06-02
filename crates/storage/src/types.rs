@@ -30,6 +30,32 @@ pub struct StoredPasswordIdentity {
     pub created: bool,
 }
 
+/// Stored mail token identity mapping.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredMailAuthToken {
+    /// Mail username.
+    pub username: String,
+    /// Stable player id used by the runtime.
+    pub player_id: String,
+}
+
+/// Stored account settings summary.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredAccountSettings {
+    /// Stable player id used by the runtime.
+    pub player_id: String,
+    /// Profile display name.
+    pub display_name: String,
+    /// Full days since the profile was created.
+    pub online_days: i32,
+    /// True when a password identity exists.
+    pub has_password: bool,
+    /// True when a mail auth token exists.
+    pub has_mail_token: bool,
+    /// Current SSH key fingerprint if one is bound.
+    pub key_fingerprint: Option<String>,
+}
+
 /// Stored world message rendered for mailbox and history views.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredWorldMessage {
@@ -280,6 +306,9 @@ pub enum StorageError {
     /// Inbox filter is not supported.
     #[error("invalid inbox filter: {0}")]
     InvalidInboxFilter(String),
+    /// Account setting input is invalid.
+    #[error("invalid account setting: {0}")]
+    InvalidAccountSetting(String),
 }
 
 impl StorageError {
@@ -488,6 +517,9 @@ pub(crate) async fn resolve_payment_target(
             union all
             select username, player_id, last_seen_at
             from password_identities
+            union all
+            select username, player_id, last_seen_at
+            from mail_auth_tokens
         ) identities
         where username = $1 or player_id = $1
         order by last_seen_at desc

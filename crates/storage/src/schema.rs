@@ -52,6 +52,22 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
+            create table if not exists mail_auth_tokens (
+                username text primary key,
+                player_id text not null references player_profiles(player_id) on delete cascade,
+                token_hash text not null,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                last_seen_at timestamptz not null default now(),
+                unique (player_id)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
             create table if not exists player_states (
                 player_id text primary key references player_profiles(player_id) on delete cascade,
                 current_view text not null,

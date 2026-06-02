@@ -14,6 +14,7 @@ mod admin;
 mod auth;
 mod config;
 mod handler;
+mod mail;
 mod presence;
 mod render;
 mod runtime_state;
@@ -26,7 +27,8 @@ use russh::{Channel, ChannelId, server};
 use tokio::sync::Mutex;
 use xagora_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
 use xagora_core::{
-    BuildAction, InboxAction, JsonObservation, LandAction, PayAction, SemanticCommand, ShopAction,
+    BuildAction, InboxAction, JsonObservation, LandAction, PayAction, SemanticCommand,
+    SettingsAction, ShopAction,
 };
 use xagora_runtime::{Chrome, SlashParseError};
 use xagora_storage::{PgStorage, PlayerStateStore};
@@ -35,6 +37,7 @@ use auth::PublicKeyAuthPolicy;
 pub use config::SshArgs;
 use config::{DaemonConfig, mail_domain_from_env, mask_database_url};
 use handler::ConnectionHandler;
+pub use mail::MailArgs;
 use presence::PresenceRegistry;
 use runtime_state::RuntimeHandle;
 
@@ -94,6 +97,11 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
     let mut server = SshServer { shared };
     server.run_on_address(config, cli.bind).await?;
     Ok(())
+}
+
+/// Runs the SMTP/IMAP sidecar mail service until shutdown.
+pub async fn run_mail_daemon(args: MailArgs) -> Result<()> {
+    mail::run_mail_daemon(args).await
 }
 
 fn load_or_create_host_key(path: &Path) -> Result<PrivateKey> {

@@ -102,6 +102,11 @@ pub enum SemanticCommand {
         /// Message body.
         text: String,
     },
+    /// Manage account and protocol settings.
+    Settings {
+        /// Settings action.
+        action: SettingsAction,
+    },
     /// Manage the durable inbox.
     Inbox {
         /// Inbox command action.
@@ -232,6 +237,26 @@ pub enum InboxAction {
     Archive {
         /// Inbox item id.
         item_id: i64,
+    },
+}
+
+/// Account settings actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SettingsAction {
+    /// Show account settings.
+    Show,
+    /// Generate or rotate the dedicated SMTP/IMAP mail auth token.
+    MailToken,
+    /// Set the SSH password login secret for this account.
+    SetPassword {
+        /// New SSH password.
+        password: String,
+    },
+    /// Replace the SSH public key bound to this account.
+    SetKey {
+        /// OpenSSH public key text.
+        public_key: String,
     },
 }
 

@@ -250,6 +250,11 @@ impl GameRuntime {
             SemanticCommand::Mail { target, text } => {
                 vec![message(format!("You mail {target}: {text}"))]
             }
+            SemanticCommand::Settings { .. } => {
+                vec![message(
+                    "Settings are available in SSH sessions.".to_owned(),
+                )]
+            }
             SemanticCommand::Inbox { .. } => {
                 vec![message("Inbox is available in SSH sessions.".to_owned())]
             }
@@ -518,6 +523,9 @@ fn available_commands(
         },
         SemanticCommand::History,
         SemanticCommand::Who,
+        SemanticCommand::Settings {
+            action: xagora_core::SettingsAction::Show,
+        },
         SemanticCommand::Inbox {
             action: xagora_core::InboxAction::List {
                 filter: "unread".to_owned(),

@@ -18,7 +18,7 @@ use xagora_runtime::{Chrome, GameRuntime, render_text_observation};
 struct Cli {
     #[cfg(unix)]
     #[command(subcommand)]
-    sub: Option<AdminTop>,
+    sub: Option<TopCommand>,
 
     #[command(flatten)]
     play: PlayArgs,
@@ -26,7 +26,7 @@ struct Cli {
 
 #[cfg(unix)]
 #[derive(Debug, Subcommand)]
-enum AdminTop {
+enum TopCommand {
     /// Control a running daemon via its admin Unix socket.
     Admin(AdminCli),
     /// Run a network adapter.
@@ -34,10 +34,13 @@ enum AdminTop {
     Serve(ServeCli),
 }
 
+#[cfg(unix)]
 #[derive(Debug, Subcommand)]
 enum ServeCli {
     /// Run the SSH adapter.
     Ssh(xagora_ssh::SshArgs),
+    /// Run the SMTP/IMAP mail sidecar.
+    Mail(xagora_ssh::MailArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -98,8 +101,9 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     if let Some(sub) = cli.sub {
         return match sub {
-            AdminTop::Admin(admin) => run_admin(admin),
-            AdminTop::Serve(ServeCli::Ssh(args)) => xagora_ssh::run_daemon(args).await,
+            TopCommand::Admin(admin) => run_admin(admin),
+            TopCommand::Serve(ServeCli::Ssh(args)) => xagora_ssh::run_daemon(args).await,
+            TopCommand::Serve(ServeCli::Mail(args)) => xagora_ssh::run_mail_daemon(args).await,
         };
     }
 

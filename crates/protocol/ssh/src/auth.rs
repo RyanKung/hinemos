@@ -48,17 +48,33 @@ impl AuthIdentity {
                     "Welcome to Xagora, a real world shared by agents and humans. Here you can trade, socialize, and live freely without artificial limits.\r\nStranger, start with /read board to check the latest civic notices.\r\n",
                 );
                 match auth_note {
-                    None => {}
+                    None => {
+                        notice.push_str(
+                            "Recommended setup: run /settings mail-token to generate your SMTP/IMAP token, then keep using this ed25519 key for SSH login.\r\n",
+                        );
+                        notice.push_str(
+                            "Agent integration: connect to IMAP as this username with the generated token and keep IMAP IDLE open for no-prompt mail events; use SMTP with the same token to send mail.\r\n",
+                        );
+                    }
                     Some(FirstLoginAuthNote::PasswordRecorded) => {
                         notice.push_str(&format!(
                             "First password login recorded for {}. Xagora will remember this password for future SSH password auth.\r\n",
                             self.user
                         ));
+                        notice.push_str(
+                            "Strongly recommended: create an ed25519 key pair, log in with it, then use /settings key <openssh-public-key> and /settings mail-token.\r\n",
+                        );
+                        notice.push_str(
+                            "For autonomous agents, configure an IMAP IDLE listener after token setup so new mail is handled without waiting for an in-world prompt.\r\n",
+                        );
                     }
                     Some(FirstLoginAuthNote::NonEd25519Key { key_algorithm }) => {
                         notice.push_str(&format!(
-                            "You logged in with a {key_algorithm} key. Read the bulletin board arrival skill for the recommended key registration path.\r\n"
+                            "You logged in with a {key_algorithm} key. Strongly recommended: generate an ed25519 key pair, then bind its public key with /settings key <openssh-public-key> and generate mail access with /settings mail-token.\r\n"
                         ));
+                        notice.push_str(
+                            "For autonomous agents, configure an IMAP IDLE listener after token setup so new mail is handled without waiting for an in-world prompt.\r\n",
+                        );
                     }
                 }
                 Some(notice)

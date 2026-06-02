@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 use xagora_core::{
     BuildAction, BuildSheet, Direction, EntityRef, InboxAction, JsonObservation, LandAction,
-    ObservationEvent, PayAction, SemanticCommand, ShopAction, WorldState,
+    ObservationEvent, PayAction, SemanticCommand, SettingsAction, ShopAction, WorldState,
 };
 
 /// Engine chrome plus [`WorldState::entity_alias_map`] for slash targets.
@@ -53,6 +53,8 @@ impl Chrome {
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
+        Settings: /settings, /settings mail-token, /settings password <new-password>, /settings key <openssh-public-key>\n\
+        Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Xagora username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
@@ -188,6 +190,7 @@ impl Chrome {
             "pay" => Ok(SemanticCommand::Pay {
                 action: parse_pay_action(trimmed, &mut tokens)?,
             }),
+            "settings" => parse_settings_command(trimmed, &mut tokens),
             "land" => parse_land_command(&mut tokens),
             "build" => parse_build_command(trimmed, &mut tokens),
             "shop" => parse_shop_command(trimmed, &mut tokens),
@@ -315,6 +318,37 @@ fn parse_pay_action<'a>(
     }
 }
 
+fn parse_settings_command<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<SemanticCommand, SlashParseError> {
+    let Some(action) = tokens.next() else {
+        return Ok(SemanticCommand::Settings {
+            action: SettingsAction::Show,
+        });
+    };
+    let action = match action.to_ascii_lowercase().as_str() {
+        "mail-token" | "mailtoken" | "token" => {
+            if tokens.next().is_some() {
+                return Err(SlashParseError::UnexpectedArgument);
+            }
+            SettingsAction::MailToken
+        }
+        "password" | "pass" => {
+            let password = rest_after_token(trimmed, action)?;
+            SettingsAction::SetPassword { password }
+        }
+        "key" => {
+            let public_key = rest_after_token(trimmed, action)?;
+            SettingsAction::SetKey { public_key }
+        }
+        _ => {
+            return Err(SlashParseError::UnknownCommand);
+        }
+    };
+    Ok(SemanticCommand::Settings { action })
+}
+
 fn parse_build_command<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
@@ -421,6 +455,9 @@ pub enum SlashParseError {
     /// Missing argument where required.
     #[error("missing command argument")]
     MissingArgument,
+    /// Unexpected argument where no further text is accepted.
+    #[error("unexpected command argument")]
+    UnexpectedArgument,
     /// Invalid integer amount.
     #[error("invalid amount")]
     InvalidAmount,
@@ -550,6 +587,13 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         "/history".to_owned(),
         "/help".to_owned(),
     ];
+    if observation
+        .available_commands
+        .iter()
+        .any(|command| matches!(command, SemanticCommand::Settings { .. }))
+    {
+        parts.push("/settings".to_owned());
+    }
     if observation
         .available_commands
         .iter()
@@ -693,7 +737,7 @@ mod tests {
 
     use xagora_core::{
         ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef, InboxAction,
-        JsonObservation, ObservationEvent, SemanticCommand,
+        JsonObservation, ObservationEvent, SemanticCommand, SettingsAction,
     };
 
     use super::{Chrome, SlashParseError, render_text_observation};
@@ -871,6 +915,51 @@ mod tests {
             SemanticCommand::Inbox {
                 action: InboxAction::Claim { item_id: 42 }
             }
+        );
+    }
+
+    #[test]
+    fn slash_parser_accepts_settings_actions() {
+        let chrome = Chrome::with_aliases(HashMap::new());
+
+        assert_eq!(
+            chrome.parse_command("/settings").expect("settings parses"),
+            SemanticCommand::Settings {
+                action: SettingsAction::Show
+            }
+        );
+        assert_eq!(
+            chrome
+                .parse_command("/settings mail-token")
+                .expect("mail token setting parses"),
+            SemanticCommand::Settings {
+                action: SettingsAction::MailToken
+            }
+        );
+        assert_eq!(
+            chrome
+                .parse_command("/settings password new secret")
+                .expect("password setting parses"),
+            SemanticCommand::Settings {
+                action: SettingsAction::SetPassword {
+                    password: "new secret".to_owned()
+                }
+            }
+        );
+        assert_eq!(
+            chrome
+                .parse_command("/settings key ssh-ed25519 AAAA test@example")
+                .expect("key setting parses"),
+            SemanticCommand::Settings {
+                action: SettingsAction::SetKey {
+                    public_key: "ssh-ed25519 AAAA test@example".to_owned()
+                }
+            }
+        );
+
+        assert_eq!(
+            chrome.parse_command("/settings mail-token extra"),
+            Err(SlashParseError::UnexpectedArgument)
         );
     }
 

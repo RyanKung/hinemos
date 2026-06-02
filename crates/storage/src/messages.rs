@@ -13,6 +13,25 @@ impl PgStorage {
         target: &str,
         body: &str,
     ) -> Result<StoredInboxItem, StorageError> {
+        self.save_mail_message_with_subject(
+            sender_user,
+            sender_player_id,
+            target,
+            "Private mail",
+            body,
+        )
+        .await
+    }
+
+    /// Persists a mailbox message with a caller-provided inbox subject.
+    pub async fn save_mail_message_with_subject(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        target: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<StoredInboxItem, StorageError> {
         sqlx::query(
             r#"
             insert into world_messages (
@@ -34,7 +53,7 @@ impl PgStorage {
             recipient_player_id: target,
             sender_user,
             sender_player_id,
-            subject: "Private mail",
+            subject,
             body,
             source_kind: None,
             source_id: None,

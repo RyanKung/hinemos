@@ -33,7 +33,7 @@ impl server::Handler for ConnectionHandler {
         let identity = self
             .shared
             .storage
-            .upsert_ssh_identity(user, &authorized.fingerprint, &authorized.player_id)
+            .authenticate_ssh_identity(user, &authorized.fingerprint, &authorized.player_id)
             .await?;
         if !identity.created {
             authorized.onboarding = AuthOnboarding::None;
