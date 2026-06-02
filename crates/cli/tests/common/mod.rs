@@ -293,7 +293,7 @@ impl SshSession {
         stdout
     }
 
-    fn stdout_text(&self) -> String {
+    pub fn stdout_text(&self) -> String {
         String::from_utf8_lossy(&self.stdout.lock().expect("stdout lock")).to_string()
     }
 

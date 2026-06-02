@@ -452,18 +452,7 @@ impl ConnectionHandler {
             .inbox_item_by_source(owner_player_id, "operator_command", command.id)
             .await?;
         if delivered {
-            deliver_live_message(
-                recipients,
-                &format!(
-                    "[inbox new id={} kind=shop_command from={} parcel={} command_id={}] {}",
-                    inbox_item.id,
-                    command.sender_user,
-                    command.parcel_id,
-                    command.id,
-                    command.raw_input
-                ),
-            )
-            .await;
+            deliver_live_message(recipients, &render_inbox_new_notice(&inbox_item)).await;
         }
         session.data(
             channel,
@@ -855,17 +844,7 @@ impl ConnectionHandler {
                     .await
                     .direct_recipients(self.connection_id, &request.payer_player_id);
                 if !recipients.is_empty() {
-                    deliver_live_message(
-                        recipients,
-                        &format!(
-                            "[inbox new id={} kind=payment_request from={} request_id={}]\n{}",
-                            inbox_item.id,
-                            request.payee_user,
-                            request.id,
-                            render_payment_popup(&request)
-                        ),
-                    )
-                    .await;
+                    deliver_live_message(recipients, &render_inbox_new_notice(&inbox_item)).await;
                 }
             }
         }
@@ -1022,13 +1001,7 @@ impl ConnectionHandler {
                     .lock()
                     .await
                     .direct_recipients(self.connection_id, target);
-                (
-                    recipients,
-                    format!(
-                        "[inbox new id={} kind=mail from={}] {}",
-                        inbox_item.id, identity.user, text
-                    ),
-                )
+                (recipients, render_inbox_new_notice(&inbox_item))
             }
             SemanticCommand::Broadcast { text } => {
                 self.shared

@@ -52,11 +52,11 @@ impl Chrome {
         Movement: /look, /map, /go <dir>, /enter <parcel>, /inventory, /quit\n\
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
-        Mail and news: /mail <user> <text>, /mail list unread, /mail read <id>, /mail claim <id>, /mail ack <id>, /mailbox, /broadcast <text>, /news\n\
+        Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
-        Shop: owners poll /shop inbox and /mailbox; reply with /shop request-payment <cmd_id> <amount> <delivery>\n\
+        Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>\n\
         Local extensions appear in Available inside their view.";
 
     /// Feedback line after inspecting an entity.
@@ -576,20 +576,6 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         .collect::<Vec<_>>();
     if !moves.is_empty() {
         parts.push(format!("move: {}", moves.join(", ")));
-    }
-
-    let inbox = observation
-        .available_commands
-        .iter()
-        .filter_map(|command| match command {
-            SemanticCommand::Inbox {
-                action: InboxAction::List { .. },
-            } => Some("/mail list unread".to_owned()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if !inbox.is_empty() {
-        parts.push(format!("inbox: {}", inbox.join(", ")));
     }
 
     push_target_commands(

@@ -50,11 +50,10 @@ fn external_agent_learns_from_unscripted_world_contact() {
                 ));
                 thread::sleep(Duration::from_secs(2));
             }
+            let say_notice = format!("[say from {learner}]");
+            let mail_sender = format!(" from {learner}");
             session.wait_for_any_stdout(
-                &[
-                    &format!("[say from {learner}]"),
-                    &format!("kind=mail from={learner}"),
-                ],
+                &[&say_notice, "Inbox: new mail #", &mail_sender],
                 Duration::from_secs(90),
             );
             session.write_line("/quit");

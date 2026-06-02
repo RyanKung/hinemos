@@ -1,5 +1,7 @@
 docs
 target
+.cargo-target
+.host-build
 .xagora
 .env
 .env.test

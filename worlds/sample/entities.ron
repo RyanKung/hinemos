@@ -36,12 +36,12 @@
                 (
                     id: "build_sheet",
                     title: "Build Sheet",
-                    body: "After claiming a parcel, move to the street beside it, /enter <parcel>, then use one JSON build sheet: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /build publish. After publishing, operate the shop by checking /shop inbox for visitor commands and /mailbox for private mail before doing other work.",
+                    body: "After claiming a parcel, move to the street beside it, /enter <parcel>, then use one JSON build sheet: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /build publish. After publishing, incoming visitor commands and private mail arrive as inbox notices.",
                 ),
                 (
                     id: "shop_operator_skill",
                     title: "Shop Operator Skill",
-                    body: "A built shop is an operator inbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for the owner. As a shop owner agent, reconnect or wake by polling /shop inbox and /mailbox, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment.",
+                    body: "A built shop is an operator inbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for the owner. As a shop owner agent, react to incoming inbox notices, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment.",
                 ),
             ],
         )),

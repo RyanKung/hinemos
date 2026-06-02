@@ -160,16 +160,15 @@ pub(crate) fn render_inbox_items(title: &str, items: &[StoredInboxItem]) -> Stri
             let lease = item
                 .lease_until
                 .as_deref()
-                .map(|value| format!(" lease_until={value}"))
+                .map(|value| format!(" lease until {value}"))
                 .unwrap_or_default();
             lines.push(format!(
-                "#{} kind={} status={} from={} subject={} body={} attempts={}{}",
+                "#{} {} {} from {}: {} (attempts {}){}",
                 item.id,
                 item.kind,
                 item.status,
                 compact_inbox_field(&item.sender_user),
                 compact_inbox_field(&item.subject),
-                compact_inbox_field(&item.body),
                 item.attempts,
                 lease
             ));
@@ -180,6 +179,16 @@ pub(crate) fn render_inbox_items(title: &str, items: &[StoredInboxItem]) -> Stri
     );
     lines.push(String::new());
     lines.join("\n")
+}
+
+pub(crate) fn render_inbox_new_notice(item: &StoredInboxItem) -> String {
+    format!(
+        "Inbox: new {} #{} from {}\nUse: /mail read {}\n",
+        item.kind,
+        item.id,
+        compact_inbox_field(&item.sender_user),
+        item.id
+    )
 }
 
 pub(crate) fn render_inbox_item(item: &StoredInboxItem) -> String {
@@ -248,7 +257,7 @@ pub(crate) fn build_help() -> &'static str {
      Optional JSON field: \"commands\". If omitted, commands are auto-filled.\r\n\
      Legacy field commands still work for manual correction: /build title <text>, /build description <text>, /build style <text>, /build prompt <text>, /build commands <text>\r\n\
      /build publish\r\n\
-     After publishing, operate the shop by polling /shop inbox and /mailbox. Visitor slash commands inside the shop become shop inbox items.\r\n"
+     After publishing, visitor slash commands inside the shop become inbox items for the owner.\r\n"
 }
 
 pub(crate) const fn default_build_commands() -> &'static str {
@@ -458,11 +467,7 @@ pub(crate) async fn send_mailbox_summary(
 
     session.data(
         channel,
-        format!(
-            "Inbox: {} open item(s). Use /mail list unread or /mailbox.\r\n",
-            items.len()
-        )
-        .into_bytes(),
+        format!("Inbox: {} open item(s).\r\n", items.len()).into_bytes(),
     )?;
     Ok(())
 }
@@ -486,6 +491,7 @@ pub(crate) async fn send_balance_summary(
 }
 
 pub(crate) async fn deliver_live_message(recipients: Vec<PresenceDelivery>, message: &str) {
+    let message = message.replace('\n', "\r\n");
     let payload = format!("\r\n{message}\r\n{}", Chrome::PROMPT);
     for recipient in recipients {
         let _ = recipient

@@ -40,14 +40,21 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
         &format!("You mail {target}: {message}"),
         "sender sees mail confirmation",
     );
-    target_session.wait_for_stdout("[inbox new id=", Duration::from_secs(10));
-    target_session.wait_for_stdout(&format!("kind=mail from={sender}"), Duration::from_secs(10));
+    target_session.wait_for_stdout(
+        &format!("Inbox: new mail #1 from {sender}"),
+        Duration::from_secs(10),
+    );
+    target_session.wait_for_stdout("Use: /mail read 1", Duration::from_secs(10));
 
     target_session.write_line("/mailbox");
     target_session.wait_for_stdout("Mailbox", Duration::from_secs(10));
-    target_session.wait_for_stdout(&message, Duration::from_secs(10));
+    target_session.wait_for_stdout(
+        &format!("#1 mail unread from {sender}: Private mail"),
+        Duration::from_secs(10),
+    );
     target_session.write_line("/mail read 1");
     target_session.wait_for_stdout("Inbox #1", Duration::from_secs(10));
+    target_session.wait_for_stdout(&message, Duration::from_secs(10));
     target_session.write_line("/mail claim 1");
     target_session.wait_for_stdout("Claimed inbox #1", Duration::from_secs(10));
     target_session.write_line("/mail ack 1");
@@ -56,7 +63,7 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
     let target_output = target_session.wait_success(Duration::from_secs(10));
     assert_contains(
         &target_output,
-        &format!("kind=mail from={sender}"),
+        &format!("Inbox: new mail #1 from {sender}"),
         "target receives live direct mail",
     );
     assert_contains(
@@ -72,6 +79,79 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
         &bystander_output,
         &message,
         "bystander does not receive direct mail",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
+fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("xagora-agent-live-inbox");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let sender = format!(
+        "agent_mail_sender_{}_{}",
+        std::process::id(),
+        epoch_seconds()
+    );
+    let agent = format!(
+        "agent_mail_target_{}_{}",
+        std::process::id(),
+        epoch_seconds()
+    );
+    let message = format!(
+        "agent_live_probe_{}_{}",
+        std::process::id(),
+        epoch_seconds()
+    );
+    let server_log = temp.path.join("xagora-server.log");
+
+    let mut server = spawn_xagora_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let mut agent_session = SshSession::spawn(host, port, &agent);
+    agent_session.wait_for_stdout("Available:", Duration::from_secs(10));
+
+    let sender_output = run_ssh_batch(
+        host,
+        port,
+        &sender,
+        [&format!("/mail {agent} {message}"), "/quit"],
+    );
+    assert_contains(
+        &sender_output,
+        &format!("You mail {agent}: {message}"),
+        "sender sees mail confirmation",
+    );
+
+    let notice_prefix = "Inbox: new mail #";
+    agent_session.wait_for_stdout(notice_prefix, Duration::from_secs(10));
+    agent_session.wait_for_stdout(&format!(" from {sender}"), Duration::from_secs(10));
+    let inbox_id = parse_hash_id(&agent_session.stdout_text(), notice_prefix);
+
+    agent_session.write_line(&format!("/mail read {inbox_id}"));
+    agent_session.wait_for_stdout(&format!("Inbox #{inbox_id}"), Duration::from_secs(10));
+    agent_session.wait_for_stdout(&message, Duration::from_secs(10));
+    agent_session.write_line(&format!("/mail ack {inbox_id}"));
+    agent_session.wait_for_stdout(&format!("Acked inbox #{inbox_id}"), Duration::from_secs(10));
+    agent_session.write_line("/quit");
+    let agent_output = agent_session.wait_success(Duration::from_secs(10));
+    assert_contains(
+        &agent_output,
+        &format!("Inbox: new mail #{inbox_id} from {sender}"),
+        "agent sees parseable live inbox notice",
+    );
+    assert_contains(
+        &agent_output,
+        &format!("Inbox #{inbox_id}"),
+        "agent reads the live inbox item it parsed",
     );
 
     terminate(&mut server);
