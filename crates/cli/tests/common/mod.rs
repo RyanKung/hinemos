@@ -223,6 +223,15 @@ pub struct SshSession {
 
 impl SshSession {
     pub fn spawn(host: &str, port: u16, user: &str) -> Self {
+        Self::spawn_with_args(host, port, user, [])
+    }
+
+    #[allow(dead_code)]
+    pub fn spawn_exec<const N: usize>(host: &str, port: u16, user: &str, args: [&str; N]) -> Self {
+        Self::spawn_with_args(host, port, user, args)
+    }
+
+    fn spawn_with_args<const N: usize>(host: &str, port: u16, user: &str, args: [&str; N]) -> Self {
         let mut child = Command::new("ssh")
             .args([
                 "-T",
@@ -234,6 +243,7 @@ impl SshSession {
                 &port.to_string(),
                 &format!("{user}@{host}"),
             ])
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

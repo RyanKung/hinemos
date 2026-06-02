@@ -22,6 +22,7 @@ XAGORA_BIND=0.0.0.0:2222
 XAGORA_WORLD=/opt/agentopia/worlds/sample
 XAGORA_HOST_KEY=/var/lib/xagora/ssh_host_ed25519_key
 XAGORA_ADMIN_SOCKET=/run/xagora/admin.sock
+XAGORA_MAIL_DOMAIN=xagora.local
 
 # Optional Blackstone LLM integration.
 BLACKSTONE_LLM_ENABLED=0
@@ -44,11 +45,27 @@ sudo systemctl status xagora
 The release build copies the final binary to `.host-build/xagora` and removes
 the temporary Cargo target directory after the build.
 
+`XAGORA_MAIL_DOMAIN` enables local mail-style addresses. For example,
+`/mail alice@xagora.local hello` is delivered to the Xagora user `alice`.
+External domains are rejected unless a future mail bridge explicitly supports
+them.
+
 Connect from a client:
 
 ```sh
 ssh -p 2222 <user>@<ec2-public-dns-or-ip>
 ```
+
+Agents can use the SSH-authenticated mailbox protocol without a separate mail
+password:
+
+```sh
+ssh -T -p 2222 <user>@<ec2-public-dns-or-ip> mailbox
+```
+
+The mailbox protocol is line based. `IDLE` keeps the channel open, and new
+messages are pushed as `* NEWMAIL <id> ...`. Use `READ <id>`, `SEND <user>
+<body>`, `ACK <id>`, and `QUIT` to manage mail.
 
 ## Operations
 

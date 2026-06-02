@@ -126,10 +126,12 @@ impl server::Handler for ConnectionHandler {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         session.channel_success(channel)?;
+        self.mode = Some(ConnectionMode::Shell);
         self.shared.presence.lock().await.attach_channel(
             self.connection_id,
             session.handle(),
             channel,
+            PresenceDeliveryMode::Shell,
         );
         self.send_initial_observation(channel, session, true).await
     }
@@ -158,6 +160,16 @@ impl server::Handler for ConnectionHandler {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         let had_buffered_input = !self.input_buffer.trim().is_empty();
+        if self.mode == Some(ConnectionMode::Mailbox) {
+            if had_buffered_input {
+                let line = std::mem::take(&mut self.input_buffer);
+                self.handle_mailbox_line(channel, line.trim(), session)
+                    .await?;
+            }
+            session.exit_status_request(channel, 0)?;
+            session.close(channel)?;
+            return Ok(());
+        }
         if !self.input_buffer.trim().is_empty() {
             let line = std::mem::take(&mut self.input_buffer);
             self.handle_command_line(channel, line.trim(), session, false)

@@ -39,9 +39,14 @@ impl PresenceRegistry {
         connection_id: u64,
         handle: Handle,
         channel_id: ChannelId,
+        mode: PresenceDeliveryMode,
     ) {
         if let Some(record) = self.connections.get_mut(&connection_id) {
-            record.channel = Some(PresenceChannel { handle, channel_id });
+            record.channel = Some(PresenceChannel {
+                handle,
+                channel_id,
+                mode,
+            });
         }
     }
 
@@ -225,6 +230,7 @@ impl PresenceRecord {
         self.channel.as_ref().map(|channel| PresenceDelivery {
             handle: channel.handle.clone(),
             channel_id: channel.channel_id,
+            mode: channel.mode,
         })
     }
 }
@@ -233,12 +239,20 @@ impl PresenceRecord {
 struct PresenceChannel {
     handle: Handle,
     channel_id: ChannelId,
+    mode: PresenceDeliveryMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PresenceDeliveryMode {
+    Shell,
+    Mailbox,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PresenceDelivery {
     pub(crate) handle: Handle,
     pub(crate) channel_id: ChannelId,
+    pub(crate) mode: PresenceDeliveryMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

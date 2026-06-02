@@ -70,3 +70,86 @@ pub(crate) fn mask_database_url(database_url: &str) -> String {
     };
     format!("{scheme}://{user}:***@{host}")
 }
+
+pub(crate) fn mail_domain_from_env() -> Option<String> {
+    std::env::var("XAGORA_MAIL_DOMAIN")
+        .ok()
+        .map(|domain| domain.trim().trim_matches('.').to_ascii_lowercase())
+        .filter(|domain| !domain.is_empty())
+}
+
+pub(crate) fn normalize_mail_target(
+    target: &str,
+    mail_domain: Option<&str>,
+) -> anyhow::Result<String> {
+    let target = target.trim();
+    let Some((local, domain)) = target.split_once('@') else {
+        return Ok(target.to_owned());
+    };
+    let local = local.trim();
+    let domain = domain.trim().trim_matches('.').to_ascii_lowercase();
+    if local.is_empty() || domain.is_empty() || domain.contains('@') {
+        anyhow::bail!("invalid mail address: {target}");
+    }
+    let Some(local_domain) = mail_domain else {
+        anyhow::bail!(
+            "mail domain is not configured; use a bare Xagora username or set XAGORA_MAIL_DOMAIN"
+        );
+    };
+    if domain != local_domain {
+        anyhow::bail!(
+            "external mail domain is not available: {domain}; local domain is {local_domain}"
+        );
+    }
+    Ok(local.to_owned())
+}
+
+pub(crate) fn format_mail_user(user: &str, mail_domain: Option<&str>) -> String {
+    match mail_domain {
+        Some(domain) if !user.contains('@') => format!("{user}@{domain}"),
+        _ => user.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_mail_user, normalize_mail_target};
+
+    #[test]
+    fn mail_target_accepts_bare_user() {
+        assert_eq!(
+            normalize_mail_target("alice", Some("xagora.local")).expect("normalize"),
+            "alice"
+        );
+    }
+
+    #[test]
+    fn mail_target_accepts_configured_domain_case_insensitively() {
+        assert_eq!(
+            normalize_mail_target("alice@XAGORA.LOCAL", Some("xagora.local")).expect("normalize"),
+            "alice"
+        );
+    }
+
+    #[test]
+    fn mail_target_rejects_address_without_domain_config() {
+        let error = normalize_mail_target("alice@xagora.local", None).expect_err("reject");
+        assert!(error.to_string().contains("mail domain is not configured"));
+    }
+
+    #[test]
+    fn mail_target_rejects_external_domain() {
+        let error =
+            normalize_mail_target("alice@example.com", Some("xagora.local")).expect_err("reject");
+        assert!(error.to_string().contains("external mail domain"));
+    }
+
+    #[test]
+    fn mail_user_formats_configured_domain() {
+        assert_eq!(
+            format_mail_user("alice", Some("xagora.local")),
+            "alice@xagora.local"
+        );
+        assert_eq!(format_mail_user("alice", None), "alice");
+    }
+}

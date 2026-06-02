@@ -11,7 +11,8 @@ use xagora_storage::{
 };
 
 use crate::auth::AuthIdentity;
-use crate::presence::{PresenceDelivery, PresenceViewUser};
+use crate::config::format_mail_user;
+use crate::presence::{PresenceDelivery, PresenceDeliveryMode, PresenceViewUser};
 
 pub(crate) fn send_text_observation(
     session: &mut Session,
@@ -151,7 +152,11 @@ pub(crate) fn render_parcel_list(parcels: &[StoredParcel]) -> String {
     lines.join("\n")
 }
 
-pub(crate) fn render_inbox_items(title: &str, items: &[StoredInboxItem]) -> String {
+pub(crate) fn render_inbox_items(
+    title: &str,
+    items: &[StoredInboxItem],
+    mail_domain: Option<&str>,
+) -> String {
     let mut lines = vec![title.to_owned()];
     if items.is_empty() {
         lines.push("No inbox items.".to_owned());
@@ -167,7 +172,7 @@ pub(crate) fn render_inbox_items(title: &str, items: &[StoredInboxItem]) -> Stri
                 item.id,
                 item.kind,
                 item.status,
-                compact_inbox_field(&item.sender_user),
+                compact_inbox_field(&format_mail_user(&item.sender_user, mail_domain)),
                 compact_inbox_field(&item.subject),
                 item.attempts,
                 lease
@@ -181,23 +186,36 @@ pub(crate) fn render_inbox_items(title: &str, items: &[StoredInboxItem]) -> Stri
     lines.join("\n")
 }
 
-pub(crate) fn render_inbox_new_notice(item: &StoredInboxItem) -> String {
+pub(crate) fn render_inbox_new_notice(item: &StoredInboxItem, mail_domain: Option<&str>) -> String {
     format!(
         "Inbox: new {} #{} from {}\nUse: /mail read {}\n",
         item.kind,
         item.id,
-        compact_inbox_field(&item.sender_user),
+        compact_inbox_field(&format_mail_user(&item.sender_user, mail_domain)),
         item.id
     )
 }
 
-pub(crate) fn render_inbox_item(item: &StoredInboxItem) -> String {
+pub(crate) fn render_mailbox_new_notice(
+    item: &StoredInboxItem,
+    mail_domain: Option<&str>,
+) -> String {
+    format!(
+        "* NEWMAIL {} KIND {} FROM {} SUBJECT {}\n",
+        item.id,
+        item.kind,
+        compact_inbox_field(&format_mail_user(&item.sender_user, mail_domain)),
+        compact_inbox_field(&item.subject)
+    )
+}
+
+pub(crate) fn render_inbox_item(item: &StoredInboxItem, mail_domain: Option<&str>) -> String {
     format!(
         "Inbox #{}\nKind: {}\nStatus: {}\nFrom: {}\nSubject: {}\nCreated: {}\nAttempts: {}\nBody: {}\n\n",
         item.id,
         item.kind,
         item.status,
-        item.sender_user,
+        format_mail_user(&item.sender_user, mail_domain),
         item.subject,
         item.created_at,
         item.attempts,
@@ -492,11 +510,36 @@ pub(crate) async fn send_balance_summary(
 
 pub(crate) async fn deliver_live_message(recipients: Vec<PresenceDelivery>, message: &str) {
     let message = message.replace('\n', "\r\n");
-    let payload = format!("\r\n{message}\r\n{}", Chrome::PROMPT);
     for recipient in recipients {
+        let payload = match recipient.mode {
+            PresenceDeliveryMode::Shell => format!("\r\n{message}\r\n{}", Chrome::PROMPT),
+            PresenceDeliveryMode::Mailbox => format!("{message}\r\n"),
+        };
         let _ = recipient
             .handle
-            .data(recipient.channel_id, payload.clone())
+            .data(recipient.channel_id, payload.into_bytes())
+            .await;
+    }
+}
+
+pub(crate) async fn deliver_live_inbox_notice(
+    recipients: Vec<PresenceDelivery>,
+    item: &StoredInboxItem,
+    mail_domain: Option<&str>,
+) {
+    for recipient in recipients {
+        let message = match recipient.mode {
+            PresenceDeliveryMode::Shell => render_inbox_new_notice(item, mail_domain),
+            PresenceDeliveryMode::Mailbox => render_mailbox_new_notice(item, mail_domain),
+        }
+        .replace('\n', "\r\n");
+        let payload = match recipient.mode {
+            PresenceDeliveryMode::Shell => format!("\r\n{message}\r\n{}", Chrome::PROMPT),
+            PresenceDeliveryMode::Mailbox => message,
+        };
+        let _ = recipient
+            .handle
+            .data(recipient.channel_id, payload.into_bytes())
             .await;
     }
 }
@@ -504,6 +547,7 @@ pub(crate) async fn deliver_live_message(recipients: Vec<PresenceDelivery>, mess
 pub(crate) fn exec_help() -> &'static str {
     "Xagora is an open world served over SSH, not a general-purpose Unix shell.\n\
      Open an SSH shell: ssh -p <port> <user>@<host>\n\
+     Open the SSH-authenticated mailbox protocol: ssh -T -p <port> <user>@<host> mailbox\n\
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
      Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
      Wallet commands: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>."

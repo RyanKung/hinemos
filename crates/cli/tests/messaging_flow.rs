@@ -87,6 +87,151 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
+fn configured_mail_domain_addresses_deliver_to_local_user() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("xagora-mail-domain");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let sender = format!("domain_sender_{}_{}", std::process::id(), epoch_seconds());
+    let target = format!("domain_target_{}_{}", std::process::id(), epoch_seconds());
+    let target_address = format!("{target}@xagora.local");
+    let external_address = format!("{target}@example.com");
+    let message = format!("domain_probe_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("xagora-server.log");
+
+    let mut server = spawn_xagora_server_with_env(
+        &root,
+        host,
+        port,
+        &server_log,
+        &test_database.url,
+        [("XAGORA_MAIL_DOMAIN", "xagora.local")],
+    );
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let mut target_session = SshSession::spawn(host, port, &target);
+    target_session.wait_for_stdout("Available:", Duration::from_secs(10));
+
+    let sender_output = run_ssh_batch(
+        host,
+        port,
+        &sender,
+        [
+            &format!("/mail {external_address} should_not_deliver"),
+            &format!("/mail {target_address} {message}"),
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &sender_output,
+        "external mail domain is not available: example.com; local domain is xagora.local",
+        "external domain is rejected",
+    );
+    assert_contains(
+        &sender_output,
+        &format!("You mail {target_address}: {message}"),
+        "sender can address configured mail domain",
+    );
+
+    target_session.wait_for_stdout(
+        &format!("Inbox: new mail #1 from {sender}@xagora.local"),
+        Duration::from_secs(10),
+    );
+    target_session.write_line("/mail read 1");
+    target_session.wait_for_stdout("Inbox #1", Duration::from_secs(10));
+    target_session.wait_for_stdout(
+        &format!("From: {sender}@xagora.local"),
+        Duration::from_secs(10),
+    );
+    target_session.wait_for_stdout(&message, Duration::from_secs(10));
+    target_session.write_line("/quit");
+    target_session.wait_success(Duration::from_secs(10));
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
+fn ssh_mailbox_protocol_receives_newmail_without_polling() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("xagora-mailbox-protocol");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let sender = format!("mailbox_sender_{}_{}", std::process::id(), epoch_seconds());
+    let target = format!("mailbox_target_{}_{}", std::process::id(), epoch_seconds());
+    let message = format!(
+        "mailbox_protocol_probe_{}_{}",
+        std::process::id(),
+        epoch_seconds()
+    );
+    let server_log = temp.path.join("xagora-server.log");
+
+    let mut server = spawn_xagora_server_with_env(
+        &root,
+        host,
+        port,
+        &server_log,
+        &test_database.url,
+        [("XAGORA_MAIL_DOMAIN", "xagora.local")],
+    );
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let mut mailbox_session = SshSession::spawn_exec(host, port, &target, ["mailbox"]);
+    mailbox_session.wait_for_stdout(
+        &format!("OK XAGORA-MAIL ready user {target}@xagora.local"),
+        Duration::from_secs(10),
+    );
+    mailbox_session.write_line("IDLE");
+    mailbox_session.wait_for_stdout("IDLE active", Duration::from_secs(10));
+
+    let sender_output = run_ssh_batch(
+        host,
+        port,
+        &sender,
+        [&format!("/mail {target} {message}"), "/quit"],
+    );
+    assert_contains(
+        &sender_output,
+        &format!("You mail {target}: {message}"),
+        "sender sees shell mail confirmation",
+    );
+
+    mailbox_session.wait_for_stdout(
+        &format!("* NEWMAIL 1 KIND mail FROM {sender}@xagora.local SUBJECT Private mail"),
+        Duration::from_secs(10),
+    );
+    mailbox_session.write_line("READ 1");
+    mailbox_session.wait_for_stdout("* MESSAGE 1", Duration::from_secs(10));
+    mailbox_session.wait_for_stdout(
+        &format!("FROM {sender}@xagora.local"),
+        Duration::from_secs(10),
+    );
+    mailbox_session.wait_for_stdout(&format!("BODY {message}"), Duration::from_secs(10));
+    mailbox_session.write_line("ACK 1");
+    mailbox_session.wait_for_stdout("OK ACK 1", Duration::from_secs(10));
+    mailbox_session.write_line("QUIT");
+    let mailbox_output = mailbox_session.wait_success(Duration::from_secs(10));
+    assert_not_contains(
+        &mailbox_output,
+        "/mail list unread",
+        "mailbox protocol does not suggest polling",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
 fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
     let root = workspace_root();
     let env = load_local_env(&root);

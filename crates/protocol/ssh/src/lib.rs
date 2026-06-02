@@ -33,7 +33,7 @@ use xagora_storage::{PgStorage, PlayerStateStore};
 
 use auth::PublicKeyAuthPolicy;
 pub use config::SshArgs;
-use config::{DaemonConfig, mask_database_url};
+use config::{DaemonConfig, mail_domain_from_env, mask_database_url};
 use handler::ConnectionHandler;
 use presence::PresenceRegistry;
 use runtime_state::RuntimeHandle;
@@ -44,6 +44,7 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
     let cli = DaemonConfig::from_args(args);
     let database_url = std::env::var("DATABASE_URL")
         .context("DATABASE_URL must be set in the environment or .env")?;
+    let mail_domain = mail_domain_from_env();
     let storage = PgStorage::connect(&database_url).await?;
     storage.migrate().await?;
     xagora_blackstone::migrate(&storage).await?;
@@ -61,6 +62,11 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
         ..Default::default()
     });
     let blackstone = xagora_blackstone::BlackstoneService::new(storage.clone());
+    println!("Xagora SSH adapter listening on {}", cli.bind);
+    println!("Database configured: {}", mask_database_url(&database_url));
+    if let Some(domain) = &mail_domain {
+        println!("Mail domain configured: {domain}");
+    }
     let shared = Arc::new(SharedState {
         runtime,
         presence: Mutex::new(PresenceRegistry::default()),
@@ -68,6 +74,7 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
         auth_policy: PublicKeyAuthPolicy,
         blackstone,
         storage,
+        mail_domain,
     });
 
     #[cfg(unix)]
@@ -85,8 +92,6 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
     }
 
     let mut server = SshServer { shared };
-    println!("Xagora SSH adapter listening on {}", cli.bind);
-    println!("Database configured: {}", mask_database_url(&database_url));
     server.run_on_address(config, cli.bind).await?;
     Ok(())
 }
@@ -111,6 +116,7 @@ pub(crate) struct SharedState {
     auth_policy: PublicKeyAuthPolicy,
     blackstone: xagora_blackstone::BlackstoneService,
     storage: PgStorage,
+    mail_domain: Option<String>,
 }
 
 #[derive(Clone)]
