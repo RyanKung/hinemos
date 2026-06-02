@@ -435,6 +435,20 @@ impl ConnectionHandler {
             return Ok(false);
         };
         if owner_player_id == identity.player_id {
+            if is_custom_command_input(&parcel, line) {
+                session.data(
+                    channel,
+                    format!(
+                        "You own this shop. Visitors use {} here; their requests arrive in your inbox and /shop inbox.\r\n",
+                        line.split_whitespace().next().unwrap_or("this command")
+                    )
+                    .into_bytes(),
+                )?;
+                if prompt {
+                    send_prompt(session, channel)?;
+                }
+                return Ok(true);
+            }
             return Ok(false);
         }
 
@@ -468,13 +482,13 @@ impl ConnectionHandler {
         session.data(
             channel,
             format!(
-                "Sent shop command #{} to {} ({}) for parcel {}.\r\n{}",
+                "Shop request #{} sent to owner {} for parcel {}.\r\nStatus: {}.\r\n{}",
                 command.id,
                 command.owner_user,
-                if delivered { "delivered" } else { "queued" },
                 command.parcel_id,
+                if delivered { "delivered" } else { "queued" },
                 custom_command_preview(&parcel, line)
-                    .map(|preview| format!("Trial: {preview}\r\n"))
+                    .map(|preview| format!("Preview: {preview}\r\n"))
                     .unwrap_or_default()
             )
             .into_bytes(),
@@ -690,8 +704,8 @@ impl ConnectionHandler {
                 session.data(
                     channel,
                     format!(
-                        "Claimed parcel {}. Go to {} and use /build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /build publish. Custom commands are auto-filled if omitted.\r\n",
-                        parcel.parcel_id, parcel.view_id
+                        "Claimed parcel {}. You can build here with /build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /build publish. From the street, enter with /enter {}. Custom commands are auto-filled if omitted.\r\n",
+                        parcel.parcel_id, parcel.parcel_id
                     )
                     .into_bytes(),
                 )?;

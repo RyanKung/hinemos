@@ -59,14 +59,28 @@ pub(crate) fn overlay_parcel_observation(observation: &mut JsonObservation, parc
                 observation.title = title.clone();
             }
             if let Some(description) = &parcel.description {
+                let shop_commands = format_shop_commands(parcel);
                 observation.description = format!(
-                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}.\nCustom commands: {}.\nOperator prompt: {}",
+                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}.\nShop commands: {}.\nOperator prompt: {}",
                     parcel.parcel_id,
                     parcel.style.as_deref().unwrap_or("unspecified"),
-                    parcel.custom_commands.as_deref().unwrap_or("not specified"),
+                    shop_commands.as_deref().unwrap_or("not specified"),
                     parcel.operator_prompt.as_deref().unwrap_or("not specified")
                 );
             }
+            observation
+                .available_commands
+                .extend(custom_command_inputs(parcel).map(|input| {
+                    SemanticCommand::Extension {
+                        name: input
+                            .trim_start_matches('/')
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or_default()
+                            .to_owned(),
+                        input,
+                    }
+                }));
         }
         "claimed" => {
             observation.description = format!(
@@ -103,6 +117,11 @@ pub(crate) fn overlay_street_parcels(observation: &mut JsonObservation, parcels:
             ),
             _ => format!("{} vacant", parcel.parcel_id),
         };
+        if parcel.status == "built"
+            && let Some(title) = parcel.title.as_deref()
+        {
+            overlay_ascii_parcel_label(observation, &parcel.parcel_id, title);
+        }
         lines.push(format!("- {label}. Enter: /enter {}.", parcel.parcel_id));
     }
 
@@ -128,26 +147,49 @@ fn overlay_ascii_title(observation: &mut JsonObservation, title: &str) {
     }
 }
 
+fn overlay_ascii_parcel_label(observation: &mut JsonObservation, parcel_id: &str, title: &str) {
+    let from = format!("[{parcel_id}]");
+    let to = format!("[{title}]");
+    for line in &mut observation.ascii_art {
+        if line.contains(&from) {
+            *line = line.replace(&from, &to);
+        }
+    }
+}
+
 pub(crate) fn render_parcel_list(parcels: &[StoredParcel]) -> String {
     let mut lines = vec!["Commercial Parcels".to_owned()];
+    let mut vacant_count = 0_u32;
     for parcel in parcels {
-        let owner = parcel.owner_user.as_deref().unwrap_or("-");
-        let title = parcel.title.as_deref().unwrap_or("-");
+        match parcel.status.as_str() {
+            "built" => lines.push(format!(
+                "- {}: {}. Owner: {}. Enter from street: /enter {}.",
+                parcel.parcel_id,
+                parcel.title.as_deref().unwrap_or("built shop"),
+                parcel.owner_user.as_deref().unwrap_or("unknown"),
+                parcel.parcel_id
+            )),
+            "claimed" => lines.push(format!(
+                "- {}: claimed by {}; not built yet.",
+                parcel.parcel_id,
+                parcel.owner_user.as_deref().unwrap_or("unknown")
+            )),
+            _ => {
+                vacant_count += 1;
+                lines.push(format!(
+                    "- {}: vacant. Claim: /land claim {}.",
+                    parcel.parcel_id, parcel.parcel_id
+                ));
+            }
+        }
+    }
+    if vacant_count == 0 {
+        lines.push("No vacant parcels right now. Use /land info <parcel> for details.".to_owned());
+    } else {
         lines.push(format!(
-            "- {} view={} district={} position={} status={} owner={} title={}",
-            parcel.parcel_id,
-            parcel.view_id,
-            parcel.district,
-            parcel.position,
-            parcel.status,
-            owner,
-            title
+            "{vacant_count} vacant parcel(s). Use /land claim <parcel>, /land info <parcel>, or /land transfer <parcel> <user>."
         ));
     }
-    lines.push(
-        "Use /land claim <parcel>, /land info <parcel>, or /land transfer <parcel> <user>."
-            .to_owned(),
-    );
     lines.push(String::new());
     lines.join("\n")
 }
@@ -252,21 +294,89 @@ pub(crate) fn custom_command_preview(parcel: &StoredParcel, raw_input: &str) -> 
         if !entry.starts_with(command) {
             continue;
         }
-        let Some((_, after_preview)) = entry.split_once("preview=") else {
+        let Some(preview) = command_field_value(entry, "preview=") else {
             continue;
         };
-        let preview = after_preview
-            .split_whitespace()
-            .next()
-            .unwrap_or(after_preview)
-            .trim_matches('"')
-            .trim_matches('\'')
-            .trim();
+        let preview = preview.trim();
         if !preview.is_empty() {
             return Some(preview.to_owned());
         }
     }
     None
+}
+
+pub(crate) fn is_custom_command_input(parcel: &StoredParcel, raw_input: &str) -> bool {
+    let Some(input_command) = raw_input.split_whitespace().next() else {
+        return false;
+    };
+    custom_command_inputs(parcel).any(|command| command == input_command)
+}
+
+fn custom_command_inputs(parcel: &StoredParcel) -> impl Iterator<Item = String> + '_ {
+    parcel
+        .custom_commands
+        .as_deref()
+        .unwrap_or_default()
+        .split(['\n', ';'])
+        .filter_map(|entry| {
+            let command = entry.split_whitespace().next()?;
+            command.starts_with('/').then(|| command.to_owned())
+        })
+}
+
+fn format_shop_commands(parcel: &StoredParcel) -> Option<String> {
+    let rendered = parcel
+        .custom_commands
+        .as_deref()?
+        .split(['\n', ';'])
+        .filter_map(format_shop_command_entry)
+        .collect::<Vec<_>>();
+    (!rendered.is_empty()).then(|| rendered.join("; "))
+}
+
+fn format_shop_command_entry(entry: &str) -> Option<String> {
+    let entry = entry.trim();
+    let command = entry.split_whitespace().next()?;
+    if !command.starts_with('/') {
+        return None;
+    }
+
+    let preview = command_field_value(entry, "preview=");
+    let price = command_field_value(entry, "price=");
+    let mut details = Vec::new();
+    if let Some(preview) = preview.as_deref().filter(|preview| !preview.is_empty()) {
+        details.push(preview.to_owned());
+    }
+    if let Some(price) = price.as_deref().filter(|price| !price.is_empty()) {
+        details.push(format!("price {price}"));
+    }
+
+    if details.is_empty() {
+        Some(command.to_owned())
+    } else {
+        Some(format!("{command} - {}", details.join(", ")))
+    }
+}
+
+fn command_field_value(entry: &str, marker: &str) -> Option<String> {
+    let (_, after_marker) = entry.split_once(marker)?;
+    let value = after_marker.trim_start();
+    if let Some(rest) = value.strip_prefix('"') {
+        let end = rest.find('"').unwrap_or(rest.len());
+        return Some(rest[..end].trim().to_owned());
+    }
+    if let Some(rest) = value.strip_prefix('\'') {
+        let end = rest.find('\'').unwrap_or(rest.len());
+        return Some(rest[..end].trim().to_owned());
+    }
+    Some(
+        value
+            .split_whitespace()
+            .next()
+            .unwrap_or(value)
+            .trim()
+            .to_owned(),
+    )
 }
 
 pub(crate) fn build_help() -> &'static str {
@@ -559,7 +669,7 @@ mod tests {
     use xagora_runtime::render_text_observation;
     use xagora_storage::StoredParcel;
 
-    use super::overlay_parcel_observation;
+    use super::{overlay_parcel_observation, overlay_street_parcels, render_parcel_list};
 
     #[test]
     fn built_parcel_replaces_static_ascii_title_with_shop_title() {
@@ -599,6 +709,90 @@ mod tests {
 
         assert!(rendered.contains("Offline Tool Broker"));
         assert!(rendered.contains("[Offline Tool Broker]"));
+        assert!(rendered.contains("Shop commands: /hello - hello, price 25"));
+        assert!(!rendered.contains("Custom commands: /hello preview=hello price=25"));
         assert!(!rendered.contains("NORTH COMMERCIAL PARCEL 01"));
+    }
+
+    #[test]
+    fn built_street_parcel_replaces_static_ascii_label_with_shop_title() {
+        let mut observation = JsonObservation {
+            player_id: "player".to_owned(),
+            view_id: "street_north_01".to_owned(),
+            title: "North Commercial Street 01".to_owned(),
+            ascii_art: vec![
+                "               north to street 02".to_owned(),
+                "                       |".to_owned(),
+                "       [north_01] --- <Me>".to_owned(),
+                "                       |".to_owned(),
+            ],
+            description: "Static street description.".to_owned(),
+            exits: Vec::new(),
+            entities: Vec::new(),
+            online_users: Vec::new(),
+            available_commands: Vec::new(),
+            events: Vec::new(),
+        };
+        let parcel = StoredParcel {
+            parcel_id: "north_01".to_owned(),
+            view_id: "parcel_north_01".to_owned(),
+            district: "north".to_owned(),
+            position: 1,
+            owner_user: Some("mainiu".to_owned()),
+            owner_player_id: Some("player".to_owned()),
+            status: "built".to_owned(),
+            title: Some("Corall牛比站".to_owned()),
+            description: Some("Simple tools.".to_owned()),
+            style: Some("ledger".to_owned()),
+            operator_prompt: Some("reply tersely".to_owned()),
+            custom_commands: Some("/hello preview=hello price=25".to_owned()),
+        };
+
+        overlay_street_parcels(&mut observation, &[&parcel]);
+        let rendered = render_text_observation(&observation);
+
+        assert!(rendered.contains("[Corall牛比站]"));
+        assert!(!rendered.contains("[north_01]"));
+        assert!(rendered.contains("Enter: /enter north_01"));
+    }
+
+    #[test]
+    fn parcel_list_renders_status_for_humans() {
+        let parcels = vec![
+            StoredParcel {
+                parcel_id: "north_01".to_owned(),
+                view_id: "parcel_north_01".to_owned(),
+                district: "north".to_owned(),
+                position: 1,
+                owner_user: Some("mainiu".to_owned()),
+                owner_player_id: Some("player".to_owned()),
+                status: "built".to_owned(),
+                title: Some("Corall牛比站".to_owned()),
+                description: Some("Simple tools.".to_owned()),
+                style: Some("ledger".to_owned()),
+                operator_prompt: Some("reply tersely".to_owned()),
+                custom_commands: Some("/hello preview=hello price=25".to_owned()),
+            },
+            StoredParcel {
+                parcel_id: "north_02".to_owned(),
+                view_id: "parcel_north_02".to_owned(),
+                district: "north".to_owned(),
+                position: 2,
+                owner_user: None,
+                owner_player_id: None,
+                status: "vacant".to_owned(),
+                title: None,
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: None,
+            },
+        ];
+
+        let rendered = render_parcel_list(&parcels);
+
+        assert!(rendered.contains("north_01: Corall牛比站. Owner: mainiu."));
+        assert!(rendered.contains("north_02: vacant. Claim: /land claim north_02."));
+        assert!(!rendered.contains("view=parcel_north_01"));
     }
 }

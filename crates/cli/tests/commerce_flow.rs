@@ -31,9 +31,20 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
             "/build {\"title\":\"Offline Tool Broker\",\"description\":\"An operator-run shop that sells a simple greeting string.\",\"style\":\"Ledger-first counter service.\",\"prompt\":\"Parse visitor requests, create payment requests, and deliver content only after payment.\"}",
             "/land info north_01",
             "/build publish",
+            "/hello",
             "/land info north_01",
             "/quit",
         ],
+    );
+    assert_contains(
+        &owner_setup,
+        "You can build here with /build",
+        "claim response gives the owner a usable build command",
+    );
+    assert_not_contains(
+        &owner_setup,
+        "Go to parcel_north_01",
+        "claim response does not expose internal view ids",
     );
     assert_contains(
         &owner_setup,
@@ -67,6 +78,11 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     );
     assert_contains(
         &owner_setup,
+        "You own this shop. Visitors use /hello here",
+        "owner custom command usage explains visitor flow",
+    );
+    assert_contains(
+        &owner_setup,
         "Status: built",
         "published build status is visible in parcel detail",
     );
@@ -84,6 +100,11 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     );
     assert_contains(
         &customer_visit,
+        "[Offline Tool Broker]",
+        "customer sees the shop title on the street sign",
+    );
+    assert_contains(
+        &customer_visit,
         "An operator-run shop that sells a simple greeting string.",
         "customer sees the edited shop description",
     );
@@ -94,8 +115,13 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     );
     assert_contains(
         &customer_visit,
-        "Custom commands: /hello preview=hello price=25; /status",
-        "customer sees the edited custom commands",
+        "Shop commands: /hello - hello, price 25; /status",
+        "customer sees readable shop commands",
+    );
+    assert_contains(
+        &customer_visit,
+        "local: /hello, /status",
+        "customer sees shop commands in Available",
     );
     assert_contains(
         &customer_visit,
@@ -104,7 +130,7 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     );
     assert_contains(
         &customer_visit,
-        "Sent shop command",
+        "Shop request",
         "customer raw command forwarded to offline owner",
     );
     assert_contains(
@@ -114,7 +140,7 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     );
     assert_contains(
         &customer_visit,
-        "Trial: hello",
+        "Preview: hello",
         "customer received trial content",
     );
     assert_not_contains(

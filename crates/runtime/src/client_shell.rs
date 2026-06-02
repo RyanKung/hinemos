@@ -570,12 +570,23 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         .iter()
         .filter_map(|command| match command {
             SemanticCommand::Move { direction } => Some(format!("/go {}", direction.as_str())),
-            SemanticCommand::Enter { target } => Some(format!("/enter {target}")),
             _ => None,
         })
         .collect::<Vec<_>>();
     if !moves.is_empty() {
         parts.push(format!("move: {}", moves.join(", ")));
+    }
+
+    let enter_commands = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| match command {
+            SemanticCommand::Enter { target } => Some(format!("/enter {target}")),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !enter_commands.is_empty() {
+        parts.push(format!("enter: {}", enter_commands.join(", ")));
     }
 
     push_target_commands(
@@ -785,6 +796,33 @@ mod tests {
         assert!(rendered.contains("/inspect cyber_scroll_board"));
         assert!(rendered.contains("/read cyber_scroll_board"));
         assert!(!rendered.contains("interact: bulletin board"));
+    }
+
+    #[test]
+    fn text_renderer_splits_move_and_enter_commands() {
+        let rendered = render_text_observation(&JsonObservation {
+            player_id: "local_player".to_owned(),
+            view_id: "street_north_01".to_owned(),
+            title: "North Commercial Street 01".to_owned(),
+            ascii_art: Vec::new(),
+            description: "A street.".to_owned(),
+            exits: Vec::new(),
+            entities: Vec::new(),
+            online_users: Vec::new(),
+            available_commands: vec![
+                SemanticCommand::Move {
+                    direction: Direction::North,
+                },
+                SemanticCommand::Enter {
+                    target: "north_01".to_owned(),
+                },
+            ],
+            events: Vec::new(),
+        });
+
+        assert!(rendered.contains("move: /go north"));
+        assert!(rendered.contains("enter: /enter north_01"));
+        assert!(!rendered.contains("move: /go north, /enter north_01"));
     }
 
     #[test]

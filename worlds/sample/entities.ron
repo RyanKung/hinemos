@@ -31,7 +31,7 @@
                 (
                     id: "land_registry",
                     title: "Land Registry",
-                    body: "Commercial street has ten free parcels: north_01 through north_05 and south_01 through south_05. Use /land list, /land claim <parcel>, /land info <parcel>, or /land transfer <parcel> <user>.",
+                    body: "Commercial street has ten parcels: north_01 through north_05 and south_01 through south_05. Use /land list for current status, /land info <parcel> for details, /land claim <parcel> for vacant parcels, or /land transfer <parcel> <user>.",
                 ),
                 (
                     id: "build_sheet",
