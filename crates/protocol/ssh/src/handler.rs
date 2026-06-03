@@ -10,7 +10,7 @@ use crate::presence::PresenceDeliveryMode;
 use crate::render::*;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use hinemos_storage::StoredParcel;
+use hinemos_storage::{StoredAdmission, StoredParcel};
 use rand::Rng;
 use russh::keys::HashAlg;
 
@@ -19,6 +19,12 @@ pub(crate) enum ConnectionMode {
     Shell,
     Mailbox,
 }
+
+const AGREEMENT_VERSION: &str = "2026-06-03";
+const AGREEMENT_PHRASE: &str = "I agree to enter Hinemos";
+const ADMISSION_VIEW_ID: &str = "arrival_street";
+const PENDING_PRESENCE_VIEW_ID: &str = "__pending_admission";
+const ADMISSION_BOARD_ENTITY_ID: &str = "cyber_scroll_board";
 
 pub(crate) struct ConnectionHandler {
     shared: Arc<SharedState>,
@@ -73,15 +79,29 @@ impl ConnectionHandler {
         if let Some(notice) = identity.onboarding_notice() {
             session.data(channel, notice.into_bytes())?;
         }
-        if let Err(error) =
-            send_balance_summary(session, channel, &self.shared.storage, identity).await
-        {
-            send_command_error(session, channel, error, false)?;
-        }
-        if let Err(error) =
-            send_mailbox_summary(session, channel, &self.shared.storage, identity).await
-        {
-            send_command_error(session, channel, error, false)?;
+        let admission = self
+            .shared
+            .storage
+            .player_admission(&identity.player_id)
+            .await?;
+        if admission.is_agreed() {
+            if let Err(error) =
+                send_balance_summary(session, channel, &self.shared.storage, identity).await
+            {
+                send_command_error(session, channel, error, false)?;
+            }
+            if let Err(error) =
+                send_mailbox_summary(session, channel, &self.shared.storage, identity).await
+            {
+                send_command_error(session, channel, error, false)?;
+            }
+        } else {
+            session.data(
+                channel,
+                admission_guidance(&admission)
+                    .replace('\n', "\r\n")
+                    .into_bytes(),
+            )?;
         }
         match self.shared.runtime.observe_json(&identity.player_id).await {
             Ok(observation) => {
@@ -101,27 +121,45 @@ impl ConnectionHandler {
     }
 
     async fn finish_authentication(&mut self, identity: AuthIdentity) -> Result<()> {
-        self.shared
+        let admission = self
+            .shared
             .storage
-            .ensure_player_wallet(&identity.user, &identity.player_id)
+            .player_admission(&identity.player_id)
             .await?;
+        if admission.is_agreed() {
+            self.shared
+                .storage
+                .ensure_player_wallet(&identity.user, &identity.player_id)
+                .await?;
+        }
         let saved_player =
             PlayerStateStore::load_player_state(&self.shared.storage, &identity.player_id).await?;
         self.shared
             .runtime
             .set_or_create_player(saved_player, &identity.player_id, LOCAL_PLAYER_ID)
             .await?;
-        let player_to_save = self
+        let mut player_to_save = self
             .shared
             .runtime
             .player_state(&identity.player_id)
             .await?;
+        if !admission.is_agreed() {
+            player_to_save.current_view = ADMISSION_VIEW_ID.to_owned();
+            self.shared
+                .runtime
+                .set_player_state(player_to_save.clone())
+                .await?;
+        }
         PlayerStateStore::save_player_state(&self.shared.storage, &player_to_save).await?;
         self.shared.presence.lock().await.mark_online(
             self.connection_id,
             identity.player_id.clone(),
             identity.user.clone(),
-            player_to_save.current_view.clone(),
+            if admission.is_agreed() {
+                player_to_save.current_view.clone()
+            } else {
+                PENDING_PRESENCE_VIEW_ID.to_owned()
+            },
         );
         self.identity = Some(identity);
         self.chrome = Some(self.shared.runtime.chrome().await);
@@ -147,6 +185,14 @@ impl ConnectionHandler {
             session.data(channel, b"Session is not ready.\r\n".to_vec())?;
             return Ok(());
         };
+
+        if !line.trim_start().starts_with('/')
+            && self
+                .pending_admission_blocks_free_text(channel, session, identity, prompt)
+                .await?
+        {
+            return Ok(());
+        }
 
         if !line.trim_start().starts_with('/')
             && self
@@ -189,6 +235,13 @@ impl ConnectionHandler {
                 return Ok(());
             }
         };
+
+        if self
+            .handle_pending_admission_command(channel, session, &command, identity, prompt)
+            .await?
+        {
+            return Ok(());
+        }
 
         let should_quit = matches!(command, SemanticCommand::Quit);
         let handled_message_view = match self
@@ -249,6 +302,146 @@ impl ConnectionHandler {
             send_prompt(session, channel)?;
         }
 
+        Ok(())
+    }
+
+    async fn pending_admission_blocks_free_text(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        identity: &AuthIdentity,
+        prompt: bool,
+    ) -> Result<bool> {
+        let admission = self
+            .shared
+            .storage
+            .player_admission(&identity.player_id)
+            .await?;
+        if admission.is_agreed() {
+            return Ok(false);
+        }
+        send_pending_admission_rejection(session, channel, &admission, prompt)?;
+        Ok(true)
+    }
+
+    async fn handle_pending_admission_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        command: &SemanticCommand,
+        identity: &AuthIdentity,
+        prompt: bool,
+    ) -> Result<bool> {
+        let admission = self
+            .shared
+            .storage
+            .player_admission(&identity.player_id)
+            .await?;
+        if admission.is_agreed() {
+            return Ok(false);
+        }
+
+        match command {
+            SemanticCommand::Look | SemanticCommand::Help | SemanticCommand::Quit => Ok(false),
+            SemanticCommand::Read { target } if target.id == ADMISSION_BOARD_ENTITY_ID => {
+                self.shared
+                    .storage
+                    .mark_agreement_read(&identity.player_id, AGREEMENT_VERSION)
+                    .await?;
+                Ok(false)
+            }
+            SemanticCommand::Agree { phrase } => {
+                self.handle_agree_command(channel, session, phrase, identity)
+                    .await?;
+                if prompt {
+                    send_prompt(session, channel)?;
+                }
+                Ok(true)
+            }
+            _ => {
+                send_pending_admission_rejection(session, channel, &admission, prompt)?;
+                Ok(true)
+            }
+        }
+    }
+
+    async fn handle_agree_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        phrase: &str,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        let admission = self
+            .shared
+            .storage
+            .player_admission(&identity.player_id)
+            .await?;
+        if admission.is_agreed() {
+            session.data(
+                channel,
+                b"Admission already agreed. Welcome back.\r\n".to_vec(),
+            )?;
+            return Ok(());
+        }
+        if !admission.has_read_version(AGREEMENT_VERSION) {
+            session.data(
+                channel,
+                admission_guidance(&admission)
+                    .replace('\n', "\r\n")
+                    .into_bytes(),
+            )?;
+            return Ok(());
+        }
+        if phrase.trim() != AGREEMENT_PHRASE {
+            session.data(
+                channel,
+                format!(
+                    "Agreement phrase did not match. Read /read agreement and type exactly: /agree {AGREEMENT_PHRASE}\r\n"
+                )
+                .into_bytes(),
+            )?;
+            return Ok(());
+        }
+
+        self.shared
+            .storage
+            .admit_player(&identity.player_id, AGREEMENT_VERSION)
+            .await?;
+        let balance = self
+            .shared
+            .storage
+            .ensure_player_wallet(&identity.user, &identity.player_id)
+            .await?;
+        let mut player = self
+            .shared
+            .runtime
+            .player_state(&identity.player_id)
+            .await?;
+        player.current_view = ADMISSION_VIEW_ID.to_owned();
+        self.shared.runtime.set_player_state(player.clone()).await?;
+        PlayerStateStore::save_player_state(&self.shared.storage, &player).await?;
+        self.shared
+            .presence
+            .lock()
+            .await
+            .update_view(self.connection_id, player.current_view.clone());
+
+        session.data(
+            channel,
+            format!(
+                "Agreement accepted: version {AGREEMENT_VERSION}. Initial grant issued: {} {}. Welcome to Hinemos.\r\n",
+                balance.amount, balance.asset
+            )
+            .into_bytes(),
+        )?;
+        let observation = self
+            .shared
+            .runtime
+            .observe_json(&identity.player_id)
+            .await?;
+        self.send_text_observation(channel, session, observation)
+            .await?;
         Ok(())
     }
 
@@ -1064,6 +1257,10 @@ impl ConnectionHandler {
             .blackstone
             .decorate_observation(&player_id, &mut observation)
             .await?;
+        let admission = self.shared.storage.player_admission(&player_id).await?;
+        if !admission.is_agreed() {
+            restrict_pending_admission_observation(&mut observation, &admission);
+        }
         let view_users = self
             .shared
             .presence
@@ -1204,6 +1401,25 @@ impl ConnectionHandler {
             session.close(channel)?;
             return Ok(());
         };
+
+        let admission = self
+            .shared
+            .storage
+            .player_admission(&identity.player_id)
+            .await?;
+        if !admission.is_agreed() {
+            session.data(
+                channel,
+                format!(
+                    "ERR {}\r\n",
+                    admission_guidance(&admission).replace('\n', " ")
+                )
+                .into_bytes(),
+            )?;
+            session.exit_status_request(channel, 1)?;
+            session.close(channel)?;
+            return Ok(());
+        }
 
         self.mode = Some(ConnectionMode::Mailbox);
         self.shared.presence.lock().await.attach_channel(
@@ -1506,6 +1722,62 @@ fn resolve_enter_target<'a>(
 
 fn normalize_enter_target(target: &str) -> String {
     target.trim().to_ascii_lowercase()
+}
+
+fn admission_guidance(admission: &StoredAdmission) -> String {
+    let next_step = if admission.has_read_version(AGREEMENT_VERSION) {
+        format!("Type exactly: /agree {AGREEMENT_PHRASE}")
+    } else {
+        "Read the board agreement first: /read agreement".to_owned()
+    };
+    format!(
+        "Admission pending. SSH authentication is complete, but this account is not admitted into the world yet.\n{next_step}. Until then, other commands are blocked."
+    )
+}
+
+fn send_pending_admission_rejection(
+    session: &mut Session,
+    channel: ChannelId,
+    admission: &StoredAdmission,
+    prompt: bool,
+) -> Result<()> {
+    session.data(
+        channel,
+        format!(
+            "{}\r\n",
+            admission_guidance(admission).replace('\n', "\r\n")
+        )
+        .into_bytes(),
+    )?;
+    if prompt {
+        send_prompt(session, channel)?;
+    }
+    Ok(())
+}
+
+fn restrict_pending_admission_observation(
+    observation: &mut JsonObservation,
+    admission: &StoredAdmission,
+) {
+    observation.description = format!(
+        "{}\n\n{}",
+        observation.description,
+        admission_guidance(admission)
+    );
+    observation.exits.clear();
+    observation.available_commands = vec![
+        SemanticCommand::Look,
+        SemanticCommand::Read {
+            target: hinemos_core::EntityRef::new(ADMISSION_BOARD_ENTITY_ID),
+        },
+        SemanticCommand::Help,
+        SemanticCommand::Quit,
+    ];
+    if admission.has_read_version(AGREEMENT_VERSION) {
+        observation.available_commands.push(SemanticCommand::Agree {
+            phrase: AGREEMENT_PHRASE.to_owned(),
+        });
+    }
 }
 
 fn mailbox_help() -> &'static str {

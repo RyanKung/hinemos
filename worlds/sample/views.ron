@@ -1,8 +1,8 @@
 [
     (
         id: "arrival_street",
-        title: "Town Crossroads",
-        description: "Packed dirt and wagon ruts meet at a lively crossing. The black-stone face of a tavern fronts the west side, the Chamber of Commerce sits just south of the junction, and a weathered bulletin board stands below it.",
+        title: "Arrival Hall Crossroads",
+        description: "Packed dirt and wagon ruts meet at the arrival hall crossroads. The black-stone face of a tavern fronts the west side, the Chamber of Commerce sits just south of the junction, and a weathered bulletin board stands below it. New arrivals must read the board agreement before the wider world opens.",
         ascii_art: [
             "============================================================",
             "                     TOWN CROSSROADS",

@@ -24,9 +24,9 @@ use types::{
     player_id_from_password_username, resolve_payment_target,
 };
 pub use types::{
-    StorageError, StoredAccountSettings, StoredBalance, StoredIdentity, StoredInboxItem,
-    StoredMailAuthToken, StoredOperatorCommand, StoredParcel, StoredPasswordIdentity,
-    StoredPaymentRequest, StoredTransfer, StoredWorldMessage,
+    StorageError, StoredAccountSettings, StoredAdmission, StoredBalance, StoredIdentity,
+    StoredInboxItem, StoredMailAuthToken, StoredOperatorCommand, StoredParcel,
+    StoredPasswordIdentity, StoredPaymentRequest, StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
@@ -418,6 +418,72 @@ impl PgStorage {
         .fetch_one(&self.pool)
         .await?;
         Ok(settings)
+    }
+
+    /// Loads admission state for a player profile.
+    pub async fn player_admission(&self, player_id: &str) -> Result<StoredAdmission, StorageError> {
+        let admission = sqlx::query_as::<_, StoredAdmission>(
+            r#"
+            select player_id, admission_state, agreement_version, agreement_read_version
+            from player_profiles
+            where player_id = $1
+            "#,
+        )
+        .bind(player_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(admission)
+    }
+
+    /// Records that the player read the current agreement version.
+    pub async fn mark_agreement_read(
+        &self,
+        player_id: &str,
+        agreement_version: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"
+            update player_profiles
+            set agreement_read_version = $2,
+                agreement_read_at = now(),
+                updated_at = now()
+            where player_id = $1
+            "#,
+        )
+        .bind(player_id)
+        .bind(agreement_version)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Marks the player as admitted after accepting the current agreement version.
+    pub async fn admit_player(
+        &self,
+        player_id: &str,
+        agreement_version: &str,
+    ) -> Result<(), StorageError> {
+        let result = sqlx::query(
+            r#"
+            update player_profiles
+            set admission_state = 'agreed',
+                agreement_version = $2,
+                agreed_at = now(),
+                updated_at = now()
+            where player_id = $1
+              and agreement_read_version = $2
+            "#,
+        )
+        .bind(player_id)
+        .bind(agreement_version)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(StorageError::InvalidAccountSetting(
+                "read the current agreement before agreeing".to_owned(),
+            ));
+        }
+        Ok(())
     }
 
     async fn verify_existing_password_identity(

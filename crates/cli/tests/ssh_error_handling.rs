@@ -11,6 +11,132 @@ use common::*;
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
+fn pending_admission_blocks_world_until_board_agreement() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+    assert_command_exists("ssh-keygen");
+    assert_command_exists("psql");
+
+    let temp = TestTempDir::new("hinemos-admission-gate");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("pending_probe_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+    let client_key = temp.path.join("client_ed25519");
+
+    let keygen = Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&client_key)
+        .output()
+        .expect("spawn ssh-keygen");
+    assert!(
+        keygen.status.success(),
+        "ssh-keygen failed: {}",
+        String::from_utf8_lossy(&keygen.stderr)
+    );
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let input = [
+        "/pay nobody 1 before-admission",
+        "/agree I agree to enter Hinemos",
+        "/read agreement",
+        "/agree wrong phrase",
+        "/agree I agree to enter Hinemos",
+        "/balance",
+        "/quit",
+    ]
+    .join("\n")
+        + "\n";
+    let output = Command::new("ssh")
+        .args([
+            "-T",
+            "-i",
+            client_key.to_str().expect("key path utf8"),
+            "-o",
+            "IdentitiesOnly=yes",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-p",
+            &port.to_string(),
+            &format!("{user}@{host}"),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            child
+                .stdin
+                .as_mut()
+                .expect("open ssh stdin")
+                .write_all(input.as_bytes())?;
+            Ok(wait_with_timeout(child, Duration::from_secs(45)))
+        })
+        .expect("run ssh admission batch");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "admission ssh batch failed\nstderr:\n{stderr}\nstdout:\n{stdout}"
+    );
+
+    assert_contains(&stdout, "Admission pending", "new users start pending");
+    assert_contains(
+        &stdout,
+        "Read the board agreement first: /read agreement",
+        "pending users are told to read agreement",
+    );
+    assert_not_contains(
+        &stdout,
+        "payment target not found",
+        "pending payment command is blocked before world handling",
+    );
+    assert_contains(
+        &stdout,
+        "Agreement version: 2026-06-03",
+        "agreement version is visible on board",
+    );
+    assert_contains(
+        &stdout,
+        "Agreement phrase did not match",
+        "wrong phrase is rejected",
+    );
+    assert_contains(
+        &stdout,
+        "Agreement accepted: version 2026-06-03",
+        "correct phrase admits player",
+    );
+    assert_contains(
+        &stdout,
+        "Initial grant issued: 1000 MARK",
+        "initial MARK is issued after agreement",
+    );
+    assert_contains(
+        &stdout,
+        "Balance: 1000 MARK",
+        "wallet is usable after admission",
+    );
+    assert_eq!(
+        test_database.query_value(&format!(
+            "select admission_state || ':' || agreement_version from player_profiles where display_name = '{}'",
+            sql_literal(&user)
+        )),
+        "agreed:2026-06-03",
+        "profile records accepted agreement version"
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
 fn command_errors_do_not_close_ssh_session() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -684,4 +810,8 @@ fn run_ssh_key_batch<const N: usize>(
         stdout
     );
     stdout.into_owned()
+}
+
+fn sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
 }

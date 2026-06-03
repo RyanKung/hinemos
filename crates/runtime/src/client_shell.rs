@@ -49,6 +49,7 @@ impl Chrome {
 
     /// Summary shown after the `/help` command.
     pub const HELP_SUMMARY: &'static str = "Commands:\n\
+        Admission: first read /read agreement, then type the exact /agree <phrase> shown there\n\
         Movement: /look, /map, /go <dir>, /enter <parcel>, /inventory, /quit\n\
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
@@ -155,6 +156,10 @@ impl Chrome {
                 Ok(SemanticCommand::Read {
                     target: EntityRef::new(self.resolve_entity_target(target)),
                 })
+            }
+            "agree" => {
+                let phrase = rest_after_command(trimmed, rest, cmd.as_str())?;
+                Ok(SemanticCommand::Agree { phrase })
             }
             "take" | "get" | "pick" => {
                 let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
@@ -580,13 +585,42 @@ fn compact_ascii_art(observation: &JsonObservation) -> Vec<&str> {
 }
 
 fn render_available_summary(observation: &JsonObservation) -> String {
-    let mut parts = vec![
-        "/look".to_owned(),
-        "/map".to_owned(),
-        "/inventory".to_owned(),
-        "/history".to_owned(),
-        "/help".to_owned(),
-    ];
+    let mut parts = Vec::new();
+    if observation
+        .available_commands
+        .iter()
+        .any(|command| matches!(command, SemanticCommand::Look))
+    {
+        parts.push("/look".to_owned());
+    }
+    if observation
+        .available_commands
+        .iter()
+        .any(|command| matches!(command, SemanticCommand::Map))
+    {
+        parts.push("/map".to_owned());
+    }
+    if observation
+        .available_commands
+        .iter()
+        .any(|command| matches!(command, SemanticCommand::Inventory))
+    {
+        parts.push("/inventory".to_owned());
+    }
+    if observation
+        .available_commands
+        .iter()
+        .any(|command| matches!(command, SemanticCommand::History))
+    {
+        parts.push("/history".to_owned());
+    }
+    if observation
+        .available_commands
+        .iter()
+        .any(|command| matches!(command, SemanticCommand::Help))
+    {
+        parts.push("/help".to_owned());
+    }
     if observation
         .available_commands
         .iter()
@@ -669,6 +703,18 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         },
         &mut parts,
     );
+
+    let agreement_commands = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| match command {
+            SemanticCommand::Agree { phrase } => Some(format!("/agree {phrase}")),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !agreement_commands.is_empty() {
+        parts.push(format!("admission: {}", agreement_commands.join(", ")));
+    }
 
     let extension_commands = observation
         .available_commands
@@ -867,6 +913,49 @@ mod tests {
         assert!(rendered.contains("move: /go north"));
         assert!(rendered.contains("enter: /enter north_01"));
         assert!(!rendered.contains("move: /go north, /enter north_01"));
+    }
+
+    #[test]
+    fn slash_parser_accepts_agreement_phrase() {
+        let command = Chrome::with_aliases(HashMap::new())
+            .parse_command("/agree I agree to enter Hinemos")
+            .expect("agree parses");
+
+        assert_eq!(
+            command,
+            SemanticCommand::Agree {
+                phrase: "I agree to enter Hinemos".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn text_renderer_shows_agreement_command_when_available() {
+        let rendered = render_text_observation(&JsonObservation {
+            player_id: "local_player".to_owned(),
+            view_id: "arrival_street".to_owned(),
+            title: "Arrival Hall Crossroads".to_owned(),
+            ascii_art: Vec::new(),
+            description: "Admission pending.".to_owned(),
+            exits: Vec::new(),
+            entities: Vec::new(),
+            online_users: Vec::new(),
+            available_commands: vec![
+                SemanticCommand::Look,
+                SemanticCommand::Read {
+                    target: EntityRef::new("cyber_scroll_board"),
+                },
+                SemanticCommand::Agree {
+                    phrase: "I agree to enter Hinemos".to_owned(),
+                },
+            ],
+            events: Vec::new(),
+        });
+
+        assert!(rendered.contains("/read cyber_scroll_board"));
+        assert!(rendered.contains("/agree I agree to enter Hinemos"));
+        assert!(!rendered.contains("/map"));
+        assert!(!rendered.contains("/history"));
     }
 
     #[test]

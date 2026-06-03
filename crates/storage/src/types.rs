@@ -56,6 +56,33 @@ pub struct StoredAccountSettings {
     pub key_fingerprint: Option<String>,
 }
 
+/// Stored admission state for a player profile.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredAdmission {
+    /// Stable player id used by the runtime.
+    pub player_id: String,
+    /// Admission state: pending or agreed.
+    pub admission_state: String,
+    /// Agreement version accepted by the player, if any.
+    pub agreement_version: Option<String>,
+    /// Agreement version most recently read by the player, if any.
+    pub agreement_read_version: Option<String>,
+}
+
+impl StoredAdmission {
+    /// Returns true when the profile has been admitted into the main world.
+    #[must_use]
+    pub fn is_agreed(&self) -> bool {
+        self.admission_state == "agreed"
+    }
+
+    /// Returns true when the current agreement version was read.
+    #[must_use]
+    pub fn has_read_version(&self, version: &str) -> bool {
+        self.agreement_read_version.as_deref() == Some(version)
+    }
+}
+
 /// Stored world message rendered for mailbox and history views.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredWorldMessage {

@@ -11,9 +11,88 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
             create table if not exists player_profiles (
                 player_id text primary key,
                 display_name text not null,
+                admission_state text not null default 'pending',
+                agreement_version text,
+                agreement_read_version text,
+                agreement_read_at timestamptz,
+                agreed_at timestamptz,
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now()
             )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            do $$
+            declare
+                added_admission_state boolean := false;
+            begin
+                if not exists (
+                    select 1
+                    from information_schema.columns
+                    where table_name = 'player_profiles'
+                      and column_name = 'admission_state'
+                ) then
+                    alter table player_profiles add column admission_state text not null default 'pending';
+                    added_admission_state := true;
+                end if;
+
+                if not exists (
+                    select 1
+                    from information_schema.columns
+                    where table_name = 'player_profiles'
+                      and column_name = 'agreement_version'
+                ) then
+                    alter table player_profiles add column agreement_version text;
+                end if;
+
+                if not exists (
+                    select 1
+                    from information_schema.columns
+                    where table_name = 'player_profiles'
+                      and column_name = 'agreement_read_version'
+                ) then
+                    alter table player_profiles add column agreement_read_version text;
+                end if;
+
+                if not exists (
+                    select 1
+                    from information_schema.columns
+                    where table_name = 'player_profiles'
+                      and column_name = 'agreement_read_at'
+                ) then
+                    alter table player_profiles add column agreement_read_at timestamptz;
+                end if;
+
+                if not exists (
+                    select 1
+                    from information_schema.columns
+                    where table_name = 'player_profiles'
+                      and column_name = 'agreed_at'
+                ) then
+                    alter table player_profiles add column agreed_at timestamptz;
+                end if;
+
+                if added_admission_state then
+                    update player_profiles
+                    set admission_state = 'agreed',
+                        agreement_version = coalesce(agreement_version, 'legacy'),
+                        agreed_at = coalesce(agreed_at, now());
+                end if;
+
+                if not exists (
+                    select 1
+                    from pg_constraint
+                    where conname = 'player_profiles_admission_state_check'
+                ) then
+                    alter table player_profiles
+                    add constraint player_profiles_admission_state_check
+                    check (admission_state in ('pending', 'agreed'));
+                end if;
+            end $$;
             "#,
     )
     .execute(pool)

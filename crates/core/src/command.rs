@@ -90,6 +90,11 @@ pub enum SemanticCommand {
         /// Target entity.
         target: EntityRef,
     },
+    /// Agree to the current admission agreement.
+    Agree {
+        /// Exact agreement phrase shown by the board.
+        phrase: String,
+    },
     /// Send a message to players in the same view.
     Say {
         /// Message body.

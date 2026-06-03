@@ -241,6 +241,11 @@ impl GameRuntime {
                 let entity = self.visible_entity(player_id, target)?;
                 vec![message(read_entity_message(entity))]
             }
+            SemanticCommand::Agree { .. } => {
+                vec![message(
+                    "Admission agreements are handled in SSH sessions.".to_owned(),
+                )]
+            }
             SemanticCommand::Take { target } => self.take_entity(player_id, target)?,
             SemanticCommand::Talk { target } => {
                 let entity = self.visible_entity(player_id, target)?;

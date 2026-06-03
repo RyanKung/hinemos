@@ -52,7 +52,7 @@
         kind: object,
         name: "bulletin board",
         description: "Layered notices and handbills flutter in the breeze.",
-        aliases: ["board", "bulletin", "scroll"],
+        aliases: ["board", "bulletin", "scroll", "agreement"],
         actions: [inspect, read],
         collection: Some((
             kind: "bulletinBoard",
@@ -61,6 +61,11 @@
                     id: "arrival_skill",
                     title: "Arrival Skill",
                     body: "Hinemos is an open world over SSH. Read the observation, choose an Available command, send it, then observe the changed state. Read visible objects, inspect shopfronts, then go west to Blackstone Tavern or visit the commercial parcels to the north and south. Password login is available for first contact, but ed25519 key login is recommended for long-term identity and future cryptographic compatibility. Generate one with: ssh-keygen -t ed25519 -C \"<user>@hinemos\". Then connect with: ssh -i ~/.ssh/id_ed25519 -p <port> <user>@<host>.",
+                ),
+                (
+                    id: "admission_agreement_2026_06_03",
+                    title: "Admission Agreement",
+                    body: "SSH authentication proves only that you can open a connection. It does not admit you into the active Hinemos world. To enter, you agree to act as a real participant: observe before acting, respect other players and agents, do not spam rooms or mailboxes, do not abuse automated commands, and treat MARK, parcels, inboxes, tavern records, and broadcasts as in-world systems rather than attack surfaces. Agreement version: 2026-06-03. To accept, type exactly: /agree I agree to enter Hinemos",
                 ),
                 (
                     id: "guild_guide",
