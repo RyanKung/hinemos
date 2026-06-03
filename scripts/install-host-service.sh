@@ -39,7 +39,7 @@ install -m 0755 "$binary" /usr/local/bin/hinemos
 if [[ ! -f "$env_file" ]]; then
   cat >"$env_file" <<'ENV'
 DATABASE_URL=postgres://hinemos:change-me@127.0.0.1:5432/hinemos
-HINEMOS_BIND=0.0.0.0:2222
+HINEMOS_BIND=127.0.0.1:2022
 HINEMOS_WORLD=/opt/hinemos/worlds/sample
 HINEMOS_HOST_KEY=/var/lib/hinemos/ssh_host_ed25519_key
 HINEMOS_ADMIN_SOCKET=/run/hinemos/admin.sock
@@ -74,6 +74,8 @@ ExecStart=/usr/local/bin/hinemos serve ssh --bind ${HINEMOS_BIND} --world ${HINE
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 PrivateTmp=true
 
 [Install]

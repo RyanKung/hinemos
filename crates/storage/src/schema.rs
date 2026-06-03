@@ -30,51 +30,18 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
             declare
                 added_admission_state boolean := false;
             begin
-                if not exists (
+                added_admission_state := not exists (
                     select 1
                     from information_schema.columns
                     where table_name = 'player_profiles'
                       and column_name = 'admission_state'
-                ) then
-                    alter table player_profiles add column admission_state text not null default 'pending';
-                    added_admission_state := true;
-                end if;
+                );
 
-                if not exists (
-                    select 1
-                    from information_schema.columns
-                    where table_name = 'player_profiles'
-                      and column_name = 'agreement_version'
-                ) then
-                    alter table player_profiles add column agreement_version text;
-                end if;
-
-                if not exists (
-                    select 1
-                    from information_schema.columns
-                    where table_name = 'player_profiles'
-                      and column_name = 'agreement_read_version'
-                ) then
-                    alter table player_profiles add column agreement_read_version text;
-                end if;
-
-                if not exists (
-                    select 1
-                    from information_schema.columns
-                    where table_name = 'player_profiles'
-                      and column_name = 'agreement_read_at'
-                ) then
-                    alter table player_profiles add column agreement_read_at timestamptz;
-                end if;
-
-                if not exists (
-                    select 1
-                    from information_schema.columns
-                    where table_name = 'player_profiles'
-                      and column_name = 'agreed_at'
-                ) then
-                    alter table player_profiles add column agreed_at timestamptz;
-                end if;
+                alter table player_profiles add column if not exists admission_state text not null default 'pending';
+                alter table player_profiles add column if not exists agreement_version text;
+                alter table player_profiles add column if not exists agreement_read_version text;
+                alter table player_profiles add column if not exists agreement_read_at timestamptz;
+                alter table player_profiles add column if not exists agreed_at timestamptz;
 
                 if added_admission_state then
                     update player_profiles
@@ -83,15 +50,13 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
                         agreed_at = coalesce(agreed_at, now());
                 end if;
 
-                if not exists (
-                    select 1
-                    from pg_constraint
-                    where conname = 'player_profiles_admission_state_check'
-                ) then
+                begin
                     alter table player_profiles
                     add constraint player_profiles_admission_state_check
                     check (admission_state in ('pending', 'agreed'));
-                end if;
+                exception when duplicate_object then
+                    null;
+                end;
             end $$;
             "#,
     )

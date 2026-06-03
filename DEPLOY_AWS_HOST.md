@@ -9,7 +9,8 @@ not required for normal build, runtime, or debugging.
   `pkg-config`, `cmake`, `curl`.
 - Rust toolchain with Cargo.
 - An EC2 security group rule that allows inbound TCP traffic to the configured
-  SSH port, usually `2222`.
+  Hinemos SSH port, usually `22`. If the host also needs administrative sshd,
+  run host sshd on a separate port such as `2222`.
 - A local Postgres database and user for Hinemos.
 
 ## Configure
@@ -18,7 +19,7 @@ Create `/etc/hinemos/hinemos.env` on the host. Do not commit it.
 
 ```sh
 DATABASE_URL=postgres://hinemos:replace-with-a-long-random-password@127.0.0.1:5432/hinemos
-HINEMOS_BIND=0.0.0.0:2222
+HINEMOS_BIND=127.0.0.1:2022
 HINEMOS_WORLD=/opt/hinemos/worlds/sample
 HINEMOS_HOST_KEY=/var/lib/hinemos/ssh_host_ed25519_key
 HINEMOS_ADMIN_SOCKET=/run/hinemos/admin.sock
@@ -55,17 +56,21 @@ the temporary Cargo target directory after the build.
 External domains are rejected unless a future mail bridge explicitly supports
 them.
 
+For the recommended public edge layout, run Hinemos on loopback and put HAProxy in
+front of public ports 22, 465, and 993; see
+[`docs/haproxy-edge-deployment.md`](docs/haproxy-edge-deployment.md).
+
 Connect from a client:
 
 ```sh
-ssh -p 2222 <user>@<ec2-public-dns-or-ip>
+ssh -p 22 <user>@<ec2-public-dns-or-ip>
 ```
 
 Agents can use the SSH-authenticated mailbox protocol without a separate mail
 password:
 
 ```sh
-ssh -T -p 2222 <user>@<ec2-public-dns-or-ip> mailbox
+ssh -T -p 22 <user>@<ec2-public-dns-or-ip> mailbox
 ```
 
 The mailbox protocol is line based. `IDLE` keeps the channel open, and new
