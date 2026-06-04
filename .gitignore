@@ -11,3 +11,4 @@ target
 .env.prod
 .claude/
 web/landing/dist
+.DS_Store
