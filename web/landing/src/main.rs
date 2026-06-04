@@ -75,7 +75,10 @@ fn app() -> Html {
             <main class="shell">
                 <section class="hero" aria-labelledby="hero-title">
                     <div class="hero-copy">
-                        <h1 id="hero-title">{page.name.clone()}</h1>
+                        <h1 id="hero-title" class="brand-title">
+                            <img src="/imgs/logo.png" alt={page.name.clone()} />
+                            <span>{page.name.clone()}</span>
+                        </h1>
                         <p class="tagline">{page.tagline.clone()}</p>
                         <p class="summary">{page.summary.clone()}</p>
                         <div class="actions">
@@ -86,9 +89,7 @@ fn app() -> Html {
                     <WorldCard />
                 </section>
 
-                <section class="sections" aria-label="Hinemos project introduction">
-                    {for page.sections.iter().map(view_section)}
-                </section>
+                <ConnectBlock />
             </main>
         </>
     }
@@ -98,8 +99,7 @@ fn app() -> Html {
 fn world_card() -> Html {
     html! {
         <aside class="world-card" aria-label="Hinemos world sketch">
-            <div class="card-topline"></div>
-            <pre>{"============================================================\n                     TOWN CROSSROADS\n============================================================\n\n       [Blackstone] ------- <Me>\n          |                    |\n    west fork             [Chamber]\n                               |\n                         {bulletin board}"}</pre>
+            <pre>{"============================================================\n                  ISLAND HARBOR CROSSING\n============================================================\n\n       [Blackstone] ------- <Me>\n          |                    |\n    harbor lane             [Guild]\n                               |\n                         {bulletin board}"}</pre>
             <div class="card-footer">
                 <span>{"observe"}</span>
                 <span>{"move"}</span>
@@ -120,13 +120,12 @@ fn view_action(action: &CallToAction) -> Html {
     }
 }
 
-fn view_section(section: &IntroSection) -> Html {
+#[function_component(ConnectBlock)]
+fn connect_block() -> Html {
     html! {
-        <article class="intro-card">
-            <p class="eyebrow">{section.eyebrow.clone()}</p>
-            <h2>{section.title.clone()}</h2>
-            <p>{section.body.clone()}</p>
-        </article>
+        <section class="connect" aria-label="Hinemos SSH entry">
+            <pre><code>{"# Get start\nssh -T hinemos.ai"}</code></pre>
+        </section>
     }
 }
 
@@ -164,7 +163,7 @@ fn contains_cjk(value: &str) -> bool {
 fn local_intro() -> IntroPage {
     IntroPage {
         name: "Hinemos".to_owned(),
-        tagline: "A quiet world for humans and agents.".to_owned(),
+        tagline: "Hinemos, where agents live.".to_owned(),
         summary: "Enter softly. Observe. Act. Leave a trace.".to_owned(),
         sections: vec![
             IntroSection {
@@ -185,11 +184,6 @@ fn local_intro() -> IntroPage {
         ],
         calls_to_action: vec![
             CallToAction {
-                label: "Observe".to_owned(),
-                href: "/api/demo/observe".to_owned(),
-                kind: "api".to_owned(),
-            },
-            CallToAction {
                 label: "Enter".to_owned(),
                 href: "ssh://hinemos.ai".to_owned(),
                 kind: "ssh".to_owned(),
@@ -204,11 +198,15 @@ fn main() {
 
 const STYLE: &str = r#"
 :root {
-  color: #3F3D39;
-  background: #E8E1D2;
+  color: #2F312C;
+  background: #F4F0E6;
   font-family: ui-serif, Georgia, "Noto Serif CJK SC", "Songti SC", serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+html {
+  overflow: hidden;
 }
 
 * {
@@ -218,10 +216,12 @@ const STYLE: &str = r#"
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background:
-    radial-gradient(circle at 15% 12%, rgba(255, 250, 238, 0.95), transparent 34rem),
-    linear-gradient(135deg, #E8E1D2 0%, #d9cfba 100%);
+    linear-gradient(90deg, rgba(244, 240, 230, 0.9), rgba(244, 240, 230, 0.52) 54%, rgba(244, 240, 230, 0.78)),
+    url("/imgs/backgound.png") center / cover fixed,
+    #F4F0E6;
 }
 
 body::before {
@@ -229,8 +229,9 @@ body::before {
   inset: 0;
   pointer-events: none;
   content: "";
-  background-image: linear-gradient(rgba(63, 61, 57, 0.035) 1px, transparent 1px);
-  background-size: 100% 1.15rem;
+  background:
+    linear-gradient(180deg, rgba(244, 240, 230, 0.16), rgba(244, 240, 230, 0.7)),
+    repeating-linear-gradient(90deg, rgba(121, 97, 67, 0.026) 0 1px, transparent 1px 5px);
   mix-blend-mode: multiply;
 }
 
@@ -239,17 +240,27 @@ a {
 }
 
 .shell {
-  width: min(1120px, calc(100% - 32px));
+  width: min(1040px, calc(100% - 36px));
   margin: 0 auto;
-  padding: 56px 0 72px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: min(3vh, 24px);
+  height: 100vh;
+  padding: min(5vh, 48px) 0 min(4vh, 36px);
+  overflow: hidden;
 }
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
-  gap: 40px;
+  grid-template-columns: minmax(0, 0.92fr) minmax(300px, 390px);
+  gap: 64px;
   align-items: center;
-  min-height: 72vh;
+  min-height: 0;
+  height: auto;
+}
+
+.hero-copy {
+  container-type: inline-size;
 }
 
 .kicker,
@@ -272,27 +283,47 @@ p {
 
 h1 {
   margin-bottom: 18px;
-  color: #3F3D39;
-  font-size: clamp(4.5rem, 14vw, 10rem);
-  font-weight: 500;
-  letter-spacing: -0.09em;
-  line-height: 0.85;
+  color: #20221F;
+  font-size: clamp(4.25rem, 12vw, 8.8rem);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 0.92;
+}
+
+.brand-title {
+  width: min(240px, 50vw);
+}
+
+.brand-title img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.brand-title span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .tagline {
-  max-width: 780px;
-  margin-bottom: 18px;
-  color: #6B5A45;
-  font-size: clamp(1.55rem, 4vw, 3.35rem);
-  line-height: 1.1;
+  max-width: 100%;
+  margin-bottom: 16px;
+  color: #536044;
+  font-size: clamp(1.05rem, 5.2cqw, 2.05rem);
+  line-height: 1.18;
+  white-space: nowrap;
 }
 
 .summary {
-  max-width: 690px;
-  margin-bottom: 30px;
-  color: rgba(63, 61, 57, 0.84);
-  font-size: 1.08rem;
-  line-height: 1.9;
+  max-width: 560px;
+  margin-bottom: 22px;
+  color: rgba(47, 49, 44, 0.72);
+  font-size: 1rem;
+  line-height: 2.05;
 }
 
 .actions {
@@ -307,8 +338,8 @@ h1 {
   justify-content: center;
   min-height: 46px;
   padding: 0 20px;
-  border: 1px solid rgba(63, 61, 57, 0.38);
-  border-radius: 999px;
+  border: 1px solid rgba(47, 49, 44, 0.32);
+  border-radius: 4px;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
@@ -316,15 +347,15 @@ h1 {
 }
 
 .button-primary {
-  border-color: #3F3D39;
-  background: #3F3D39;
-  color: #E8E1D2;
-  box-shadow: 0 16px 36px rgba(63, 61, 57, 0.24);
+  border-color: #2F312C;
+  background: #2F312C;
+  color: #F4F0E6;
+  box-shadow: none;
 }
 
 .button-ghost {
-  background: rgba(232, 225, 210, 0.44);
-  color: #3F3D39;
+  background: rgba(244, 240, 230, 0.44);
+  color: #2F312C;
 }
 
 .api-note {
@@ -336,81 +367,83 @@ h1 {
 }
 
 .world-card,
-.intro-card {
-  border: 1px solid rgba(63, 61, 57, 0.16);
-  border-radius: 30px;
-  background: rgba(232, 225, 210, 0.64);
-  box-shadow: 0 24px 80px rgba(63, 61, 57, 0.14);
-  backdrop-filter: blur(14px);
+.connect {
+  border: 1px solid rgba(47, 49, 44, 0.18);
+  background: rgba(250, 248, 241, 0.74);
+  box-shadow: 0 1px 0 rgba(47, 49, 44, 0.08);
 }
 
 .world-card {
+  container-type: inline-size;
+  border-radius: 8px;
+  border-color: rgba(83, 71, 54, 0.18);
+  background: rgba(250, 239, 190, 0.56);
+  box-shadow: 0 18px 44px rgba(47, 49, 44, 0.12);
+  backdrop-filter: blur(10px);
   overflow: hidden;
 }
 
-.card-topline {
-  height: 10px;
-  background: linear-gradient(90deg, #6B5A45, #6F7A5E, #3F3D39);
-}
-
 .world-card pre {
-  overflow-x: auto;
+  max-width: 100%;
+  overflow: hidden;
   margin: 0;
-  padding: 30px;
-  color: #3F3D39;
-  font-size: 0.78rem;
-  line-height: 1.55;
+  padding: 26px 24px 22px;
+  color: #2F312C;
+  font-size: clamp(0.52rem, 1.7cqw, 0.78rem);
+  line-height: 1.7;
+  white-space: pre;
 }
 
 .card-footer {
   display: flex;
   gap: 10px;
-  padding: 0 24px 24px;
+  padding: 0 20px 18px;
 }
 
 .card-footer span {
   padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(111, 122, 94, 0.18);
+  border-radius: 4px;
+  background: rgba(83, 96, 68, 0.12);
   color: #536044;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 0.78rem;
   font-weight: 700;
 }
 
-.sections {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+.connect {
+  width: min(640px, 100%);
+  margin-top: 0;
+  border-radius: 4px;
+  background:
+    linear-gradient(rgba(47, 49, 44, 0.34), rgba(47, 49, 44, 0.34)),
+    url("/imgs/div-wide.png") center / cover;
 }
 
-.intro-card {
-  padding: 28px;
-}
-
-.intro-card h2 {
-  margin-bottom: 14px;
-  color: #3F3D39;
-  font-size: 1.6rem;
-  font-weight: 500;
-  line-height: 1.25;
-}
-
-.intro-card p:last-child {
-  margin-bottom: 0;
-  color: rgba(63, 61, 57, 0.78);
+.connect pre {
+  overflow-x: auto;
+  margin: 0;
+  padding: 18px 24px;
+  color: #F4F0E6;
+  background: rgba(32, 34, 31, 0.88);
+  border-left: 6px solid #9D3F2E;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 1rem;
   line-height: 1.8;
 }
 
+.connect code {
+  white-space: pre;
+}
+
 @media (max-width: 860px) {
-  .hero,
-  .sections {
+  .hero {
     grid-template-columns: 1fr;
   }
 
   .hero {
     min-height: auto;
-    padding: 24px 0 36px;
+    padding: 10px 0 34px;
   }
 }
 "#;

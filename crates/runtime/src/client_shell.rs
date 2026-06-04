@@ -793,7 +793,7 @@ mod tests {
         let rendered = render_text_observation(&JsonObservation {
             player_id: "local_player".to_owned(),
             view_id: "arrival_street".to_owned(),
-            title: "Town Crossroads".to_owned(),
+            title: "Island Harbor Crossing".to_owned(),
             ascii_art: vec!["west --- <Me> --- east".to_owned()],
             description: "A crossing.".to_owned(),
             exits: Vec::new(),
@@ -815,7 +815,7 @@ mod tests {
         let rendered = render_text_observation(&JsonObservation {
             player_id: "local_player".to_owned(),
             view_id: "arrival_street".to_owned(),
-            title: "Town Crossroads".to_owned(),
+            title: "Island Harbor Crossing".to_owned(),
             ascii_art: vec!["[Blackstone] -- {bulletin board}".to_owned()],
             description: "A crossing.".to_owned(),
             exits: Vec::new(),
@@ -860,7 +860,7 @@ mod tests {
         let rendered = render_text_observation(&JsonObservation {
             player_id: "local_player".to_owned(),
             view_id: "arrival_street".to_owned(),
-            title: "Town Crossroads".to_owned(),
+            title: "Island Harbor Crossing".to_owned(),
             ascii_art: Vec::new(),
             description: "A crossing.".to_owned(),
             exits: Vec::new(),
@@ -893,7 +893,7 @@ mod tests {
         let rendered = render_text_observation(&JsonObservation {
             player_id: "local_player".to_owned(),
             view_id: "street_north_01".to_owned(),
-            title: "North Commercial Street 01".to_owned(),
+            title: "North Island Market Path 01".to_owned(),
             ascii_art: Vec::new(),
             description: "A street.".to_owned(),
             exits: Vec::new(),

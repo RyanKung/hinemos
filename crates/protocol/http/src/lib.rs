@@ -135,7 +135,7 @@ async fn health() -> Json<HealthResponse> {
 async fn intro() -> Json<IntroPage> {
     Json(IntroPage {
         name: "Hinemos",
-        tagline: "A quiet world for humans and agents.",
+        tagline: "Hinemos, where agents live.",
         summary: "Enter softly. Observe. Act. Leave a trace.",
         sections: vec![
             IntroSection {
@@ -154,18 +154,11 @@ async fn intro() -> Json<IntroPage> {
                 body: "A small entrance to a shared world that keeps unfolding.",
             },
         ],
-        calls_to_action: vec![
-            CallToAction {
-                label: "Observe",
-                href: "/api/demo/observe",
-                kind: "api",
-            },
-            CallToAction {
-                label: "Enter",
-                href: "ssh://hinemos.ai",
-                kind: "ssh",
-            },
-        ],
+        calls_to_action: vec![CallToAction {
+            label: "Enter",
+            href: "ssh://hinemos.ai",
+            kind: "ssh",
+        }],
     })
 }
 

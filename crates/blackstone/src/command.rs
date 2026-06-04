@@ -1,4 +1,4 @@
-//! Slash command parsing for Blackstone Tavern.
+//! Slash command parsing for Blackstone Izakaya.
 
 use crate::BlackstoneError;
 
@@ -13,7 +13,7 @@ pub(crate) enum ParsedCommand {
 impl ParsedCommand {
     pub(crate) fn parse(input: &str) -> Result<Self, BlackstoneError> {
         let trimmed = input.trim();
-        if trimmed.eq_ignore_ascii_case("/buy beer") || trimmed.eq_ignore_ascii_case("/buy a beer")
+        if trimmed.eq_ignore_ascii_case("/buy beer") || trimmed.eq_ignore_ascii_case("/buy a drink")
         {
             return Ok(Self::BuyBeer);
         }

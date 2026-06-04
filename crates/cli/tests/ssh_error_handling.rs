@@ -168,7 +168,7 @@ fn command_errors_do_not_close_ssh_session() {
     );
 
     session.write_line("/inspect tavern_front");
-    session.wait_for_stdout("tavern", Duration::from_secs(10));
+    session.wait_for_stdout("izakaya", Duration::from_secs(10));
     session.write_line("/quit");
     let output = session.wait_success(Duration::from_secs(10));
 
@@ -184,7 +184,7 @@ fn command_errors_do_not_close_ssh_session() {
     );
     assert_contains(
         &output,
-        "tavern",
+        "izakaya",
         "valid command after mistyped target still runs",
     );
 
@@ -215,27 +215,27 @@ fn business_command_errors_do_not_close_ssh_session() {
     session.write_line("/pay nobody 1 typo-safe");
     session.wait_for_stdout("payment target not found: nobody", Duration::from_secs(10));
     session.write_line("/look");
-    session.wait_for_stdout("Town Crossroads", Duration::from_secs(10));
+    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/pay accept 999999");
     session.wait_for_stdout("payment request not found: 999999", Duration::from_secs(10));
     session.write_line("/look");
-    session.wait_for_stdout("Town Crossroads", Duration::from_secs(10));
+    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/land info missing_parcel");
     session.wait_for_stdout("parcel not found: missing_parcel", Duration::from_secs(10));
     session.write_line("/look");
-    session.wait_for_stdout("Town Crossroads", Duration::from_secs(10));
+    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/build title Should not disconnect");
     session.wait_for_stdout("you do not own this parcel", Duration::from_secs(10));
     session.write_line("/look");
-    session.wait_for_stdout("Town Crossroads", Duration::from_secs(10));
+    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/shop request-payment 999999 1 hello");
     session.wait_for_stdout("shop command not found: 999999", Duration::from_secs(10));
     session.write_line("/look");
-    session.wait_for_stdout("Town Crossroads", Duration::from_secs(10));
+    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/quit");
     let output = session.wait_success(Duration::from_secs(10));
@@ -320,16 +320,16 @@ fn read_and_inspect_return_results_without_repainting_room() {
     );
     assert_contains(
         &output,
-        "Blackstone tavern front:",
+        "Blackstone izakaya front:",
         "inspect command returns object detail",
     );
     assert_eq!(
-        output.matches("Town Crossroads").count(),
+        output.matches("Island Harbor Crossing").count(),
         1,
         "non-navigation actions should not repaint the room"
     );
     assert_eq!(
-        output.matches("TOWN CROSSROADS").count(),
+        output.matches("ISLAND HARBOR CROSSING").count(),
         0,
         "compact room rendering should not include the banner title"
     );

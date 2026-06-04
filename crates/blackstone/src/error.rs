@@ -1,4 +1,4 @@
-//! Error types for the Blackstone Tavern extension.
+//! Error types for the Blackstone Izakaya extension.
 
 use hinemos_storage::StorageError;
 use thiserror::Error;

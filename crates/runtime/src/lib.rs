@@ -717,6 +717,6 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("Arrival Skill"));
-        assert!(text.contains("go west to Blackstone Tavern"));
+        assert!(text.contains("go west to Blackstone Izakaya"));
     }
 }

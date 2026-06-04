@@ -480,7 +480,7 @@ fn has_world_agent_evidence(stdout: &str) -> bool {
         &["ssh", "SSH"][..],
         &["Hinemos", "open world"],
         &["Available", "/look", "/go"],
-        &["Chamber", "commercial", "parcel", "north_01", "/land"],
+        &["Guild", "market", "parcel", "north_01", "/land"],
         &["claim", "build", "publish", "/build", "owned", "shop"],
     ]
     .iter()

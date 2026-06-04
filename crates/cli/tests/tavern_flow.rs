@@ -42,27 +42,31 @@ fn blackstone_tavern_is_closed_when_agent_is_offline() {
 
     assert_contains(
         &output,
-        "Blackstone is closed. The bartender is not online.",
+        "Blackstone is closed. The keeper is not online.",
         "closed status is visible",
     );
     assert_contains(
         &output,
         "Blackstone is closed",
-        "closed tavern rejects extension commands",
+        "closed izakaya rejects extension commands",
     );
     assert_not_contains(
         &output,
         "/buy beer, /blame",
-        "closed tavern does not advertise buy command",
+        "closed izakaya does not advertise buy command",
     );
-    assert_not_contains(&output, "buys a beer", "closed tavern does not sell beer");
+    assert_not_contains(
+        &output,
+        "orders a drink",
+        "closed izakaya does not serve drinks",
+    );
     assert_eq!(
         test_database.query_value(&format!(
             "select exists(select 1 from blackstone_beer_tabs where username = '{}')",
             sql_literal(&user)
         )),
         "f",
-        "closed tavern should not create beer tabs"
+        "closed izakaya should not create drink tabs"
     );
     assert_eq!(
         test_database.query_value(&format!(
@@ -70,7 +74,7 @@ fn blackstone_tavern_is_closed_when_agent_is_offline() {
             sql_literal(&user)
         )),
         "f",
-        "closed tavern should not create blame notes"
+        "closed izakaya should not create blame notes"
     );
     assert_eq!(
         test_database.query_value(&format!(
@@ -78,7 +82,7 @@ fn blackstone_tavern_is_closed_when_agent_is_offline() {
             sql_literal(&user)
         )),
         "f",
-        "closed tavern should not create agent events"
+        "closed izakaya should not create agent events"
     );
 
     terminate(&mut server);
@@ -113,24 +117,24 @@ fn blackstone_tavern_is_open_when_agent_is_online() {
 
     assert_contains(
         &output,
-        "Blackstone is open. The bartender is online.",
+        "Blackstone is open. The keeper is online.",
         "open status is visible",
     );
-    assert_contains(&output, "/buy beer", "open tavern advertises buy");
+    assert_contains(&output, "/buy beer", "open izakaya advertises buy");
     assert_not_contains(
         &output,
         "/blame <complaint>",
-        "open tavern does not advertise blame before a drink",
+        "open izakaya does not advertise blame before a drink",
     );
     assert_not_contains(
         &output,
         "/ask <question>",
-        "open tavern does not advertise ask before a drink",
+        "open izakaya does not advertise ask before a drink",
     );
     assert_not_contains(
         &output,
         "/grep <query>",
-        "open tavern does not advertise grep before a drink",
+        "open izakaya does not advertise grep before a drink",
     );
 
     terminate(&mut server);
@@ -170,7 +174,7 @@ fn blackstone_tavern_advertises_bar_commands_after_a_drink() {
 
     assert_contains(
         &output,
-        "Your drink is active. You can use bar commands or chat with the bartender.",
+        "Your drink is active. You can use counter commands or chat with the keeper.",
         "active drink window is explained",
     );
     assert_contains(
@@ -198,10 +202,10 @@ fn blackstone_tavern_handles_buy_blame_ask_and_grep() {
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("hinemos-blackstone-tavern");
+    let temp = TestTempDir::new("hinemos-blackstone-izakaya");
     let host = "127.0.0.1";
     let port = free_local_port();
-    let user = format!("tavern_guest_{}_{}", std::process::id(), epoch_seconds());
+    let user = format!("izakaya_guest_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
 
     let mut server = spawn_hinemos_server_with_env(
@@ -233,28 +237,28 @@ fn blackstone_tavern_handles_buy_blame_ask_and_grep() {
 
     assert_contains(
         &output,
-        "Blackstone Tavern",
-        "guest entered Blackstone Tavern",
+        "Blackstone Izakaya",
+        "guest entered Blackstone Izakaya",
     );
     assert_contains(
         &output,
         "You do not consider drinking first?",
-        "bartender gates blame and ask behind beer",
+        "keeper gates blame and ask behind a drink",
     );
     assert_contains(
         &output,
-        "buys a beer",
-        "beer purchase is recorded by the tavern",
+        "orders a drink",
+        "drink purchase is recorded by the izakaya",
     );
     assert_contains(
         &output,
         "I will remember that story, but I will not call it truth yet",
-        "bartender comments on blame without judging truth",
+        "keeper comments on blame without judging truth",
     );
     assert_contains(
         &output,
         "Blackstone records matching 'delivery'",
-        "tavern records can be searched",
+        "izakaya records can be searched",
     );
     assert_contains(
         &output,
@@ -297,7 +301,7 @@ fn blackstone_tavern_chat_records_complaints_and_answers_within_drink_window() {
         &user,
         [
             "/go west",
-            &format!("{claim} before beer"),
+            &format!("{claim} before a drink"),
             "/buy beer",
             &format!("I heard {claim}; what should I do next?"),
             &format!("/grep {claim}"),
@@ -312,8 +316,8 @@ fn blackstone_tavern_chat_records_complaints_and_answers_within_drink_window() {
     );
     assert_contains(
         &output,
-        "The bartender listens",
-        "free-form chat receives a bartender response after a drink",
+        "The keeper listens",
+        "free-form chat receives a keeper response after a drink",
     );
     assert_contains(
         &output,
@@ -373,7 +377,7 @@ fn blackstone_tavern_chat_window_expires_after_five_minutes() {
     );
     assert_contains(
         &first_output,
-        "The bartender listens",
+        "The keeper listens",
         "fresh drink enables free-form chat",
     );
     assert_eq!(
@@ -382,7 +386,7 @@ fn blackstone_tavern_chat_window_expires_after_five_minutes() {
             sql_literal(&user)
         )),
         "1",
-        "test should expire the beer tab"
+        "test should expire the drink tab"
     );
 
     let second_output = run_ssh_batch(
@@ -411,7 +415,7 @@ fn blackstone_tavern_chat_window_expires_after_five_minutes() {
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
-fn blackstone_tavern_persists_searchable_service_history() {
+fn blackstone_izakaya_persists_searchable_service_history() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -499,7 +503,7 @@ fn blackstone_tavern_persists_searchable_service_history() {
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
-fn blackstone_tavern_falls_back_when_llm_provider_fails() {
+fn blackstone_izakaya_falls_back_when_llm_provider_fails() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -548,7 +552,7 @@ fn blackstone_tavern_falls_back_when_llm_provider_fails() {
     );
     assert_contains(
         &output,
-        "The bartender considers",
+        "The keeper considers",
         "ask falls back when LLM provider is unavailable",
     );
     assert_blackstone_event_exists(&test_database, &user, "blame", &claim);

@@ -328,7 +328,7 @@ fn same_view_say_reaches_only_players_in_that_view() {
     let mut outsider_session = SshSession::spawn(host, port, &outsider);
     outsider_session.wait_for_stdout("Available:", Duration::from_secs(10));
     outsider_session.write_line("/go west");
-    outsider_session.wait_for_stdout("Blackstone Tavern", Duration::from_secs(10));
+    outsider_session.wait_for_stdout("Blackstone Izakaya", Duration::from_secs(10));
 
     let speaker_output = run_ssh_batch(
         host,
@@ -464,7 +464,7 @@ fn broadcast_reaches_all_online_players_and_persists_in_news() {
     let mut session_b = SshSession::spawn(host, port, &listener_b);
     session_b.wait_for_stdout("Available:", Duration::from_secs(10));
     session_b.write_line("/go west");
-    session_b.wait_for_stdout("Blackstone Tavern", Duration::from_secs(10));
+    session_b.wait_for_stdout("Blackstone Izakaya", Duration::from_secs(10));
 
     let sender_output = run_ssh_batch(
         host,

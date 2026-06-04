@@ -77,7 +77,7 @@ fn claude_can_discover_and_explore_world_over_ssh() {
     require_output(
         &stdout,
         &[
-            "Chamber",
+            "Guild",
             "commercial",
             "parcel",
             "north_01",

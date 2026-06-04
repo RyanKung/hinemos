@@ -4,7 +4,7 @@
     deny(clippy::expect_used, clippy::panic, clippy::unwrap_used)
 )]
 
-//! Blackstone Tavern extension service.
+//! Blackstone Izakaya extension service.
 
 mod command;
 mod error;
@@ -20,7 +20,7 @@ use tokio::sync::{mpsc, oneshot};
 use command::ParsedCommand;
 pub use error::BlackstoneError;
 
-/// View id where Blackstone Tavern lives.
+/// View id where Blackstone Izakaya lives.
 pub const VIEW_ID: &str = "west_main_street";
 
 /// Registered extension command names.
@@ -31,7 +31,7 @@ const LLM_TIMEOUT_SECONDS: u64 = 12;
 const AGENT_ONLINE_ENV: &str = "BLACKSTONE_AGENT_ONLINE";
 const DRINK_WINDOW_MINUTES: i32 = 5;
 
-/// Returns extension command names registered by Blackstone Tavern.
+/// Returns extension command names registered by Blackstone Izakaya.
 #[must_use]
 pub const fn extension_command_names() -> &'static [&'static str] {
     COMMAND_NAMES
@@ -63,7 +63,7 @@ pub fn available_commands_for_view(view_id: &str) -> Vec<SemanticCommand> {
     ]
 }
 
-/// Blackstone Tavern service facade.
+/// Blackstone Izakaya service facade.
 #[derive(Debug, Clone)]
 pub struct BlackstoneService {
     storage: PgStorage,
@@ -106,10 +106,10 @@ impl BlackstoneService {
         if self.is_open() {
             observation
                 .description
-                .push_str("\nBlackstone is open. The bartender is online.");
+                .push_str("\nBlackstone is open. The keeper is online.");
             if self.has_active_drink(player_id).await? {
                 observation.description.push_str(
-                    "\nYour drink is active. You can use bar commands or chat with the bartender.",
+                    "\nYour drink is active. You can use counter commands or chat with the keeper.",
                 );
                 observation
                     .available_commands
@@ -123,13 +123,12 @@ impl BlackstoneService {
                     });
             }
         } else {
-            observation.description =
-                "Blackstone is closed. The bartender is not online.".to_owned();
+            observation.description = "Blackstone is closed. The keeper is not online.".to_owned();
         }
         Ok(())
     }
 
-    /// Handles one registered extension command inside Blackstone Tavern.
+    /// Handles one registered extension command inside Blackstone Izakaya.
     pub async fn handle(
         &self,
         username: &str,
@@ -139,11 +138,11 @@ impl BlackstoneService {
     ) -> Result<String, BlackstoneError> {
         if current_view != VIEW_ID {
             return Ok(
-                "Blackstone Tavern commands only work inside Blackstone Tavern.\r\n".to_owned(),
+                "Blackstone Izakaya commands only work inside Blackstone Izakaya.\r\n".to_owned(),
             );
         }
         if !self.is_open() {
-            return Ok("Blackstone is closed. The bartender is not online.\r\n".to_owned());
+            return Ok("Blackstone is closed. The keeper is not online.\r\n".to_owned());
         }
 
         let command = ParsedCommand::parse(input)?;
@@ -151,7 +150,7 @@ impl BlackstoneService {
             ParsedCommand::BuyBeer => {
                 self.buy_beer(username, player_id).await?;
                 let response =
-                    format!("{username} buys a beer. The bartender nods and starts listening.");
+                    format!("{username} orders a drink. The keeper nods and starts listening.");
                 self.save_event(username, player_id, "buy", "beer", &response)
                     .await?;
                 format!("{response}\r\n")
@@ -203,7 +202,7 @@ impl BlackstoneService {
         Ok(response)
     }
 
-    /// Handles non-slash chat with the bartender when the player is in Blackstone.
+    /// Handles non-slash chat with the keeper when the player is in Blackstone.
     pub async fn handle_chat(
         &self,
         username: &str,
@@ -217,7 +216,7 @@ impl BlackstoneService {
         }
         if !self.is_open() {
             return Ok(Some(
-                "Blackstone is closed. The bartender is not online.\r\n".to_owned(),
+                "Blackstone is closed. The keeper is not online.\r\n".to_owned(),
             ));
         }
         if !self.has_active_drink(player_id).await? {
@@ -525,23 +524,21 @@ pub async fn migrate(storage: &PgStorage) -> Result<(), BlackstoneError> {
 
 fn fallback_answer(user: &str, question: &str, blame_count: usize, news_count: usize) -> String {
     let blame_context = if blame_count == 0 {
-        "I have heard no fresh complaints at this bar."
+        "I have heard no fresh complaints at this izakaya."
     } else {
-        "I have heard recent complaints at this bar; treat them as leads, not verdicts."
+        "I have heard recent complaints at this izakaya; treat them as leads, not verdicts."
     };
     let news_context = if news_count == 0 {
         "I have not seen useful public broadcasts yet."
     } else {
         "I have seen public broadcasts that may help cross-check the story."
     };
-    format!(
-        "The bartender considers {user}'s question: '{question}'. {blame_context} {news_context}"
-    )
+    format!("The keeper considers {user}'s question: '{question}'. {blame_context} {news_context}")
 }
 
 fn fallback_blame_response(user: &str) -> String {
     format!(
-        "The bartender hears {user} and says: I will remember that story, but I will not call it truth yet."
+        "The keeper hears {user} and says: I will remember that story, but I will not call it truth yet."
     )
 }
 
@@ -560,9 +557,9 @@ fn fallback_chat_response(
     let record_context = if blame_count == 0 && news_count == 0 {
         "I do not have useful nearby records yet."
     } else {
-        "I can compare it against recent bar talk and public broadcasts."
+        "I can compare it against recent izakaya talk and public broadcasts."
     };
-    format!("The bartender listens to {user}: '{text}'. {complaint_context} {record_context}")
+    format!("The keeper listens to {user}: '{text}'. {complaint_context} {record_context}")
 }
 
 fn looks_like_complaint(text: &str) -> bool {
@@ -793,7 +790,7 @@ impl AgentPrompt {
     fn to_llm_prompt(&self) -> String {
         match self {
             Self::Blame { username, body } => format!(
-                "A visitor named {username} complains at Blackstone Tavern:\n{body}\n\nReply as the resident bartender in one short paragraph. Do not claim official truth. Treat the complaint as a lead, not a verdict."
+                "A visitor named {username} complains at Blackstone Izakaya:\n{body}\n\nReply as the resident keeper in one short paragraph. Do not claim official truth. Treat the complaint as a lead, not a verdict."
             ),
             Self::Ask {
                 username,
@@ -802,7 +799,7 @@ impl AgentPrompt {
                 news,
                 matches,
             } => format!(
-                "A visitor named {username} asks the Blackstone bartender:\n{question}\n\nRecent complaint count: {blame_count}\nRecent public broadcasts:\n{}\nMatching tavern records:\n{}\n\nReply in one short paragraph. Be useful, skeptical, and market-social. Do not act as an authority or court.",
+                "A visitor named {username} asks the Blackstone keeper:\n{question}\n\nRecent complaint count: {blame_count}\nRecent public broadcasts:\n{}\nMatching izakaya records:\n{}\n\nReply in one short paragraph. Be useful, skeptical, and market-social. Do not act as an authority or court.",
                 render_news_context(news),
                 render_match_context(matches)
             ),
@@ -814,7 +811,7 @@ impl AgentPrompt {
                 news,
                 matches,
             } => format!(
-                "A visitor named {username} chats with the Blackstone bartender:\n{text}\n\nComplaint-like text recorded as a lead: {complaint_recorded}\nRecent complaint count: {blame_count}\nRecent public broadcasts:\n{}\nMatching tavern records:\n{}\n\nReply in one short paragraph. If this sounds like a complaint, acknowledge it as a lead. If this sounds like a question, answer from the records. Do not act as an authority or court.",
+                "A visitor named {username} chats with the Blackstone keeper:\n{text}\n\nComplaint-like text recorded as a lead: {complaint_recorded}\nRecent complaint count: {blame_count}\nRecent public broadcasts:\n{}\nMatching izakaya records:\n{}\n\nReply in one short paragraph. If this sounds like a complaint, acknowledge it as a lead. If this sounds like a question, answer from the records. Do not act as an authority or court.",
                 render_news_context(news),
                 render_match_context(matches)
             ),
@@ -910,7 +907,7 @@ impl LlmClient {
                 messages: vec![
                     ChatCompletionMessage {
                         role: "system",
-                        content: "You are the resident bartender at Blackstone Tavern inside Hinemos. You help visitors reason from rumors, complaints, and public broadcasts without claiming official authority.",
+                        content: "You are the resident keeper at Blackstone Izakaya inside Hinemos. You help visitors reason from rumors, complaints, and public broadcasts without claiming official authority.",
                     },
                     ChatCompletionMessage {
                         role: "user",

@@ -45,7 +45,7 @@ fn external_agents_create_and_investigate_blackstone_complaint() {
     );
 
     let customer_prompt = format!(
-        "Connect to {host} on SSH port {port} with username {customer}. You are a customer with a complaint tagged {claim}: merchant {merchant} failed to deliver cobalt gears. Use the Blackstone Tavern complaint flow inside the SSH world: find Blackstone, buy a beer if needed, and file the complaint with the bartender. Do not use /broadcast as the complaint mechanism. Report what happened."
+        "Connect to {host} on SSH port {port} with username {customer}. You are a customer with a complaint tagged {claim}: merchant {merchant} failed to deliver cobalt gears. Use the Blackstone Izakaya complaint flow inside the SSH world: find Blackstone, buy a drink if needed, and file the complaint with the keeper. Do not use /broadcast as the complaint mechanism. Report what happened."
     );
     let customer_output =
         run_claude_agent_until(&customer_prompt, &env, Duration::from_secs(180), |stdout| {
@@ -59,7 +59,7 @@ fn external_agents_create_and_investigate_blackstone_complaint() {
     );
 
     let investigator_prompt = format!(
-        "Connect to {host} on SSH port {port} with username {investigator}. You are a third party deciding whether to trust {merchant}. Investigate Blackstone Tavern records for reports tagged {claim} inside the SSH world. Use the tavern search flow if needed, then report what evidence you found."
+        "Connect to {host} on SSH port {port} with username {investigator}. You are a third party deciding whether to trust {merchant}. Investigate Blackstone Izakaya records for reports tagged {claim} inside the SSH world. Use the izakaya search flow if needed, then report what evidence you found."
     );
     let investigator_output = run_claude_agent_until(
         &investigator_prompt,
@@ -97,7 +97,7 @@ fn external_agents_create_and_investigate_blackstone_complaint() {
     require_output(
         &customer_stdout,
         &[
-            "buys a beer",
+            "orders a drink",
             "I will remember that story",
             "not call it truth",
         ],
@@ -128,7 +128,7 @@ fn agent_created_blackstone_complaint(stdout: &str, claim: &str, merchant: &str)
     lower.contains("blackstone")
         && lower.contains(&claim.to_ascii_lowercase())
         && lower.contains(&merchant.to_ascii_lowercase())
-        && lower.contains("buys a beer")
+        && lower.contains("orders a drink")
         && (lower.contains("i will remember that story") || lower.contains("not call it truth"))
 }
 
