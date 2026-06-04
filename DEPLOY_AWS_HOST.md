@@ -8,10 +8,11 @@ not required for normal build, runtime, or debugging.
 - Debian packages: `postgresql`, `postgresql-client`, `build-essential`,
   `pkg-config`, `cmake`, `curl`.
 - Rust toolchain with Cargo.
-- An EC2 security group rule that allows inbound TCP traffic to the configured
-  Hinemos SSH port, usually `22`. If the host also needs administrative sshd,
-  run host sshd on a separate port such as `2222`.
-- A local Postgres database and user for Hinemos.
+- EC2 security group rules that allow inbound TCP traffic to public edge ports:
+  `22` for the Hinemos SSH world, `80` for automatic HTTPS redirect, and `443`
+  for the frontend and API TLS endpoints. If the host also needs administrative
+  sshd, run host sshd on a separate port such as `2222`.
+- A local Postgres database and user for Hinemos when running the SSH daemon.
 
 ## Configure
 
@@ -24,6 +25,11 @@ HINEMOS_WORLD=/opt/hinemos/worlds/sample
 HINEMOS_HOST_KEY=/var/lib/hinemos/ssh_host_ed25519_key
 HINEMOS_ADMIN_SOCKET=/run/hinemos/admin.sock
 HINEMOS_MAIL_DOMAIN=hinemos.local
+
+# Public HTTP landing/API service. Keep Hinemos loopback-only; HAProxy owns
+# public ports 80 and 443, redirects HTTP to HTTPS, and proxies TLS traffic here.
+HINEMOS_HTTP_BIND=127.0.0.1:8080
+HINEMOS_HTTP_STATIC_DIR=/opt/hinemos/web/landing/dist
 
 # Optional SMTP/IMAP sidecar. Keep loopback for local clients, or expose it
 # through a reverse proxy that terminates TLS.
@@ -42,22 +48,61 @@ BLACKSTONE_LLM_MODEL=
 From the repository root on the EC2 host:
 
 ```sh
+trunk --version
+(cd web/landing && trunk build --release)
 scripts/host-release-build.sh /opt/hinemos
 sudo scripts/install-host-service.sh /opt/hinemos
-sudo systemctl restart hinemos
-sudo systemctl status hinemos
+sudo scripts/install-host-http-service.sh /opt/hinemos
+sudo haproxy -c -f /etc/haproxy/haproxy.cfg
+sudo systemctl restart hinemos hinemos-http haproxy
+sudo systemctl status hinemos hinemos-http haproxy
 ```
+
+If Trunk is not installed on the host, install it once with Cargo:
+
+```sh
+cargo install trunk --locked --debug
+```
+
+Trunk is used only to produce static files under `web/landing/dist`. Do not run
+`trunk serve` in production; `hinemos-http.service` serves the built frontend and
+HAProxy owns public ports `80` and `443`.
 
 The release build copies the final binary to `.host-build/hinemos` and removes
 the temporary Cargo target directory after the build.
+
+## Public HTTPS Frontend/API
+
+Use `hinemos.ai` and `www.hinemos.ai` for the frontend, and `api.hinemos.ai` for
+backend API requests. Keep `hinemos-http` private on loopback and let HAProxy own
+public ports `80` and `443`:
+
+```sh
+sudo systemctl restart hinemos-http haproxy
+curl -I http://hinemos.ai/
+curl -fsS https://hinemos.ai/
+curl -fsS https://api.hinemos.ai/api/health
+curl -fsS https://api.hinemos.ai/api/intro
+```
+
+`hinemos-http.service` runs as the unprivileged `hinemos` user and binds only
+`HINEMOS_HTTP_BIND`, which should stay `127.0.0.1:8080` for the HAProxy TLS
+layout. HAProxy listens on public `80/tcp`, redirects all HTTP requests to HTTPS,
+terminates TLS on public `443/tcp`, serves the frontend hostnames through the
+loopback Hinemos HTTP service, and serves API routes on `api.hinemos.ai` through
+the same backend. The frontend build calls `https://api.hinemos.ai/api/...` and
+the backend CORS policy allows `https://hinemos.ai` and `https://www.hinemos.ai`.
+The same backend serves the Yew/Trunk frontend from `HINEMOS_HTTP_STATIC_DIR`, so
+`https://hinemos.ai/` and `https://www.hinemos.ai/` should render the landing
+page after `trunk build --release` has produced `web/landing/dist`.
 
 `HINEMOS_MAIL_DOMAIN` enables local mail-style addresses. For example,
 `/mail alice@hinemos.local hello` is delivered to the Hinemos user `alice`.
 External domains are rejected unless a future mail bridge explicitly supports
 them.
 
-For the recommended public edge layout, run Hinemos on loopback and put HAProxy in
-front of public ports 22, 465, and 993; see
+For the recommended public edge layout, run Hinemos services on loopback and put HAProxy in
+front of public ports 80, 443, 22, 465, and 993; see
 [`docs/haproxy-edge-deployment.md`](docs/haproxy-edge-deployment.md).
 
 Connect from a client:

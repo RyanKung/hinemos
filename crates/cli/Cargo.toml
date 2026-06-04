@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 hinemos-admin-protocol = { version = "0.1.0", path = "../admin-protocol" }
 hinemos-core = { version = "0.1.0", path = "../core" }
+hinemos-http = { version = "0.1.0", path = "../protocol/http" }
 hinemos-runtime = { version = "0.1.0", path = "../runtime" }
 hinemos-ssh = { version = "0.1.0", path = "../protocol/ssh" }
 anyhow = "1.0.102"

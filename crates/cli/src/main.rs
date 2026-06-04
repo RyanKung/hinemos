@@ -37,6 +37,8 @@ enum TopCommand {
 #[cfg(unix)]
 #[derive(Debug, Subcommand)]
 enum ServeCli {
+    /// Run the HTTP adapter.
+    Http(hinemos_http::HttpArgs),
     /// Run the SSH adapter.
     Ssh(hinemos_ssh::SshArgs),
     /// Run the SMTP/IMAP mail sidecar.
@@ -102,6 +104,7 @@ async fn main() -> Result<()> {
     if let Some(sub) = cli.sub {
         return match sub {
             TopCommand::Admin(admin) => run_admin(admin),
+            TopCommand::Serve(ServeCli::Http(args)) => hinemos_http::run_daemon(args).await,
             TopCommand::Serve(ServeCli::Ssh(args)) => hinemos_ssh::run_daemon(args).await,
             TopCommand::Serve(ServeCli::Mail(args)) => hinemos_ssh::run_mail_daemon(args).await,
         };

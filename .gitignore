@@ -9,3 +9,5 @@ target
 .env.local
 .env.production
 .env.prod
+.claude/
+web/landing/dist

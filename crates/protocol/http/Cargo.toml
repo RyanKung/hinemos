@@ -1,0 +1,14 @@
+[package]
+name = "hinemos-http"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+hinemos-core = { version = "0.1.0", path = "../../core" }
+hinemos-runtime = { version = "0.1.0", path = "../../runtime" }
+anyhow = "1.0.102"
+axum = "0.8.7"
+clap = { version = "4.6.1", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["net"] }
+tower-http = { version = "0.6.7", features = ["cors", "fs", "trace"] }

@@ -4,10 +4,14 @@ This document describes the recommended sanitized host deployment for Hinemos wh
 
 ## Goals
 
+- Publish the Hinemos frontend over HTTPS on TCP `443` for `hinemos.ai` and `www.hinemos.ai`.
+- Publish the Hinemos API over HTTPS on TCP `443` for `api.hinemos.ai`.
+- Redirect plain HTTP on TCP `80` to HTTPS.
 - Publish Hinemos over SSH on TCP `22`.
 - Keep system administration SSH on TCP `2222`.
 - Publish Hinemos IMAP/SMTP through TLS on TCP `993` and `465`.
 - Keep Hinemos backend services bound to loopback addresses.
+- Use Trunk only to build the Yew frontend; do not run `trunk serve` in production.
 - Use Let's Encrypt certificates and automatic renewal.
 - Avoid exposing secrets, database credentials, private keys, or mail tokens.
 
@@ -15,6 +19,8 @@ This document describes the recommended sanitized host deployment for Hinemos wh
 
 | Port | Public Service | Frontend Owner | Backend |
 | --- | --- | --- | --- |
+| `80/tcp` | HTTP to HTTPS redirect | HAProxy | redirect only |
+| `443/tcp` | Hinemos frontend/API TLS | HAProxy TLS | `127.0.0.1:8080` |
 | `22/tcp` | Hinemos SSH world | HAProxy | `127.0.0.1:2022` |
 | `465/tcp` | Hinemos SMTPS | HAProxy TLS | `127.0.0.1:2525` |
 | `993/tcp` | Hinemos IMAPS | HAProxy TLS | `127.0.0.1:2143` |
@@ -22,18 +28,22 @@ This document describes the recommended sanitized host deployment for Hinemos wh
 
 Recommended security group policy:
 
-- `22/tcp`: public, because this is the Hinemos product entrypoint.
+- `80/tcp`: public, redirect only.
+- `443/tcp`: public, for the Web landing/API TLS endpoint.
+- `22/tcp`: public, because this is the Hinemos SSH product entrypoint.
 - `465/tcp` and `993/tcp`: public if remote mail clients/agents need access.
 - `2222/tcp`: restrict to administrator IPs whenever possible.
 
 ## DNS
 
-Use DNS-only records for TCP services. Standard Cloudflare orange-cloud proxy does not proxy SSH, SMTP, or IMAP.
+Use DNS records for the public hostnames. Cloudflare orange-cloud proxy can proxy normal HTTP/HTTPS if desired, but does not proxy SSH, SMTP, or IMAP. Keep SSH/mail records DNS-only unless a compatible TCP proxy product is used.
 
 Minimum:
 
 ```text
 hinemos.ai A <server-public-ip> DNS only
+www.hinemos.ai A <server-public-ip>
+api.hinemos.ai A <server-public-ip>
 ```
 
 Optional service names once certificates are expanded:
@@ -53,6 +63,8 @@ HINEMOS_BIND=127.0.0.1:2022
 HINEMOS_WORLD=/opt/hinemos/worlds/sample
 HINEMOS_HOST_KEY=/var/lib/hinemos/ssh_host_ed25519_key
 HINEMOS_ADMIN_SOCKET=/run/hinemos/admin.sock
+HINEMOS_HTTP_BIND=127.0.0.1:8080
+HINEMOS_HTTP_STATIC_DIR=/opt/hinemos/web/landing/dist
 HINEMOS_MAIL_DOMAIN=hinemos.local
 HINEMOS_SMTP_BIND=127.0.0.1:2525
 HINEMOS_IMAP_BIND=127.0.0.1:2143
@@ -78,6 +90,12 @@ Hinemos SSH daemon:
 /etc/systemd/system/hinemos.service
 ```
 
+Hinemos HTTP landing/API service:
+
+```text
+/etc/systemd/system/hinemos-http.service
+```
+
 Hinemos mail sidecar:
 
 ```text
@@ -93,8 +111,8 @@ HAProxy:
 Enable and start:
 
 ```bash
-sudo systemctl enable hinemos.service hinemos-mail.service haproxy.service
-sudo systemctl restart hinemos.service hinemos-mail.service haproxy.service
+sudo systemctl enable hinemos.service hinemos-http.service hinemos-mail.service haproxy.service
+sudo systemctl restart hinemos.service hinemos-http.service hinemos-mail.service haproxy.service
 ```
 
 ## Certificate Issuance
@@ -128,7 +146,9 @@ sudo certbot certonly \
   --agree-tos \
   --register-unsafely-without-email \
   --cert-name hinemos.ai \
-  -d hinemos.ai
+  -d hinemos.ai \
+  -d www.hinemos.ai \
+  -d api.hinemos.ai
 ```
 
 If `imap.hinemos.ai` and `smtp.hinemos.ai` are delegated in Cloudflare DNS, expand the certificate:
@@ -140,6 +160,8 @@ sudo certbot certonly \
   --cert-name hinemos.ai \
   --expand \
   -d hinemos.ai \
+  -d www.hinemos.ai \
+  -d api.hinemos.ai \
   -d imap.hinemos.ai \
   -d smtp.hinemos.ai
 ```
@@ -153,9 +175,9 @@ sudo mkdir -p /etc/haproxy/certs
 sudo sh -c 'cat \
   /etc/letsencrypt/live/hinemos.ai/fullchain.pem \
   /etc/letsencrypt/live/hinemos.ai/privkey.pem \
-  > /etc/haproxy/certs/hinemos-mail.pem'
-sudo chmod 600 /etc/haproxy/certs/hinemos-mail.pem
-sudo chown root:root /etc/haproxy/certs/hinemos-mail.pem
+  > /etc/haproxy/certs/hinemos-edge.pem'
+sudo chmod 600 /etc/haproxy/certs/hinemos-edge.pem
+sudo chown root:root /etc/haproxy/certs/hinemos-edge.pem
 ```
 
 ## HAProxy Configuration
@@ -183,6 +205,36 @@ defaults
     timeout server 1h
     timeout tunnel 24h
 
+frontend hinemos_http_redirect
+    bind *:80
+    mode http
+    option httplog
+    http-request redirect scheme https code 301 unless { ssl_fc }
+
+frontend hinemos_https
+    bind *:443 ssl crt /etc/haproxy/certs/hinemos-edge.pem
+    mode http
+    option httplog
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-Port 443
+    http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+    acl host_frontend hdr(host) -i hinemos.ai www.hinemos.ai
+    acl host_api hdr(host) -i api.hinemos.ai
+    acl path_api path_beg /api/
+
+    http-request deny deny_status 404 if host_api !path_api
+    http-request deny deny_status 404 unless host_frontend or host_api
+
+    use_backend hinemos_http_backend if host_api path_api
+    use_backend hinemos_http_backend if host_frontend
+
+backend hinemos_http_backend
+    mode http
+    option httpchk GET /api/health
+    http-check expect status 200
+    server hinemos_http 127.0.0.1:8080 check
+
 frontend hinemos_ssh
     bind *:22
     mode tcp
@@ -197,7 +249,7 @@ backend hinemos_ssh_backend
     server hinemos_ssh 127.0.0.1:2022 check
 
 frontend hinemos_imaps
-    bind *:993 ssl crt /etc/haproxy/certs/hinemos-mail.pem
+    bind *:993 ssl crt /etc/haproxy/certs/hinemos-edge.pem
     mode tcp
     stick-table type ip size 100k expire 10m store conn_rate(60s),conn_cur
     tcp-request connection track-sc0 src
@@ -210,7 +262,7 @@ backend hinemos_imap_backend
     server hinemos_imap 127.0.0.1:2143 check
 
 frontend hinemos_smtps
-    bind *:465 ssl crt /etc/haproxy/certs/hinemos-mail.pem
+    bind *:465 ssl crt /etc/haproxy/certs/hinemos-edge.pem
     mode tcp
     stick-table type ip size 100k expire 10m store conn_rate(60s),conn_cur
     tcp-request connection track-sc0 src
@@ -243,9 +295,9 @@ Hook content:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-cat /etc/letsencrypt/live/hinemos.ai/fullchain.pem /etc/letsencrypt/live/hinemos.ai/privkey.pem > /etc/haproxy/certs/hinemos-mail.pem
-chmod 600 /etc/haproxy/certs/hinemos-mail.pem
-chown root:root /etc/haproxy/certs/hinemos-mail.pem
+cat /etc/letsencrypt/live/hinemos.ai/fullchain.pem /etc/letsencrypt/live/hinemos.ai/privkey.pem > /etc/haproxy/certs/hinemos-edge.pem
+chmod 600 /etc/haproxy/certs/hinemos-edge.pem
+chown root:root /etc/haproxy/certs/hinemos-edge.pem
 systemctl reload haproxy.service
 ```
 
@@ -260,18 +312,35 @@ sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-haproxy-hinemos.sh
 Check listening sockets:
 
 ```bash
-sudo ss -ltnp '( sport = :22 or sport = :2022 or sport = :465 or sport = :993 or sport = :2143 or sport = :2525 )'
+sudo ss -ltnp '( sport = :22 or sport = :80 or sport = :443 or sport = :2022 or sport = :8080 or sport = :465 or sport = :993 or sport = :2143 or sport = :2525 )'
 ```
 
 Expected shape:
 
 ```text
 0.0.0.0:22       haproxy
+0.0.0.0:80       haproxy
+0.0.0.0:443      haproxy
 0.0.0.0:465      haproxy
 0.0.0.0:993      haproxy
 127.0.0.1:2022   hinemos
+127.0.0.1:8080   hinemos
 127.0.0.1:2143   hinemos
 127.0.0.1:2525   hinemos
+```
+
+Test HTTPS and HTTP redirect:
+
+```bash
+curl -I http://api.hinemos.ai/api/health
+curl -fsS https://api.hinemos.ai/api/health
+```
+
+Expected redirect shape:
+
+```text
+HTTP/1.1 301 Moved Permanently
+location: https://api.hinemos.ai/api/health
 ```
 
 Test Hinemos SSH banner:
