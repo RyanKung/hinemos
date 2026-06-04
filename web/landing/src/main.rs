@@ -220,7 +220,7 @@ body {
   overflow: hidden;
   background:
     linear-gradient(90deg, rgba(244, 240, 230, 0.9), rgba(244, 240, 230, 0.52) 54%, rgba(244, 240, 230, 0.78)),
-    url("/imgs/backgound.png") center / cover fixed,
+    url("/imgs/background.png") center / cover fixed,
     #F4F0E6;
 }
 
@@ -416,7 +416,7 @@ h1 {
   border-radius: 4px;
   background:
     linear-gradient(rgba(47, 49, 44, 0.34), rgba(47, 49, 44, 0.34)),
-    url("/imgs/div-wide.png") center / cover;
+    url("/imgs/div-width.png") center / cover;
 }
 
 .connect pre {
