@@ -46,23 +46,21 @@ BLACKSTONE_LLM_MODEL=
 
 ## Build And Install
 
-Build the release binary on your workstation and upload the final binary to the
-host. On macOS or other non-Linux hosts, `scripts/host-release-build.sh` uses
-`cargo zigbuild` for a Linux target when `HINEMOS_RELEASE_TARGET` is set or
-when the host is non-Linux.
+Use the top-level `Makefile` for the common build and deploy steps:
 
 ```sh
-HINEMOS_RELEASE_TARGET=x86_64-unknown-linux-gnu scripts/host-release-build.sh /opt/hinemos
-rsync -az --delete .host-build/hinemos admin@<host>:/opt/hinemos/.host-build/hinemos
-ssh admin@<host> 'cd /opt/hinemos && sudo scripts/install-host-service.sh /opt/hinemos && sudo systemctl restart hinemos'
+make build-host
+make build-landing
+make sync-binary HOST=admin@<host>
+make sync-landing HOST=admin@<host>
+make install-host HOST=admin@<host>
+make restart-host HOST=admin@<host>
 ```
 
-If the landing page changed, build and upload the static frontend too:
+For the full publish flow:
 
 ```sh
-(cd web/landing && NO_COLOR=false trunk build --release)
-rsync -az --delete web/landing/dist/ admin@<host>:/opt/hinemos/web/landing/dist/
-ssh admin@<host> 'cd /opt/hinemos && sudo scripts/install-host-http-service.sh /opt/hinemos && sudo systemctl restart hinemos-http'
+make deploy-host HOST=admin@<host>
 ```
 
 Trunk is used only to produce static files under `web/landing/dist`. Do not run
