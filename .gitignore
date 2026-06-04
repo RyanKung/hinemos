@@ -3,6 +3,8 @@ target
 .cargo-target
 .host-build
 .hinemos
+.cargo-home/
+.cache/
 .xagora
 .env
 .env.test

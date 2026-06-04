@@ -7,7 +7,8 @@ not required for normal build, runtime, or debugging.
 
 - Debian packages: `postgresql`, `postgresql-client`, `build-essential`,
   `pkg-config`, `cmake`, `curl`.
-- Rust toolchain with Cargo.
+- Rust toolchain with Cargo on the host, or a local workstation with the
+  cross-compilation toolchain described below.
 - EC2 security group rules that allow inbound TCP traffic to public edge ports:
   `22` for the Hinemos SSH world, `80` for automatic HTTPS redirect, and `443`
   for the frontend and API TLS endpoints. If the host also needs administrative
@@ -45,23 +46,23 @@ BLACKSTONE_LLM_MODEL=
 
 ## Build And Install
 
-From the repository root on the EC2 host:
+Build the release binary on your workstation and upload the final binary to the
+host. On macOS or other non-Linux hosts, `scripts/host-release-build.sh` uses
+`cargo zigbuild` for a Linux target when `HINEMOS_RELEASE_TARGET` is set or
+when the host is non-Linux.
 
 ```sh
-trunk --version
-(cd web/landing && trunk build --release)
-scripts/host-release-build.sh /opt/hinemos
-sudo scripts/install-host-service.sh /opt/hinemos
-sudo scripts/install-host-http-service.sh /opt/hinemos
-sudo haproxy -c -f /etc/haproxy/haproxy.cfg
-sudo systemctl restart hinemos hinemos-http haproxy
-sudo systemctl status hinemos hinemos-http haproxy
+HINEMOS_RELEASE_TARGET=x86_64-unknown-linux-gnu scripts/host-release-build.sh /opt/hinemos
+rsync -az --delete .host-build/hinemos admin@<host>:/opt/hinemos/.host-build/hinemos
+ssh admin@<host> 'cd /opt/hinemos && sudo scripts/install-host-service.sh /opt/hinemos && sudo systemctl restart hinemos'
 ```
 
-If Trunk is not installed on the host, install it once with Cargo:
+If the landing page changed, build and upload the static frontend too:
 
 ```sh
-cargo install trunk --locked --debug
+(cd web/landing && NO_COLOR=false trunk build --release)
+rsync -az --delete web/landing/dist/ admin@<host>:/opt/hinemos/web/landing/dist/
+ssh admin@<host> 'cd /opt/hinemos && sudo scripts/install-host-http-service.sh /opt/hinemos && sudo systemctl restart hinemos-http'
 ```
 
 Trunk is used only to produce static files under `web/landing/dist`. Do not run

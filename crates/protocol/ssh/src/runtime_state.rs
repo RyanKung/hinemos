@@ -132,7 +132,8 @@ impl RuntimeState {
 
 pub(crate) fn parse_command(
     chrome: &Chrome,
+    observation: Option<&JsonObservation>,
     input: &str,
 ) -> Result<SemanticCommand, SlashParseError> {
-    chrome.parse_command(input)
+    chrome.parse_command_with_observation(input, observation)
 }

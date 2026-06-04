@@ -111,6 +111,15 @@ impl Chrome {
 
     /// Parses slash-prefixed player input into a semantic command.
     pub fn parse_command(&self, input: &str) -> Result<SemanticCommand, SlashParseError> {
+        self.parse_command_with_observation(input, None)
+    }
+
+    /// Parses slash-prefixed player input using the current observation as context.
+    pub fn parse_command_with_observation(
+        &self,
+        input: &str,
+        observation: Option<&JsonObservation>,
+    ) -> Result<SemanticCommand, SlashParseError> {
         let trimmed = input.trim();
         if trimmed.is_empty() {
             return Err(SlashParseError::UnknownCommand);
@@ -152,9 +161,14 @@ impl Chrome {
                 })
             }
             "read" => {
-                let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+                let target = match tokens.next() {
+                    Some(target) => self.resolve_entity_target(target),
+                    None => self
+                        .resolve_unique_read_target(observation)
+                        .ok_or(SlashParseError::MissingArgument)?,
+                };
                 Ok(SemanticCommand::Read {
-                    target: EntityRef::new(self.resolve_entity_target(target)),
+                    target: EntityRef::new(target),
                 })
             }
             "agree" => {
@@ -215,6 +229,23 @@ impl Chrome {
             .get(&lower)
             .cloned()
             .unwrap_or_else(|| token.to_owned())
+    }
+
+    fn resolve_unique_read_target(&self, observation: Option<&JsonObservation>) -> Option<String> {
+        let observation = observation?;
+        let mut read_targets =
+            observation
+                .available_commands
+                .iter()
+                .filter_map(|command| match command {
+                    SemanticCommand::Read { target } => Some(target.id.as_str()),
+                    _ => None,
+                });
+        let first = read_targets.next()?;
+        if read_targets.next().is_some() {
+            return None;
+        }
+        Some(first.to_owned())
     }
 }
 
@@ -743,7 +774,11 @@ fn push_target_commands<'a>(
         .filter_map(|command| target_for(command).map(|target| format!("/{verb} {target}")))
         .collect::<Vec<_>>();
     if !commands.is_empty() {
-        parts.push(format!("{verb}: {}", commands.join(", ")));
+        if verb == "read" && commands.len() == 1 {
+            parts.push(format!("{verb}: /read"));
+        } else {
+            parts.push(format!("{verb}: {}", commands.join(", ")));
+        }
     }
 }
 
@@ -884,7 +919,8 @@ mod tests {
         });
 
         assert!(rendered.contains("/inspect cyber_scroll_board"));
-        assert!(rendered.contains("/read cyber_scroll_board"));
+        assert!(rendered.contains("read: /read"));
+        assert!(!rendered.contains("/read cyber_scroll_board"));
         assert!(!rendered.contains("interact: bulletin board"));
     }
 
@@ -952,10 +988,40 @@ mod tests {
             events: Vec::new(),
         });
 
-        assert!(rendered.contains("/read cyber_scroll_board"));
+        assert!(rendered.contains("read: /read"));
         assert!(rendered.contains("/agree I agree to enter Hinemos"));
         assert!(!rendered.contains("/map"));
         assert!(!rendered.contains("/history"));
+    }
+
+    #[test]
+    fn slash_parser_accepts_read_without_argument_when_single_target_available() {
+        let chrome = Chrome::with_aliases(HashMap::new());
+        let observation = JsonObservation {
+            player_id: "local_player".to_owned(),
+            view_id: "arrival_street".to_owned(),
+            title: "Island Harbor Crossing".to_owned(),
+            ascii_art: Vec::new(),
+            description: "A crossing.".to_owned(),
+            exits: Vec::new(),
+            entities: Vec::new(),
+            online_users: Vec::new(),
+            available_commands: vec![SemanticCommand::Read {
+                target: EntityRef::new("cyber_scroll_board"),
+            }],
+            events: Vec::new(),
+        };
+
+        let command = chrome
+            .parse_command_with_observation("/read", Some(&observation))
+            .expect("read parses with implicit target");
+
+        assert_eq!(
+            command,
+            SemanticCommand::Read {
+                target: EntityRef::new("cyber_scroll_board"),
+            }
+        );
     }
 
     #[test]

@@ -180,8 +180,8 @@ fn run_play(play: PlayArgs) -> Result<()> {
     let chrome = Chrome::with_world(&world);
     let runtime = GameRuntime::new(world);
 
-    let initial = runtime.observe_json(LOCAL_PLAYER_ID, Vec::new())?;
-    print_observation(&initial, play.format)?;
+    let mut current = runtime.observe_json(LOCAL_PLAYER_ID, Vec::new())?;
+    print_observation(&current, play.format)?;
 
     let stdin = io::stdin();
     loop {
@@ -198,7 +198,7 @@ fn run_play(play: PlayArgs) -> Result<()> {
             break;
         }
 
-        let command = match chrome.parse_command(&input) {
+        let command = match chrome.parse_command_with_observation(&input, Some(&current)) {
             Ok(command) => command,
             Err(error) => {
                 eprintln!("{error}");
@@ -207,8 +207,8 @@ fn run_play(play: PlayArgs) -> Result<()> {
         };
 
         let should_quit = matches!(command, SemanticCommand::Quit);
-        let observation = runtime.execute(LOCAL_PLAYER_ID, &command)?;
-        print_observation(&observation, play.format)?;
+        current = runtime.execute(LOCAL_PLAYER_ID, &command)?;
+        print_observation(&current, play.format)?;
 
         if should_quit {
             break;

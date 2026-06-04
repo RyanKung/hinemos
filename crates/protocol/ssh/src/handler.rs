@@ -202,7 +202,16 @@ impl ConnectionHandler {
             return Ok(());
         }
 
-        let command = match runtime_state::parse_command(chrome, line) {
+        let current_observation = match self.shared.runtime.observe_json(&identity.player_id).await
+        {
+            Ok(observation) => observation,
+            Err(error) => {
+                send_command_error(session, channel, error.into(), prompt)?;
+                return Ok(());
+            }
+        };
+
+        let command = match runtime_state::parse_command(chrome, Some(&current_observation), line) {
             Ok(command) => command,
             Err(error) => {
                 if matches!(error, SlashParseError::UnknownCommand)
