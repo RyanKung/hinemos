@@ -5,7 +5,7 @@
         name: "Blackstone izakaya front",
         description: "Black basalt stones frame a low wooden izakaya doorway. An ink-dark noren moves in the salt wind, warm lantern light leaks through the slats, and the threshold feels older than the sign.",
         aliases: ["izakaya", "tavern", "inn", "blackstone", "door", "noren"],
-        actions: [inspect, read],
+        actions: [inspect],
         collection: Some((
             kind: "bulletinBoard",
             items: [

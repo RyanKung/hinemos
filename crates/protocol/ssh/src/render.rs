@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use hinemos_core::{JsonObservation, SemanticCommand};
-use hinemos_runtime::{Chrome, render_text_events, render_text_observation};
+use hinemos_runtime::{Chrome, render_text_events, render_text_observation_with_width};
 use hinemos_storage::{
     PgStorage, StoredInboxItem, StoredOperatorCommand, StoredParcel, StoredPaymentRequest,
     StoredWorldMessage, TEST_CURRENCY,
@@ -18,13 +18,19 @@ pub(crate) fn send_text_observation(
     session: &mut Session,
     channel: ChannelId,
     observation: &hinemos_core::JsonObservation,
+    terminal_cols: Option<usize>,
 ) -> Result<()> {
     session.data(
         channel,
-        render_text_observation(observation)
+        render_text_observation_with_width(observation, terminal_cols)
             .replace('\n', "\r\n")
             .into_bytes(),
     )?;
+    Ok(())
+}
+
+pub(crate) fn clear_terminal(session: &mut Session, channel: ChannelId) -> Result<()> {
+    session.data(channel, b"\x1b[2J\x1b[H".to_vec())?;
     Ok(())
 }
 
@@ -392,13 +398,28 @@ pub(crate) const fn default_build_commands() -> &'static str {
     "/hello preview=hello price=25; /status"
 }
 
+pub(crate) const ANSI_RESET: &str = "\x1b[0m";
+pub(crate) const ANSI_RED: &str = "\x1b[1;31m";
+pub(crate) const ANSI_GREEN: &str = "\x1b[1;32m";
+pub(crate) const ANSI_YELLOW: &str = "\x1b[1;33m";
+pub(crate) const ANSI_MAGENTA: &str = "\x1b[1;35m";
+pub(crate) const ANSI_CYAN: &str = "\x1b[1;36m";
+pub(crate) const ANSI_DIM: &str = "\x1b[2m";
+
+pub(crate) fn styled_block(text: &str, ansi_style: &str) -> String {
+    format!("{ansi_style}{text}{ANSI_RESET}")
+}
+
 pub(crate) fn non_empty(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     if value.is_empty() { None } else { Some(value) }
 }
 
 pub(crate) fn send_prompt(session: &mut Session, channel: ChannelId) -> Result<()> {
-    session.data(channel, Chrome::PROMPT.as_bytes().to_vec())?;
+    session.data(
+        channel,
+        styled_block(Chrome::PROMPT, ANSI_GREEN).into_bytes(),
+    )?;
     Ok(())
 }
 
@@ -410,7 +431,11 @@ pub(crate) fn send_command_error(
 ) -> Result<()> {
     session.data(
         channel,
-        format!("{}\r\n", world_error_feedback(&error.to_string())).into_bytes(),
+        format!(
+            "{}\r\n",
+            styled_block(&world_error_feedback(&error.to_string()), ANSI_RED)
+        )
+        .into_bytes(),
     )?;
     if prompt {
         send_prompt(session, channel)?;
@@ -474,7 +499,8 @@ pub(crate) fn send_stdin_closed_guidance(
     };
     session.data(
         channel,
-        format!(
+        styled_block(
+            &format!(
             "\r\nConnection note: {status}\r\n\
              This SSH channel cannot receive more commands after client stdin is closed, so Hinemos is closing it cleanly.\r\n\
              Your player state is saved by SSH identity. Reconnect to continue from the latest observation.\r\n\
@@ -485,6 +511,8 @@ pub(crate) fn send_stdin_closed_guidance(
              4. When this channel closes, do not wait on it. Reconnect and repeat from step 1.\r\n\
              Example batch:\r\n\
                printf '/look\\n/go east\\n/history\\n/quit\\n' | ssh -T -p <port> <user>@<host>\r\n"
+        ),
+            ANSI_DIM,
         )
         .into_bytes(),
     )?;
@@ -500,7 +528,10 @@ pub(crate) fn send_message_list(
 ) -> Result<()> {
     session.data(channel, format!("\r\n{title}\r\n").into_bytes())?;
     if messages.is_empty() {
-        session.data(channel, format!("{empty}\r\n").into_bytes())?;
+        session.data(
+            channel,
+            styled_block(&format!("{empty}\r\n"), ANSI_DIM).into_bytes(),
+        )?;
         return Ok(());
     }
 
@@ -512,9 +543,12 @@ pub(crate) fn send_message_list(
             .unwrap_or_default();
         session.data(
             channel,
-            format!(
-                "- [{}] {} from {}{}: {}\r\n",
-                message.created_at, message.kind, message.sender_user, expiry, message.body
+            styled_block(
+                &format!(
+                    "- [{}] {} from {}{}: {}\r\n",
+                    message.created_at, message.kind, message.sender_user, expiry, message.body
+                ),
+                ANSI_DIM,
             )
             .into_bytes(),
         )?;

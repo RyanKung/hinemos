@@ -12,5 +12,6 @@ target
 .env.production
 .env.prod
 .claude/
+.playwright-cli/
 web/landing/dist
 .DS_Store

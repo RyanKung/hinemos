@@ -5,7 +5,10 @@
 mod client_shell;
 mod reload;
 
-pub use client_shell::{Chrome, SlashParseError, render_text_events, render_text_observation};
+pub use client_shell::{
+    Chrome, SlashParseError, render_text_events, render_text_observation,
+    render_text_observation_with_width,
+};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -258,11 +261,6 @@ impl GameRuntime {
             SemanticCommand::Settings { .. } => {
                 vec![message(
                     "Settings are available in SSH sessions.".to_owned(),
-                )]
-            }
-            SemanticCommand::AddKey { .. } => {
-                vec![message(
-                    "SSH key binding is available in SSH sessions.".to_owned(),
                 )]
             }
             SemanticCommand::Inbox { .. } => {
@@ -535,9 +533,6 @@ fn available_commands(
         SemanticCommand::Who,
         SemanticCommand::Settings {
             action: hinemos_core::SettingsAction::Show,
-        },
-        SemanticCommand::AddKey {
-            public_key: "<ssh-ed25519-public-key>".to_owned(),
         },
         SemanticCommand::Inbox {
             action: hinemos_core::InboxAction::List {

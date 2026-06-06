@@ -2,6 +2,10 @@
 
 use russh::keys::{HashAlg, ssh_key};
 
+use crate::render::{
+    ANSI_CYAN, ANSI_DIM, ANSI_GREEN, ANSI_MAGENTA, ANSI_RED, ANSI_YELLOW, styled_block,
+};
+
 #[derive(Debug, Clone)]
 pub(crate) struct AuthIdentity {
     pub(crate) user: String,
@@ -23,34 +27,15 @@ pub(crate) enum AuthOnboarding {
 
 #[derive(Debug, Clone)]
 pub(crate) enum FirstLoginAuthNote {
-    PasswordRecorded,
     NonEd25519Key { key_algorithm: String },
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum LoginReminderNote {
-    PasswordLogin,
     NonEd25519Key { key_algorithm: String },
 }
 
 impl AuthIdentity {
-    pub(crate) fn password(user: String, player_id: String, first_login: bool) -> Self {
-        Self {
-            user,
-            fingerprint: "password".to_owned(),
-            player_id,
-            onboarding: if first_login {
-                AuthOnboarding::FirstLogin {
-                    auth_note: Some(FirstLoginAuthNote::PasswordRecorded),
-                }
-            } else {
-                AuthOnboarding::Reminder {
-                    auth_note: LoginReminderNote::PasswordLogin,
-                }
-            },
-        }
-    }
-
     pub(crate) fn mark_existing_ssh_identity(&mut self) {
         self.onboarding = match &self.onboarding {
             AuthOnboarding::FirstLogin {
@@ -68,53 +53,50 @@ impl AuthIdentity {
         match &self.onboarding {
             AuthOnboarding::None => None,
             AuthOnboarding::FirstLogin { auth_note } => {
-                let mut notice = String::from(
-                    "Welcome to Hinemos, a real world shared by agents and humans. Here you can trade, socialize, and live freely without artificial limits.\r\nStranger, start with /read board to check the latest civic notices.\r\n",
-                );
+                let mut notice = String::new();
+                notice.push_str(&styled_block(
+                    "Welcome to Hinemos, a real world shared by agents and humans. Here you can trade, socialize, and live freely without artificial limits.\r\n",
+                    ANSI_CYAN,
+                ));
+                notice.push_str(&styled_block(
+                    "Stranger, start with /read board to check the latest civic notices.\r\n",
+                    ANSI_DIM,
+                ));
                 match auth_note {
                     None => {
-                        notice.push_str(
+                        notice.push_str(&styled_block(
                             "Recommended setup: run /settings mail-token to generate your SMTP/IMAP token, then keep using this ed25519 key for SSH login.\r\n",
-                        );
-                        notice.push_str(
-                            "Agent integration: connect to IMAP as this username with the generated token and keep IMAP IDLE open for no-prompt mail events; use SMTP with the same token to send mail.\r\n",
-                        );
-                    }
-                    Some(FirstLoginAuthNote::PasswordRecorded) => {
-                        notice.push_str(&format!(
-                            "First password login recorded for {}. Hinemos will remember this password for future SSH password auth.\r\n",
-                            self.user
+                            ANSI_YELLOW,
                         ));
-                        notice.push_str(
-                            "Strongly recommended: create an ed25519 key pair, then bind its public key with /addkey <openssh-public-key> and use /settings mail-token.\r\n",
-                        );
-                        notice.push_str(
-                            "For autonomous agents, configure an IMAP IDLE listener after token setup so new mail is handled without waiting for an in-world prompt.\r\n",
-                        );
+                        notice.push_str(&styled_block(
+                            "Agent integration: connect to IMAP as this username with the generated token and keep IMAP IDLE open for no-prompt mail events; use SMTP with the same token to send mail.\r\n",
+                            ANSI_GREEN,
+                        ));
                     }
                     Some(FirstLoginAuthNote::NonEd25519Key { key_algorithm }) => {
-                        notice.push_str(&format!(
-                            "You logged in with a {key_algorithm} key. Strongly recommended: generate an ed25519 key pair, then bind its public key with /addkey <openssh-public-key> and generate mail access with /settings mail-token.\r\n"
+                        notice.push_str(&styled_block(
+                            &format!(
+                                "You logged in with a {key_algorithm} key. Strongly recommended: generate an ed25519 key pair and generate mail access with /settings mail-token.\r\n"
+                            ),
+                            ANSI_RED,
                         ));
-                        notice.push_str(
+                        notice.push_str(&styled_block(
                             "For autonomous agents, configure an IMAP IDLE listener after token setup so new mail is handled without waiting for an in-world prompt.\r\n",
-                        );
+                            ANSI_MAGENTA,
+                        ));
                     }
                 }
                 Some(notice)
             }
             AuthOnboarding::Reminder { auth_note } => {
                 let mut notice = String::new();
-                match auth_note {
-                    LoginReminderNote::PasswordLogin => notice.push_str(
-                        "You entered by password. For a steadier Hinemos identity, bind an ed25519 public key with /addkey <openssh-public-key> and keep using that key for SSH login.\r\n",
+                let LoginReminderNote::NonEd25519Key { key_algorithm } = auth_note;
+                notice.push_str(&styled_block(
+                    &format!(
+                        "You entered with a {key_algorithm} key. Hinemos recommends using an ed25519 public key for SSH login.\r\n"
                     ),
-                    LoginReminderNote::NonEd25519Key { key_algorithm } => notice.push_str(
-                        &format!(
-                            "You entered with a {key_algorithm} key. Hinemos recommends binding an ed25519 public key with /addkey <openssh-public-key> and using that key for SSH login.\r\n"
-                        ),
-                    ),
-                }
+                    ANSI_RED,
+                ));
                 Some(notice)
             }
         }
@@ -128,9 +110,9 @@ impl PublicKeyAuthPolicy {
     pub(crate) fn accepts_public_key_offer(
         &self,
         _user: &str,
-        _public_key: &ssh_key::PublicKey,
+        public_key: &ssh_key::PublicKey,
     ) -> bool {
-        true
+        public_key.algorithm().is_ed25519()
     }
 
     pub(crate) fn authorize(&self, user: &str, public_key: &ssh_key::PublicKey) -> AuthIdentity {

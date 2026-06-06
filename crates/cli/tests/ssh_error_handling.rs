@@ -337,7 +337,12 @@ fn read_and_inspect_return_results_without_repainting_room() {
         host,
         port,
         &user,
-        ["/read cyber_scroll_board", "/inspect tavern_front", "/quit"],
+        [
+            "/read cyber_scroll_board",
+            "/agree",
+            "/inspect tavern_front",
+            "/quit",
+        ],
     );
 
     assert_contains(
@@ -352,28 +357,32 @@ fn read_and_inspect_return_results_without_repainting_room() {
     );
     assert_contains(
         &output,
-        "Password login is available for first contact",
-        "arrival skill explains password login as a first-contact path",
+        "Recommended setup: run /settings mail-token",
+        "arrival skill explains the recommended key setup path",
     );
     assert_contains(
         &output,
-        "future cryptographic compatibility",
-        "arrival skill explains why ed25519 is recommended",
+        "Agent integration: connect to IMAP as this username",
+        "arrival skill explains the agent mail path",
     );
     assert_contains(
         &output,
         "Blackstone izakaya front:",
         "inspect command returns object detail",
     );
-    assert_eq!(
-        output.matches("Island Harbor Crossing").count(),
-        1,
-        "non-navigation actions should not repaint the room"
+    let inspect_output = output
+        .rsplit_once("> /inspect tavern_front")
+        .map(|(_, tail)| tail)
+        .unwrap_or(&output);
+    assert_not_contains(
+        inspect_output,
+        "Island Harbor Crossing",
+        "inspect output should not repaint the room",
     );
-    assert_eq!(
-        output.matches("ISLAND HARBOR CROSSING").count(),
-        0,
-        "compact room rendering should not include the banner title"
+    assert_not_contains(
+        inspect_output,
+        "ISLAND HARBOR CROSSING",
+        "inspect output should not render the banner title",
     );
 
     terminate(&mut server);
@@ -420,7 +429,7 @@ fn help_output_is_grouped_across_lines() {
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
-fn password_auth_works_without_local_ssh_keys() {
+fn password_auth_is_rejected_for_new_users() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -438,24 +447,31 @@ fn password_auth_works_without_local_ssh_keys() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let output = run_ssh_password_batch_with_home(
+    let output = run_ssh_password_batch_raw_with_home(
         &temp,
         host,
         port,
         &user,
         "first-use-password",
-        &isolated_home,
+        Some(&isolated_home),
         ["/quit"],
     );
+    assert!(
+        !output.status.success(),
+        "password login should be rejected for new users"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined = format!("{stderr}\n{stdout}");
     assert_contains(
-        &output,
-        "First password login recorded",
-        "password login works when the client has no local SSH keys",
+        &combined,
+        "Welcome to hinemos.ai.",
+        "password rejection should still show the banner",
     );
     assert_contains(
-        &output,
-        "Welcome to Hinemos",
-        "no-local-key first contact still reaches the world",
+        &combined,
+        "Only ed25519 SSH keys are accepted.",
+        "password rejection should explain the new login policy",
     );
 
     terminate(&mut server);
@@ -464,75 +480,45 @@ fn password_auth_works_without_local_ssh_keys() {
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
-fn password_auth_records_first_password_and_reuses_identity() {
+fn authentication_banner_explains_ed25519_only_login() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("hinemos-password-auth");
+    let temp = TestTempDir::new("hinemos-auth-banner");
     let host = "127.0.0.1";
     let port = free_local_port();
-    let user = format!("password_probe_{}_{}", std::process::id(), epoch_seconds());
+    let user = format!("banner_probe_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
 
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let password = "first-use-password";
-    let first_output = run_ssh_password_batch(&temp, host, port, &user, password, ["/quit"]);
+    let output =
+        run_ssh_password_batch_raw(&temp, host, port, &user, "first-use-password", ["/quit"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined = format!("{stderr}\n{stdout}");
     assert_contains(
-        &first_output,
-        "Welcome to Hinemos",
-        "first password login shows the welcome",
-    );
-    assert_contains(
-        &first_output,
-        "/read board",
-        "first password login points the user to the board",
+        &combined,
+        "Welcome to hinemos.ai.",
+        "authentication banner should be shown before login completes",
     );
     assert_contains(
-        &first_output,
-        "First password login recorded",
-        "first password login creates the stored password identity",
+        &combined,
+        "Hinemos is a persistent SSH world for humans and agents.",
+        "banner should include a short project description",
     );
     assert_contains(
-        &first_output,
-        "/read board",
-        "password onboarding points to the board",
-    );
-    assert_not_contains(
-        &first_output,
-        "ssh-keygen -t ed25519",
-        "password onboarding should not inline key registration commands",
-    );
-
-    let second_output = run_ssh_password_batch(&temp, host, port, &user, password, ["/quit"]);
-    assert_not_contains(
-        &second_output,
-        "First password login recorded",
-        "subsequent password login should not repeat first-login onboarding",
-    );
-    assert_not_contains(
-        &second_output,
-        "Welcome to Hinemos",
-        "subsequent password login should not repeat the welcome",
+        &combined,
+        "Only ed25519 SSH keys are accepted.",
+        "banner should clearly state the login policy",
     );
     assert_contains(
-        &second_output,
-        "You entered by password",
-        "password login should remind the user every time",
-    );
-    assert_contains(
-        &second_output,
-        "/addkey <openssh-public-key>",
-        "password login should point to ed25519 key binding",
-    );
-
-    let failed = run_ssh_password_batch_raw(&temp, host, port, &user, "wrong-password", ["/quit"]);
-    assert!(
-        !failed.status.success(),
-        "wrong remembered password should not authenticate"
+        &combined,
+        "ssh-keygen -t ed25519 -C \"<user>@hinemos\"",
+        "banner should explain how to create an ed25519 key",
     );
 
     terminate(&mut server);
@@ -540,71 +526,49 @@ fn password_auth_records_first_password_and_reuses_identity() {
 }
 
 #[test]
-#[ignore = "requires local Postgres, SSH client, and ssh-keygen"]
-fn password_user_can_add_ed25519_key_and_blocks_unbound_keys() {
+#[ignore = "requires local Postgres and SSH client"]
+fn ed25519_auth_only_login_works() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
     assert_command_exists("ssh");
     assert_command_exists("ssh-keygen");
 
-    let temp = TestTempDir::new("hinemos-addkey");
-    let bound_key = temp.path.join("bound_ed25519");
-    let unbound_key = temp.path.join("unbound_ed25519");
-    for key in [&bound_key, &unbound_key] {
-        let keygen = Command::new("ssh-keygen")
-            .args(["-q", "-t", "ed25519", "-N", "", "-f"])
-            .arg(key)
-            .output()
-            .expect("spawn ssh-keygen");
-        assert!(
-            keygen.status.success(),
-            "ssh-keygen failed: {}",
-            String::from_utf8_lossy(&keygen.stderr)
-        );
-    }
-    let public_key = fs::read_to_string(bound_key.with_extension("pub")).expect("read public key");
-
+    let temp = TestTempDir::new("hinemos-ed25519-auth");
     let host = "127.0.0.1";
     let port = free_local_port();
-    let user = format!("addkey_probe_{}_{}", std::process::id(), epoch_seconds());
+    let key_path = temp.path.join("id_ed25519");
+    let keygen = Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&key_path)
+        .output()
+        .expect("spawn ssh-keygen");
+    assert!(
+        keygen.status.success(),
+        "ssh-keygen failed: {}",
+        String::from_utf8_lossy(&keygen.stderr)
+    );
+    let user = format!("ed25519_probe_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
 
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let password = "first-use-password";
-    let addkey_command = format!("/addkey {}", public_key.trim());
-    let addkey_output = run_ssh_password_batch(
-        &temp,
-        host,
-        port,
-        &user,
-        password,
-        [&addkey_command, "/quit"],
+    let first_output = run_ssh_key_batch(&temp, host, port, &user, &key_path, ["/quit"]);
+    assert_contains(
+        &first_output,
+        "Welcome to Hinemos",
+        "first ed25519 login shows the welcome",
     );
     assert_contains(
-        &addkey_output,
-        "SSH ed25519 public key bound",
-        "/addkey should bind the ed25519 key",
+        &first_output,
+        "/read board",
+        "first ed25519 login points the user to the board",
     );
-
-    let key_output = run_ssh_key_batch(&temp, host, port, &user, &bound_key, ["/quit"]);
     assert_contains(
-        &key_output,
-        &format!("Authenticated as {user}"),
-        "bound key should authenticate as the same username",
-    );
-    assert_not_contains(
-        &key_output,
-        "First password login recorded",
-        "bound key login should not be treated as password auth",
-    );
-
-    let unbound = run_ssh_key_batch_raw(&temp, host, port, &user, &unbound_key, ["/quit"]);
-    assert!(
-        !unbound.status.success(),
-        "unbound key must not authenticate as an existing username"
+        &first_output,
+        "shared by agents and humans",
+        "ed25519 login should reach the world",
     );
 
     terminate(&mut server);
@@ -686,7 +650,7 @@ fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
 
 #[test]
 #[ignore = "requires local Postgres, SSH client, and ssh-keygen"]
-fn first_login_with_only_rsa_key_recommends_ed25519() {
+fn rsa_key_is_rejected_before_login() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -714,102 +678,32 @@ fn first_login_with_only_rsa_key_recommends_ed25519() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let first_output = run_ssh_key_batch(&temp, host, port, &user, &rsa_key, ["/quit"]);
+    let output = run_ssh_key_batch_raw(&temp, host, port, &user, &rsa_key, ["/quit"]);
+    assert!(
+        !output.status.success(),
+        "RSA login should be rejected before a shell opens:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert_contains(
-        &first_output,
+        &stderr,
+        "Welcome to hinemos.ai.",
+        "RSA rejection should still show the login banner",
+    );
+    assert_contains(
+        &stderr,
+        "RSA keys are not accepted.",
+        "RSA rejection should explain the reason",
+    );
+    assert_not_contains(
+        &String::from_utf8_lossy(&output.stdout),
         "Welcome to Hinemos",
-        "first RSA login shows the welcome",
-    );
-    assert_contains(
-        &first_output,
-        "/read board",
-        "first RSA login points the user to the board",
-    );
-    assert_contains(
-        &first_output,
-        "You logged in with a",
-        "first RSA login should explain the key type",
-    );
-    assert_contains(
-        &first_output,
-        "/read board",
-        "first RSA login should point to the board",
-    );
-    assert_not_contains(
-        &first_output,
-        "ssh-keygen -t ed25519",
-        "first RSA login should not inline key registration commands",
-    );
-
-    let second_output = run_ssh_key_batch(&temp, host, port, &user, &rsa_key, ["/quit"]);
-    assert_not_contains(
-        &second_output,
-        "/read board",
-        "existing RSA identity should not repeat onboarding every login",
-    );
-    assert_not_contains(
-        &second_output,
-        "Welcome to Hinemos",
-        "existing RSA identity should not repeat the welcome",
-    );
-    assert_contains(
-        &second_output,
-        "You entered with a",
-        "existing RSA identity should repeat the key-type reminder",
-    );
-    assert_contains(
-        &second_output,
-        "/addkey <openssh-public-key>",
-        "existing RSA identity should point to ed25519 key binding",
+        "RSA rejection should not reach the world shell",
     );
 
     terminate(&mut server);
     temp.remove_on_drop();
-}
-
-fn run_ssh_password_batch<const N: usize>(
-    temp: &TestTempDir,
-    host: &str,
-    port: u16,
-    user: &str,
-    password: &str,
-    commands: [&str; N],
-) -> String {
-    let output = run_ssh_password_batch_raw(temp, host, port, user, password, commands);
-    ssh_output_stdout(output, user, "password ssh batch")
-}
-
-fn run_ssh_password_batch_with_home<const N: usize>(
-    temp: &TestTempDir,
-    host: &str,
-    port: u16,
-    user: &str,
-    password: &str,
-    home: &std::path::Path,
-    commands: [&str; N],
-) -> String {
-    let output = run_ssh_password_batch_raw_with_home(
-        temp,
-        host,
-        port,
-        user,
-        password,
-        Some(home),
-        commands,
-    );
-    ssh_output_stdout(output, user, "password ssh batch")
-}
-
-fn ssh_output_stdout(output: std::process::Output, user: &str, label: &str) -> String {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "{label} failed for {user}: {}\nstdout:\n{}",
-        stderr,
-        stdout
-    );
-    stdout.into_owned()
 }
 
 fn run_ssh_password_batch_raw<const N: usize>(

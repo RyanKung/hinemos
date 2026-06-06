@@ -22,6 +22,18 @@ impl Chrome {
     /// ANSI style for the local player marker.
     pub const ANSI_PLAYER_MARKER: &'static str = "\x1b[1;36m";
 
+    /// ANSI style for rendered room titles and important headings.
+    pub const ANSI_TITLE: &'static str = "\x1b[1;36m";
+
+    /// ANSI style for informational event lines.
+    pub const ANSI_EVENT_MESSAGE: &'static str = "\x1b[2m";
+
+    /// ANSI style for movement event lines.
+    pub const ANSI_EVENT_MOVE: &'static str = "\x1b[1;32m";
+
+    /// ANSI style for the available command summary.
+    pub const ANSI_AVAILABLE: &'static str = "\x1b[1;35m";
+
     /// ANSI style for room/place markers in ASCII maps (`[...]`).
     pub const ANSI_PLACE_MARKER: &'static str = "\x1b[1;33m";
 
@@ -54,7 +66,7 @@ impl Chrome {
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
-        Settings: /settings, /settings mail-token, /settings password <new-password>, /addkey <ssh-ed25519-public-key>\n\
+        Settings: /settings, /settings mail-token\n\
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
@@ -210,10 +222,6 @@ impl Chrome {
                 action: parse_pay_action(trimmed, &mut tokens)?,
             }),
             "settings" => parse_settings_command(trimmed, &mut tokens),
-            "addkey" => {
-                let public_key = rest_after_command(trimmed, rest, cmd.as_str())?;
-                Ok(SemanticCommand::AddKey { public_key })
-            }
             "land" => parse_land_command(&mut tokens),
             "build" => parse_build_command(trimmed, &mut tokens),
             "shop" => parse_shop_command(trimmed, &mut tokens),
@@ -359,7 +367,7 @@ fn parse_pay_action<'a>(
 }
 
 fn parse_settings_command<'a>(
-    trimmed: &str,
+    _trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<SemanticCommand, SlashParseError> {
     let Some(action) = tokens.next() else {
@@ -373,14 +381,6 @@ fn parse_settings_command<'a>(
                 return Err(SlashParseError::UnexpectedArgument);
             }
             SettingsAction::MailToken
-        }
-        "password" | "pass" => {
-            let password = rest_after_token(trimmed, action)?;
-            SettingsAction::SetPassword { password }
-        }
-        "key" => {
-            let public_key = rest_after_token(trimmed, action)?;
-            SettingsAction::SetKey { public_key }
         }
         _ => {
             return Err(SlashParseError::UnknownCommand);
@@ -524,10 +524,19 @@ fn parse_direction(token: &str) -> Option<Direction> {
 /// Renders a structured observation for text clients using line-feed separators.
 #[must_use]
 pub fn render_text_observation(observation: &JsonObservation) -> String {
+    render_text_observation_with_width(observation, None)
+}
+
+/// Renders a structured observation for text clients using line-feed separators.
+#[must_use]
+pub fn render_text_observation_with_width(
+    observation: &JsonObservation,
+    terminal_cols: Option<usize>,
+) -> String {
     let mut output = String::new();
     output.push_str(&render_text_events(observation));
     output.push('\n');
-    output.push_str(&observation.title);
+    output.push_str(&styled_block(&observation.title, Chrome::ANSI_TITLE));
     output.push('\n');
     if !observation.ascii_art.is_empty() {
         output.push('\n');
@@ -537,9 +546,15 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
         }
     }
     output.push('\n');
-    output.push_str(&observation.description);
+    output.push_str(&wrap_text(
+        &observation.description,
+        terminal_cols.unwrap_or(80),
+    ));
     output.push('\n');
-    output.push_str(Chrome::MAP_LEGEND);
+    output.push_str(&styled_block(
+        Chrome::MAP_LEGEND,
+        Chrome::ANSI_EVENT_MESSAGE,
+    ));
     output.push('\n');
 
     if !observation.exits.is_empty() {
@@ -549,7 +564,10 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
             .map(|exit| exit.direction.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        output.push_str(&format!("{}: {exits}\n", Chrome::LABEL_EXITS));
+        output.push_str(&styled_block(
+            &format!("{}: {exits}\n", Chrome::LABEL_EXITS),
+            Chrome::ANSI_EVENT_MOVE,
+        ));
     }
 
     if !observation.entities.is_empty() {
@@ -559,18 +577,24 @@ pub fn render_text_observation(observation: &JsonObservation) -> String {
             .map(|entity| entity.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        output.push_str(&format!("{}: {entities}\n", Chrome::LABEL_VISIBLE));
+        output.push_str(&styled_block(
+            &format!("{}: {entities}\n", Chrome::LABEL_VISIBLE),
+            Chrome::ANSI_PLAYER_MARKER,
+        ));
     }
 
     if !observation.online_users.is_empty() {
-        output.push_str(&format!(
-            "Online here: {}\n",
-            observation.online_users.join(", ")
+        output.push_str(&styled_block(
+            &format!("Online here: {}\n", observation.online_users.join(", ")),
+            Chrome::ANSI_ITEM_MARKER,
         ));
     }
 
     if !observation.available_commands.is_empty() {
-        output.push_str(&render_available_summary(observation));
+        output.push_str(&styled_block(
+            &render_available_summary(observation),
+            Chrome::ANSI_AVAILABLE,
+        ));
     }
 
     output
@@ -583,11 +607,14 @@ pub fn render_text_events(observation: &JsonObservation) -> String {
     for event in &observation.events {
         match event {
             ObservationEvent::Message { text } => {
-                output.push_str(text);
+                output.push_str(&styled_block(text, Chrome::ANSI_EVENT_MESSAGE));
                 output.push('\n');
             }
             ObservationEvent::Move { direction, .. } => {
-                output.push_str(&format!("{} {}\n", Chrome::MOVE_VERB, direction.as_str()));
+                output.push_str(&styled_block(
+                    &format!("{} {}\n", Chrome::MOVE_VERB, direction.as_str()),
+                    Chrome::ANSI_EVENT_MOVE,
+                ));
             }
         }
     }
@@ -617,6 +644,40 @@ fn compact_ascii_art(observation: &JsonObservation) -> Vec<&str> {
         lines.pop();
     }
     lines
+}
+
+fn wrap_text(text: &str, terminal_cols: usize) -> String {
+    let width = terminal_cols.max(32);
+    let mut wrapped = Vec::new();
+
+    for paragraph in text.split('\n') {
+        if paragraph.trim().is_empty() {
+            wrapped.push(String::new());
+            continue;
+        }
+
+        let mut line = String::new();
+        for word in paragraph.split_whitespace() {
+            if line.is_empty() {
+                line.push_str(word);
+                continue;
+            }
+
+            if line.len() + 1 + word.len() > width {
+                wrapped.push(line);
+                line = word.to_owned();
+            } else {
+                line.push(' ');
+                line.push_str(word);
+            }
+        }
+
+        if !line.is_empty() {
+            wrapped.push(line);
+        }
+    }
+
+    wrapped.join("\n")
 }
 
 fn render_available_summary(observation: &JsonObservation) -> String {
@@ -662,13 +723,6 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         .any(|command| matches!(command, SemanticCommand::Settings { .. }))
     {
         parts.push("/settings".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::AddKey { .. }))
-    {
-        parts.push("/addkey <ssh-ed25519-public-key>".to_owned());
     }
     if observation
         .available_commands
@@ -828,6 +882,10 @@ fn style_literal(line: &str, literal: &str, ansi_style: &str) -> String {
 
 fn styled_marker(label: &str, ansi_style: &str) -> String {
     format!("{ansi_style}{label}{}", Chrome::ANSI_RESET)
+}
+
+fn styled_block(text: &str, ansi_style: &str) -> String {
+    format!("{ansi_style}{text}{}", Chrome::ANSI_RESET)
 }
 
 #[cfg(test)]
@@ -1110,27 +1168,6 @@ mod tests {
                 action: SettingsAction::MailToken
             }
         );
-        assert_eq!(
-            chrome
-                .parse_command("/settings password new secret")
-                .expect("password setting parses"),
-            SemanticCommand::Settings {
-                action: SettingsAction::SetPassword {
-                    password: "new secret".to_owned()
-                }
-            }
-        );
-        assert_eq!(
-            chrome
-                .parse_command("/settings key ssh-ed25519 AAAA test@example")
-                .expect("key setting parses"),
-            SemanticCommand::Settings {
-                action: SettingsAction::SetKey {
-                    public_key: "ssh-ed25519 AAAA test@example".to_owned()
-                }
-            }
-        );
-
         assert_eq!(
             chrome.parse_command("/settings mail-token extra"),
             Err(SlashParseError::UnexpectedArgument)

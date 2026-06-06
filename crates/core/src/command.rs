@@ -112,11 +112,6 @@ pub enum SemanticCommand {
         /// Settings action.
         action: SettingsAction,
     },
-    /// Bind an ed25519 SSH public key to the current account.
-    AddKey {
-        /// OpenSSH public key text.
-        public_key: String,
-    },
     /// Manage the durable inbox.
     Inbox {
         /// Inbox command action.
@@ -258,16 +253,6 @@ pub enum SettingsAction {
     Show,
     /// Generate or rotate the dedicated SMTP/IMAP mail auth token.
     MailToken,
-    /// Set the SSH password login secret for this account.
-    SetPassword {
-        /// New SSH password.
-        password: String,
-    },
-    /// Replace the SSH public key bound to this account.
-    SetKey {
-        /// OpenSSH public key text.
-        public_key: String,
-    },
 }
 
 /// Build sheet actions for an owned parcel.
