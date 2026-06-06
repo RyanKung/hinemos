@@ -30,13 +30,19 @@ impl server::Handler for ConnectionHandler {
         public_key: &ssh_key::PublicKey,
     ) -> Result<Auth, Self::Error> {
         let mut authorized = self.shared.auth_policy.authorize(user, public_key);
-        let identity = self
+        let Some(identity) = self
             .shared
             .storage
             .authenticate_ssh_identity(user, &authorized.fingerprint, &authorized.player_id)
-            .await?;
+            .await?
+        else {
+            return Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        };
         if !identity.created {
-            authorized.onboarding = AuthOnboarding::None;
+            authorized.mark_existing_ssh_identity();
         }
         authorized.user = identity.username;
         authorized.player_id = identity.player_id;

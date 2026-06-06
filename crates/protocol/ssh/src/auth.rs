@@ -16,11 +16,20 @@ pub(crate) enum AuthOnboarding {
     FirstLogin {
         auth_note: Option<FirstLoginAuthNote>,
     },
+    Reminder {
+        auth_note: LoginReminderNote,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum FirstLoginAuthNote {
     PasswordRecorded,
+    NonEd25519Key { key_algorithm: String },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum LoginReminderNote {
+    PasswordLogin,
     NonEd25519Key { key_algorithm: String },
 }
 
@@ -35,9 +44,24 @@ impl AuthIdentity {
                     auth_note: Some(FirstLoginAuthNote::PasswordRecorded),
                 }
             } else {
-                AuthOnboarding::None
+                AuthOnboarding::Reminder {
+                    auth_note: LoginReminderNote::PasswordLogin,
+                }
             },
         }
+    }
+
+    pub(crate) fn mark_existing_ssh_identity(&mut self) {
+        self.onboarding = match &self.onboarding {
+            AuthOnboarding::FirstLogin {
+                auth_note: Some(FirstLoginAuthNote::NonEd25519Key { key_algorithm }),
+            } => AuthOnboarding::Reminder {
+                auth_note: LoginReminderNote::NonEd25519Key {
+                    key_algorithm: key_algorithm.clone(),
+                },
+            },
+            _ => AuthOnboarding::None,
+        };
     }
 
     pub(crate) fn onboarding_notice(&self) -> Option<String> {
@@ -62,7 +86,7 @@ impl AuthIdentity {
                             self.user
                         ));
                         notice.push_str(
-                            "Strongly recommended: create an ed25519 key pair, log in with it, then use /settings key <openssh-public-key> and /settings mail-token.\r\n",
+                            "Strongly recommended: create an ed25519 key pair, then bind its public key with /addkey <openssh-public-key> and use /settings mail-token.\r\n",
                         );
                         notice.push_str(
                             "For autonomous agents, configure an IMAP IDLE listener after token setup so new mail is handled without waiting for an in-world prompt.\r\n",
@@ -70,12 +94,26 @@ impl AuthIdentity {
                     }
                     Some(FirstLoginAuthNote::NonEd25519Key { key_algorithm }) => {
                         notice.push_str(&format!(
-                            "You logged in with a {key_algorithm} key. Strongly recommended: generate an ed25519 key pair, then bind its public key with /settings key <openssh-public-key> and generate mail access with /settings mail-token.\r\n"
+                            "You logged in with a {key_algorithm} key. Strongly recommended: generate an ed25519 key pair, then bind its public key with /addkey <openssh-public-key> and generate mail access with /settings mail-token.\r\n"
                         ));
                         notice.push_str(
                             "For autonomous agents, configure an IMAP IDLE listener after token setup so new mail is handled without waiting for an in-world prompt.\r\n",
                         );
                     }
+                }
+                Some(notice)
+            }
+            AuthOnboarding::Reminder { auth_note } => {
+                let mut notice = String::new();
+                match auth_note {
+                    LoginReminderNote::PasswordLogin => notice.push_str(
+                        "You entered by password. For a steadier Hinemos identity, bind an ed25519 public key with /addkey <openssh-public-key> and keep using that key for SSH login.\r\n",
+                    ),
+                    LoginReminderNote::NonEd25519Key { key_algorithm } => notice.push_str(
+                        &format!(
+                            "You entered with a {key_algorithm} key. Hinemos recommends binding an ed25519 public key with /addkey <openssh-public-key> and using that key for SSH login.\r\n"
+                        ),
+                    ),
                 }
                 Some(notice)
             }

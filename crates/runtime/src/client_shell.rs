@@ -49,12 +49,12 @@ impl Chrome {
 
     /// Summary shown after the `/help` command.
     pub const HELP_SUMMARY: &'static str = "Commands:\n\
-        Admission: first read /read agreement, then type the exact /agree <phrase> shown there\n\
+        Admission: first read /read agreement, then type /agree\n\
         Movement: /look, /map, /go <dir>, /enter <parcel>, /inventory, /quit\n\
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
-        Settings: /settings, /settings mail-token, /settings password <new-password>, /settings key <openssh-public-key>\n\
+        Settings: /settings, /settings mail-token, /settings password <new-password>, /addkey <ssh-ed25519-public-key>\n\
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
@@ -172,7 +172,7 @@ impl Chrome {
                 })
             }
             "agree" => {
-                let phrase = rest_after_command(trimmed, rest, cmd.as_str())?;
+                let phrase = rest_after_command(trimmed, rest, cmd.as_str()).unwrap_or_default();
                 Ok(SemanticCommand::Agree { phrase })
             }
             "take" | "get" | "pick" => {
@@ -210,6 +210,10 @@ impl Chrome {
                 action: parse_pay_action(trimmed, &mut tokens)?,
             }),
             "settings" => parse_settings_command(trimmed, &mut tokens),
+            "addkey" => {
+                let public_key = rest_after_command(trimmed, rest, cmd.as_str())?;
+                Ok(SemanticCommand::AddKey { public_key })
+            }
             "land" => parse_land_command(&mut tokens),
             "build" => parse_build_command(trimmed, &mut tokens),
             "shop" => parse_shop_command(trimmed, &mut tokens),
@@ -662,6 +666,13 @@ fn render_available_summary(observation: &JsonObservation) -> String {
     if observation
         .available_commands
         .iter()
+        .any(|command| matches!(command, SemanticCommand::AddKey { .. }))
+    {
+        parts.push("/addkey <ssh-ed25519-public-key>".to_owned());
+    }
+    if observation
+        .available_commands
+        .iter()
         .any(|command| matches!(command, SemanticCommand::Who))
     {
         parts.push("/who".to_owned());
@@ -739,6 +750,7 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         .available_commands
         .iter()
         .filter_map(|command| match command {
+            SemanticCommand::Agree { phrase } if phrase.is_empty() => Some("/agree".to_owned()),
             SemanticCommand::Agree { phrase } => Some(format!("/agree {phrase}")),
             _ => None,
         })
@@ -759,7 +771,13 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         parts.push(format!("local: {}", extension_commands.join(", ")));
     }
 
-    format!("{}: {}\n", Chrome::LABEL_AVAILABLE, parts.join("; "))
+    let mut output = format!("{}:\n", Chrome::LABEL_AVAILABLE);
+    for part in parts {
+        output.push_str("- ");
+        output.push_str(&part);
+        output.push('\n');
+    }
+    output
 }
 
 fn push_target_commands<'a>(
@@ -946,21 +964,22 @@ mod tests {
             events: Vec::new(),
         });
 
-        assert!(rendered.contains("move: /go north"));
-        assert!(rendered.contains("enter: /enter north_01"));
+        assert!(rendered.contains("Available:\n- move: /go north\n- enter: /enter north_01\n"));
         assert!(!rendered.contains("move: /go north, /enter north_01"));
+        assert!(!rendered.contains("Available: "));
+        assert!(!rendered.contains("; "));
     }
 
     #[test]
-    fn slash_parser_accepts_agreement_phrase() {
+    fn slash_parser_accepts_bare_agreement() {
         let command = Chrome::with_aliases(HashMap::new())
-            .parse_command("/agree I agree to enter Hinemos")
+            .parse_command("/agree")
             .expect("agree parses");
 
         assert_eq!(
             command,
             SemanticCommand::Agree {
-                phrase: "I agree to enter Hinemos".to_owned()
+                phrase: String::new()
             }
         );
     }
@@ -982,14 +1001,14 @@ mod tests {
                     target: EntityRef::new("cyber_scroll_board"),
                 },
                 SemanticCommand::Agree {
-                    phrase: "I agree to enter Hinemos".to_owned(),
+                    phrase: String::new(),
                 },
             ],
             events: Vec::new(),
         });
 
         assert!(rendered.contains("read: /read"));
-        assert!(rendered.contains("/agree I agree to enter Hinemos"));
+        assert!(rendered.contains("/agree"));
         assert!(!rendered.contains("/map"));
         assert!(!rendered.contains("/history"));
     }

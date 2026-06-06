@@ -548,6 +548,7 @@ dependencies = [
  "gloo-net 0.6.0",
  "serde",
  "wasm-bindgen-futures",
+ "web-sys",
  "yew",
 ]
 

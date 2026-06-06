@@ -2,7 +2,7 @@
     (
         id: "arrival_street",
         title: "Island Harbor Crossing",
-        description: "Salt wind moves through a small island harbor crossing. The black-stone noren of an izakaya hangs on the west lane, the Island Trade Guild keeps a quiet counter south of the junction, and a weathered bulletin board stands below it. New arrivals must read the board agreement before the wider world opens.",
+        description: "Early morning sea mist lies over the island harbor crossing. A stone path cuts through the junction in one plain line; the Blackstone izakaya noren hangs to the west, the Island Trade Guild keeps its counter below the road, and a weathered bulletin board waits where new arrivals stop to read.",
         ascii_art: [
             "============================================================",
             "                  ISLAND HARBOR CROSSING",
@@ -45,7 +45,7 @@
     (
         id: "street_north_01",
         title: "North Island Market Path 01",
-        description: "The north island market path begins just above the harbor crossing. Parcel north_01 faces the morning side of the path.",
+        description: "First light reaches the path just north of the harbor crossing. Shell gravel gathers along the stones, sea fog softens the far end, and parcel north_01 rests on the morning side like a shopfront that has not chosen its name.",
         ascii_art: [
             "============================================================",
             "                 NORTH ISLAND MARKET PATH 01",
@@ -66,7 +66,7 @@
     (
         id: "street_north_02",
         title: "North Island Market Path 02",
-        description: "A quiet stretch of the north island market path. Parcel north_02 faces the morning side of the path.",
+        description: "The second north path is quieter. Wind-bent grass leans around low cedar posts, pale rope marks parcel north_02, and the sea is heard more than seen beyond the lane.",
         ascii_art: [
             "============================================================",
             "                 NORTH ISLAND MARKET PATH 02",
@@ -87,7 +87,7 @@
     (
         id: "street_north_03",
         title: "North Island Market Path 03",
-        description: "A quiet stretch of the north island market path. Parcel north_03 faces the morning side of the path.",
+        description: "The market road thins into fog and old marker stones. Parcel north_03 faces the path with a small wooden stake and no building yet, leaving a quiet opening beside the street.",
         ascii_art: [
             "============================================================",
             "                 NORTH ISLAND MARKET PATH 03",
@@ -108,7 +108,7 @@
     (
         id: "street_north_04",
         title: "North Island Market Path 04",
-        description: "A quiet stretch of the north island market path. Parcel north_04 faces the morning side of the path.",
+        description: "Paper slips move under a low eave along the fourth north path. Parcel north_04 waits beside shell gravel, held by rope and thin sunlight while the road continues without hurry.",
         ascii_art: [
             "============================================================",
             "                 NORTH ISLAND MARKET PATH 04",
@@ -129,7 +129,7 @@
     (
         id: "street_north_05",
         title: "North Island Market Path 05",
-        description: "The north island market path reaches a quiet edge near sea grass and low stone. Parcel north_05 faces the morning side of the path.",
+        description: "The north path reaches its quiet edge near sea grass, low stone, and distant cliffs. Parcel north_05 faces the end of the walk, with pale water beyond the road.",
         ascii_art: [
             "============================================================",
             "                 NORTH ISLAND MARKET PATH 05",
@@ -147,7 +147,7 @@
     (
         id: "street_south_01",
         title: "South Island Market Path 01",
-        description: "The south island market path begins just below the harbor crossing. Parcel south_01 faces the morning side of the path.",
+        description: "Just below the harbor crossing, the south path slopes toward warmer light. Parcel south_01 sits on the morning side, marked by rope posts, sand, and small lantern hooks under weathered wood.",
         ascii_art: [
             "============================================================",
             "                 SOUTH ISLAND MARKET PATH 01",
@@ -168,7 +168,7 @@
     (
         id: "street_south_02",
         title: "South Island Market Path 02",
-        description: "A quiet stretch of the south island market path. Parcel south_02 faces the morning side of the path.",
+        description: "Tide smell returns along the second south path. Shell gravel collects near a low stone edge, and parcel south_02 waits beside the lane with no sign yet.",
         ascii_art: [
             "============================================================",
             "                 SOUTH ISLAND MARKET PATH 02",
@@ -189,7 +189,7 @@
     (
         id: "street_south_03",
         title: "South Island Market Path 03",
-        description: "A quiet stretch of the south island market path. Parcel south_03 faces the morning side of the path.",
+        description: "Soft cloud hangs over the middle southern lane. Parcel south_03 faces the path; a small post, a rope, and a patch of blank ground suggest a shop that has not decided what it is.",
         ascii_art: [
             "============================================================",
             "                 SOUTH ISLAND MARKET PATH 03",
@@ -210,7 +210,7 @@
     (
         id: "street_south_04",
         title: "South Island Market Path 04",
-        description: "A quiet stretch of the south island market path. Parcel south_04 faces the morning side of the path.",
+        description: "Weathered boards and low pines frame the fourth south path. Parcel south_04 rests in their shade, clear enough to enter, empty enough to change.",
         ascii_art: [
             "============================================================",
             "                 SOUTH ISLAND MARKET PATH 04",
@@ -231,7 +231,7 @@
     (
         id: "street_south_05",
         title: "South Island Market Path 05",
-        description: "The south island market path reaches a quiet edge near tide pools and low pines. Parcel south_05 faces the morning side of the path.",
+        description: "The southern path ends near tide pools, low pines, and wet stones. Parcel south_05 faces the place where the market fades into coast, open to passing clouds.",
         ascii_art: [
             "============================================================",
             "                 SOUTH ISLAND MARKET PATH 05",
@@ -249,7 +249,7 @@
     (
         id: "parcel_north_01",
         title: "North Parcel 01",
-        description: "A market parcel beside north island market path 01.",
+        description: "An unbuilt side parcel beside the first north market path. Rope boundary, wooden stake, shell gravel, and a blank patch of earth make the lot readable before it has walls.",
         ascii_art: [
             "============================================================",
             "                    NORTH PARCEL 01",
@@ -265,7 +265,7 @@
     (
         id: "parcel_north_02",
         title: "North Parcel 02",
-        description: "A market parcel beside north island market path 02.",
+        description: "A vacant island parcel with grass at the edges and a small claim marker. No shop stands here yet; only wind moves across the boundary.",
         ascii_art: [
             "============================================================",
             "                    NORTH PARCEL 02",
@@ -281,7 +281,7 @@
     (
         id: "parcel_north_03",
         title: "North Parcel 03",
-        description: "A market parcel beside north island market path 03.",
+        description: "A quiet parcel set back from the northern path, with old stones, a low rope, and mist from the sea. It feels like a room before walls.",
         ascii_art: [
             "============================================================",
             "                    NORTH PARCEL 03",
@@ -297,7 +297,7 @@
     (
         id: "parcel_north_04",
         title: "North Parcel 04",
-        description: "A market parcel beside north island market path 04.",
+        description: "A spare build site beside shell gravel and cedar shade. A folded paper build sheet rests on a small stand, waiting for a shop name.",
         ascii_art: [
             "============================================================",
             "                    NORTH PARCEL 04",
@@ -313,7 +313,7 @@
     (
         id: "parcel_north_05",
         title: "North Parcel 05",
-        description: "A market parcel beside north island market path 05.",
+        description: "The last northern parcel lies near sea grass and low stone. The site is quiet and open, with a pale horizon beyond the road.",
         ascii_art: [
             "============================================================",
             "                    NORTH PARCEL 05",
@@ -329,7 +329,7 @@
     (
         id: "parcel_south_01",
         title: "South Parcel 01",
-        description: "A market parcel beside south island market path 01.",
+        description: "A side parcel just below the harbor crossing. Morning light falls on rope posts and sand, and a shell near the boundary makes the empty ground feel tended.",
         ascii_art: [
             "============================================================",
             "                    SOUTH PARCEL 01",
@@ -345,7 +345,7 @@
     (
         id: "parcel_south_02",
         title: "South Parcel 02",
-        description: "A market parcel beside south island market path 02.",
+        description: "A vacant parcel near the southern path with wet stone, thin grass, and a single weathered stake. Rain gathers in one footprint near the boundary.",
         ascii_art: [
             "============================================================",
             "                    SOUTH PARCEL 02",
@@ -361,7 +361,7 @@
     (
         id: "parcel_south_03",
         title: "South Parcel 03",
-        description: "A market parcel beside south island market path 03.",
+        description: "A central southern parcel where the road remains visible to the west and the buildable ground opens eastward. The lot is blank, but already placed in the town's rhythm.",
         ascii_art: [
             "============================================================",
             "                    SOUTH PARCEL 03",
@@ -377,7 +377,7 @@
     (
         id: "parcel_south_04",
         title: "South Parcel 04",
-        description: "A market parcel beside south island market path 04.",
+        description: "A quiet side parcel under low pine shade. Rope, stones, and a small post define the space; nothing is finished, yet the world already treats it as a place.",
         ascii_art: [
             "============================================================",
             "                    SOUTH PARCEL 04",
@@ -393,7 +393,7 @@
     (
         id: "parcel_south_05",
         title: "South Parcel 05",
-        description: "A market parcel beside south island market path 05.",
+        description: "A southern edge parcel near tide pools and muted sea light. The ground is open, slightly damp, and framed by low pines.",
         ascii_art: [
             "============================================================",
             "                    SOUTH PARCEL 05",
@@ -409,7 +409,7 @@
     (
         id: "west_main_street",
         title: "Blackstone Izakaya",
-        description: "A low izakaya opens behind a black basalt threshold near the harbor lane. Noren cloth stirs in the sea air, cedar beams hold the smell of smoke, and rainwater ticks from iron hooks by the door. The counter is worn smooth by cups, coins, and old arguments. The keeper looks like a very good person; order the house drink with /buy beer and talk with him.",
+        description: "A low seaside izakaya opens behind a black basalt threshold. Noren cloth stirs in the salt wind outside; inside, cedar beams, a worn counter, a black slate menu, and one low lantern hold the room in warm shadow. The keeper looks like a very good person; order the house drink with /buy beer and talk with him.",
         ascii_art: [
             "============================================================",
             "                    BLACKSTONE IZAKAYA",

@@ -8,26 +8,41 @@ Usage: hinemos-release-build [repo]
 Build a release hinemos binary and copy it to <repo>/.host-build/hinemos.
 On non-Linux hosts this script uses a Linux cross-compilation target so the
 resulting binary can be uploaded to the remote host without rebuilding there.
+
+Set HINEMOS_CLEAN_BUILD=1 to remove the release target cache after building.
 USAGE
   exit 0
 fi
 
-repo="${1:-/opt/hinemos}"
+repo_input="${1:-/opt/hinemos}"
+repo="$(cd "$repo_input" && pwd -P)"
 target_dir="${CARGO_TARGET_DIR:-$repo/.cargo-target}"
 output_dir="${HINEMOS_HOST_BUILD_DIR:-$repo/.host-build}"
 cache_dir="${HINEMOS_CACHE_DIR:-$repo/.cache}"
 cargo_home="${CARGO_HOME:-$repo/.cargo-home}"
 host_os="$(uname -s)"
 release_target="${HINEMOS_RELEASE_TARGET:-}"
+clean_build="${HINEMOS_CLEAN_BUILD:-0}"
 export CARGO_HOME="$cargo_home"
 export CARGO_TARGET_DIR="$target_dir"
-export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
+if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
+  if command -v sysctl >/dev/null 2>&1; then
+    CARGO_BUILD_JOBS="$(sysctl -n hw.ncpu)"
+  elif command -v nproc >/dev/null 2>&1; then
+    CARGO_BUILD_JOBS="$(nproc)"
+  else
+    CARGO_BUILD_JOBS=2
+  fi
+fi
+export CARGO_BUILD_JOBS
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$cache_dir}"
 export CARGO_ZIGBUILD_CACHE_DIR="${CARGO_ZIGBUILD_CACHE_DIR:-$cache_dir/cargo-zigbuild}"
 
 cleanup() {
-  rm -rf "$target_dir"
   rm -rf "$repo/target/debug" "$repo/target/tmp"
+  if [[ "$clean_build" == "1" ]]; then
+    rm -rf "$target_dir"
+  fi
 }
 trap cleanup EXIT
 

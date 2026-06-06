@@ -4,7 +4,7 @@ use super::*;
 
 mod session;
 
-use crate::auth::{AuthIdentity, AuthOnboarding};
+use crate::auth::AuthIdentity;
 use crate::config::{format_mail_user, normalize_mail_target};
 use crate::presence::PresenceDeliveryMode;
 use crate::render::*;
@@ -21,7 +21,6 @@ pub(crate) enum ConnectionMode {
 }
 
 const AGREEMENT_VERSION: &str = "2026-06-03";
-const AGREEMENT_PHRASE: &str = "I agree to enter Hinemos";
 const ADMISSION_VIEW_ID: &str = "arrival_street";
 const PENDING_PRESENCE_VIEW_ID: &str = "__pending_admission";
 const ADMISSION_BOARD_ENTITY_ID: &str = "cyber_scroll_board";
@@ -202,14 +201,22 @@ impl ConnectionHandler {
             return Ok(());
         }
 
-        let current_observation = match self.shared.runtime.observe_json(&identity.player_id).await
-        {
-            Ok(observation) => observation,
-            Err(error) => {
-                send_command_error(session, channel, error.into(), prompt)?;
-                return Ok(());
-            }
-        };
+        let mut current_observation =
+            match self.shared.runtime.observe_json(&identity.player_id).await {
+                Ok(observation) => observation,
+                Err(error) => {
+                    send_command_error(session, channel, error.into(), prompt)?;
+                    return Ok(());
+                }
+            };
+        let admission = self
+            .shared
+            .storage
+            .player_admission(&identity.player_id)
+            .await?;
+        if !admission.is_agreed() {
+            restrict_pending_admission_observation(&mut current_observation, &admission);
+        }
 
         let command = match runtime_state::parse_command(chrome, Some(&current_observation), line) {
             Ok(command) => command,
@@ -235,7 +242,7 @@ impl ConnectionHandler {
                     "World commands start with /. Choose an Available command such as /help or /look."
                         .to_owned()
                 } else {
-                    error.to_string()
+                    slash_parse_feedback(line, &error)
                 };
                 session.data(channel, format!("{message}\r\n").into_bytes())?;
                 if prompt {
@@ -278,7 +285,10 @@ impl ConnectionHandler {
         {
             Ok(result) => result,
             Err(error) => {
-                session.data(channel, format!("{error}\r\n").into_bytes())?;
+                session.data(
+                    channel,
+                    format!("{}\r\n", world_error_feedback(&error.to_string())).into_bytes(),
+                )?;
                 if prompt {
                     send_prompt(session, channel)?;
                 }
@@ -304,6 +314,13 @@ impl ConnectionHandler {
             send_command_error(session, channel, error, prompt)?;
             return Ok(());
         }
+        if let Err(error) = self
+            .send_admission_next_step_after_read(channel, session, &command, identity)
+            .await
+        {
+            send_command_error(session, channel, error, prompt)?;
+            return Ok(());
+        }
         if should_quit {
             session.exit_status_request(channel, 0)?;
             session.close(channel)?;
@@ -311,6 +328,34 @@ impl ConnectionHandler {
             send_prompt(session, channel)?;
         }
 
+        Ok(())
+    }
+
+    async fn send_admission_next_step_after_read(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        command: &SemanticCommand,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        if !matches!(
+            command,
+            SemanticCommand::Read { target } if target.id == ADMISSION_BOARD_ENTITY_ID
+        ) {
+            return Ok(());
+        }
+        let admission = self
+            .shared
+            .storage
+            .player_admission(&identity.player_id)
+            .await?;
+        if admission.is_agreed() || !admission.has_read_version(AGREEMENT_VERSION) {
+            return Ok(());
+        }
+        session.data(
+            channel,
+            b"\r\nNext step: type /agree to enter.\r\n".to_vec(),
+        )?;
         Ok(())
     }
 
@@ -352,6 +397,14 @@ impl ConnectionHandler {
 
         match command {
             SemanticCommand::Look | SemanticCommand::Help | SemanticCommand::Quit => Ok(false),
+            SemanticCommand::AddKey { public_key } => {
+                self.handle_addkey_command(channel, session, public_key, identity)
+                    .await?;
+                if prompt {
+                    send_prompt(session, channel)?;
+                }
+                Ok(true)
+            }
             SemanticCommand::Read { target } if target.id == ADMISSION_BOARD_ENTITY_ID => {
                 self.shared
                     .storage
@@ -359,8 +412,8 @@ impl ConnectionHandler {
                     .await?;
                 Ok(false)
             }
-            SemanticCommand::Agree { phrase } => {
-                self.handle_agree_command(channel, session, phrase, identity)
+            SemanticCommand::Agree { .. } => {
+                self.handle_agree_command(channel, session, identity)
                     .await?;
                 if prompt {
                     send_prompt(session, channel)?;
@@ -378,7 +431,6 @@ impl ConnectionHandler {
         &self,
         channel: ChannelId,
         session: &mut Session,
-        phrase: &str,
         identity: &AuthIdentity,
     ) -> Result<()> {
         let admission = self
@@ -402,17 +454,6 @@ impl ConnectionHandler {
             )?;
             return Ok(());
         }
-        if phrase.trim() != AGREEMENT_PHRASE {
-            session.data(
-                channel,
-                format!(
-                    "Agreement phrase did not match. Read /read agreement and type exactly: /agree {AGREEMENT_PHRASE}\r\n"
-                )
-                .into_bytes(),
-            )?;
-            return Ok(());
-        }
-
         self.shared
             .storage
             .admit_player(&identity.player_id, AGREEMENT_VERSION)
@@ -539,6 +580,10 @@ impl ConnectionHandler {
                 self.handle_settings_command(channel, session, action, identity)
                     .await?;
             }
+            SemanticCommand::AddKey { public_key } => {
+                self.handle_addkey_command(channel, session, public_key, identity)
+                    .await?;
+            }
             SemanticCommand::Pay { action } => {
                 self.handle_pay_command(channel, session, action, identity)
                     .await?;
@@ -598,7 +643,7 @@ impl ConnectionHandler {
                 let mut next_steps = Vec::new();
                 if settings.key_fingerprint.is_none() || identity.fingerprint == "password" {
                     next_steps.push(
-                        "Create an ed25519 key pair and bind its public key with /settings key <openssh-public-key>.",
+                        "Create an ed25519 key pair and bind its public key with /addkey <openssh-public-key>.",
                     );
                 }
                 if !settings.has_mail_token {
@@ -610,13 +655,13 @@ impl ConnectionHandler {
                     format!("Next steps:\r\n- {}\r\n", next_steps.join("\r\n- "))
                 };
                 let agent_protocol = format!(
-                    "Agent realtime mail:\r\n- Login: IMAP/SMTP username `{}`; password/token is generated by `/settings mail-token`.\r\n- Setup: bind an ed25519 SSH key with `/settings key <openssh-public-key>` and keep using that key for SSH login.\r\n- Listen: keep an IMAP IDLE connection open; when EXISTS arrives, FETCH the new message, handle it, then STORE +FLAGS (\\Seen). This is the supported no-prompt path for autonomous agents.\r\n",
+                    "Agent realtime mail:\r\n- Login: IMAP/SMTP username `{}`; password/token is generated by `/settings mail-token`.\r\n- Setup: bind an ed25519 SSH key with `/addkey <openssh-public-key>` and keep using that key for SSH login.\r\n- Listen: keep an IMAP IDLE connection open; when EXISTS arrives, FETCH the new message, handle it, then STORE +FLAGS (\\Seen). This is the supported no-prompt path for autonomous agents.\r\n",
                     identity.user
                 );
                 session.data(
                     channel,
                     format!(
-                        "Settings\r\nUser: {}\r\nPlayer: {}\r\nDisplay name: {}\r\nOnline days: {}\r\nSSH key: {}\r\nSSH password: {}\r\nMail address: {}\r\nMail token: {}\r\n{}{}Use /settings mail-token, /settings password <new-password>, or /settings key <openssh-public-key>.\r\n",
+                        "Settings\r\nUser: {}\r\nPlayer: {}\r\nDisplay name: {}\r\nOnline days: {}\r\nSSH key: {}\r\nSSH password: {}\r\nMail address: {}\r\nMail token: {}\r\n{}{}Use /settings mail-token, /settings password <new-password>, or /addkey <openssh-public-key>.\r\n",
                         identity.user,
                         settings.player_id,
                         settings.display_name,
@@ -655,17 +700,29 @@ impl ConnectionHandler {
                 session.data(channel, b"SSH password login updated.\r\n".to_vec())?;
             }
             SettingsAction::SetKey { public_key } => {
-                let fingerprint = public_key_fingerprint(public_key)?;
-                self.shared
-                    .storage
-                    .replace_ssh_identity(&identity.user, &identity.player_id, &fingerprint)
+                self.handle_addkey_command(channel, session, public_key, identity)
                     .await?;
-                session.data(
-                    channel,
-                    format!("SSH public key binding replaced: {fingerprint}\r\n").into_bytes(),
-                )?;
             }
         }
+        Ok(())
+    }
+
+    async fn handle_addkey_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        public_key: &str,
+        identity: &AuthIdentity,
+    ) -> Result<()> {
+        let fingerprint = public_key_fingerprint(public_key)?;
+        self.shared
+            .storage
+            .add_ssh_identity(&identity.user, &fingerprint, &identity.player_id)
+            .await?;
+        session.data(
+            channel,
+            format!("SSH ed25519 public key bound: {fingerprint}\r\n").into_bytes(),
+        )?;
         Ok(())
     }
 
@@ -1694,13 +1751,62 @@ fn street_parcel_id(view_id: &str) -> Option<&str> {
     view_id.strip_prefix("street_")
 }
 
+fn slash_parse_feedback(line: &str, error: &SlashParseError) -> String {
+    let command = line
+        .trim()
+        .strip_prefix('/')
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match error {
+        SlashParseError::MissingArgument => match command.as_str() {
+            "read" => "What do you want to read? Try /read <name>.".to_owned(),
+            "inspect" | "x" | "examine" => {
+                "What do you want to inspect? Try /inspect <name>.".to_owned()
+            }
+            "go" | "move" => "Which way do you want to go? Try /go north or /go south.".to_owned(),
+            "enter" | "visit" => "Where do you want to enter? Try /enter <place>.".to_owned(),
+            "talk" => "Who do you want to talk to? Try /talk <name>.".to_owned(),
+            "take" | "get" | "pick" => "What do you want to take? Try /take <name>.".to_owned(),
+            "pay" => {
+                "Who do you want to pay, and how much? Try /pay <user> <amount> <memo>.".to_owned()
+            }
+            "mail" | "inbox" => "Which mail item do you mean? Try /mail read <id>.".to_owned(),
+            "land" => {
+                "Which land command do you need? Try /land list or /land info <parcel>.".to_owned()
+            }
+            "settings" => "Which setting do you want to change? Try /settings.".to_owned(),
+            "build" => {
+                "What do you want to build? Use one JSON build sheet after /build.".to_owned()
+            }
+            "shop" => "Which shop notice do you want to handle? Try /shop request-payment <cmd_id> <amount> <delivery>."
+                .to_owned(),
+            _ => "That command needs a little more detail. Choose one Available command and include its target."
+                .to_owned(),
+        },
+        SlashParseError::UnexpectedArgument => {
+            "That command does not need anything after it. Send it by itself.".to_owned()
+        }
+        SlashParseError::InvalidAmount => "The amount must be a plain number of MARK.".to_owned(),
+        SlashParseError::InvalidInboxFilter => {
+            "That mailbox shelf is unknown. Try open, unread, claimed, done, or all.".to_owned()
+        }
+        SlashParseError::InvalidJson => {
+            "The build sheet could not be read as JSON. Check the braces and quotes.".to_owned()
+        }
+        SlashParseError::UnknownCommand => {
+            "That command is not on the town board. Choose one Available command.".to_owned()
+        }
+    }
+}
+
 fn resolve_enter_target<'a>(
     visible: &[&'a StoredParcel],
     target: &str,
 ) -> Result<&'a StoredParcel> {
     let normalized = normalize_enter_target(target);
     if normalized.is_empty() {
-        anyhow::bail!("missing command argument");
+        anyhow::bail!("Where do you want to enter? Try /enter <place>.");
     }
 
     visible
@@ -1733,12 +1839,8 @@ fn normalize_enter_target(target: &str) -> String {
     target.trim().to_ascii_lowercase()
 }
 
-fn admission_guidance(admission: &StoredAdmission) -> String {
-    let next_step = if admission.has_read_version(AGREEMENT_VERSION) {
-        format!("Type exactly: /agree {AGREEMENT_PHRASE}")
-    } else {
-        "Read the board agreement first: /read agreement".to_owned()
-    };
+fn admission_guidance(_admission: &StoredAdmission) -> String {
+    let next_step = "Read the board agreement first: /read agreement";
     format!(
         "Admission pending. SSH authentication is complete, but this account is not admitted into the world yet.\n{next_step}. Until then, other commands are blocked."
     )
@@ -1781,12 +1883,10 @@ fn restrict_pending_admission_observation(
         },
         SemanticCommand::Help,
         SemanticCommand::Quit,
+        SemanticCommand::AddKey {
+            public_key: "<ssh-ed25519-public-key>".to_owned(),
+        },
     ];
-    if admission.has_read_version(AGREEMENT_VERSION) {
-        observation.available_commands.push(SemanticCommand::Agree {
-            phrase: AGREEMENT_PHRASE.to_owned(),
-        });
-    }
 }
 
 fn mailbox_help() -> &'static str {
@@ -1806,7 +1906,7 @@ fn generate_mail_auth_token() -> String {
 fn public_key_fingerprint(public_key: &str) -> Result<String> {
     let public_key = ssh_key::PublicKey::from_openssh(public_key.trim())?;
     if !public_key.algorithm().is_ed25519() {
-        anyhow::bail!("settings key only accepts ssh-ed25519 public keys");
+        anyhow::bail!("/addkey only accepts ssh-ed25519 public keys");
     }
     Ok(public_key.fingerprint(HashAlg::Sha256).to_string())
 }

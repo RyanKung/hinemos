@@ -92,13 +92,22 @@ impl PgStorage {
         schema::migrate(&self.pool).await
     }
 
-    /// Upserts the SSH public-key identity and profile.
-    pub async fn upsert_ssh_identity(
+    /// Adds an SSH public-key identity to an existing canonical account.
+    pub async fn add_ssh_identity(
         &self,
         username: &str,
         key_fingerprint: &str,
         player_id: &str,
     ) -> Result<StoredIdentity, StorageError> {
+        self.ensure_user_account(username, player_id).await?;
+        if let Some(owner) = self.ssh_key_owner(key_fingerprint).await?
+            && owner != username
+        {
+            return Err(StorageError::InvalidAccountSetting(format!(
+                "ssh key is already bound to {owner}"
+            )));
+        }
+
         sqlx::query(
             r#"
             insert into player_profiles (player_id, display_name)
@@ -118,8 +127,7 @@ impl PgStorage {
             insert into ssh_identities (username, key_fingerprint, player_id)
             values ($1, $2, $3)
             on conflict (username, key_fingerprint) do update
-            set player_id = excluded.player_id,
-                last_seen_at = now()
+            set last_seen_at = now()
             returning username, key_fingerprint, player_id, (xmax = 0) as created
             "#,
         )
@@ -133,12 +141,15 @@ impl PgStorage {
     }
 
     /// Authenticates an SSH public-key identity, preserving stored player bindings.
+    ///
+    /// A new SSH key may create a user only when the username is unused. Existing
+    /// usernames must bind new keys from an already-authenticated session.
     pub async fn authenticate_ssh_identity(
         &self,
         username: &str,
         key_fingerprint: &str,
         fallback_player_id: &str,
-    ) -> Result<StoredIdentity, StorageError> {
+    ) -> Result<Option<StoredIdentity>, StorageError> {
         if let Some(identity) = sqlx::query_as::<_, StoredIdentity>(
             r#"
             update ssh_identities
@@ -152,11 +163,16 @@ impl PgStorage {
         .fetch_optional(&self.pool)
         .await?
         {
-            return Ok(identity);
+            return Ok(Some(identity));
         }
 
-        self.upsert_ssh_identity(username, key_fingerprint, fallback_player_id)
+        if self.user_player_id(username).await?.is_some() {
+            return Ok(None);
+        }
+
+        self.add_ssh_identity(username, key_fingerprint, fallback_player_id)
             .await
+            .map(Some)
     }
 
     /// Replaces the SSH public key bound to an existing player identity.
@@ -167,6 +183,7 @@ impl PgStorage {
         key_fingerprint: &str,
     ) -> Result<StoredIdentity, StorageError> {
         let mut tx = self.pool.begin().await?;
+        self.ensure_user_account(username, player_id).await?;
         sqlx::query(
             r#"
             insert into player_profiles (player_id, display_name)
@@ -297,6 +314,8 @@ impl PgStorage {
             .hash_password(token.as_bytes(), &salt)
             .map_err(StorageError::from_password_hash)?
             .to_string();
+
+        self.ensure_user_account(username, player_id).await?;
 
         sqlx::query(
             r#"
@@ -538,12 +557,17 @@ impl PgStorage {
         username: &str,
         password: &str,
     ) -> Result<Option<StoredPasswordIdentity>, StorageError> {
+        if self.user_player_id(username).await?.is_some() {
+            return Ok(None);
+        }
         let player_id = player_id_from_password_username(username);
         let salt = SaltString::generate(&mut OsRng);
         let password_hash = Argon2::default()
             .hash_password(password.as_bytes(), &salt)
             .map_err(StorageError::from_password_hash)?
             .to_string();
+
+        self.ensure_user_account(username, &player_id).await?;
 
         sqlx::query(
             r#"
@@ -579,6 +603,76 @@ impl PgStorage {
 
         self.verify_existing_password_identity(username, password)
             .await
+    }
+
+    async fn user_player_id(&self, username: &str) -> Result<Option<String>, StorageError> {
+        let player_id = sqlx::query_scalar::<_, String>(
+            r#"
+            select player_id
+            from user_accounts
+            where username = $1
+            "#,
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(player_id)
+    }
+
+    async fn ssh_key_owner(&self, key_fingerprint: &str) -> Result<Option<String>, StorageError> {
+        let username = sqlx::query_scalar::<_, String>(
+            r#"
+            select username
+            from ssh_identities
+            where key_fingerprint = $1
+            limit 1
+            "#,
+        )
+        .bind(key_fingerprint)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(username)
+    }
+
+    async fn ensure_user_account(
+        &self,
+        username: &str,
+        player_id: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"
+            insert into player_profiles (player_id, display_name)
+            values ($1, $2)
+            on conflict (player_id) do update
+            set display_name = excluded.display_name,
+                updated_at = now()
+            "#,
+        )
+        .bind(player_id)
+        .bind(username)
+        .execute(&self.pool)
+        .await?;
+
+        let row = sqlx::query(
+            r#"
+            insert into user_accounts (username, player_id)
+            values ($1, $2)
+            on conflict (username) do update
+            set updated_at = now()
+            returning player_id
+            "#,
+        )
+        .bind(username)
+        .bind(player_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let stored_player_id: String = row.get("player_id");
+        if stored_player_id != player_id {
+            return Err(StorageError::InvalidAccountSetting(format!(
+                "username {username} belongs to another player"
+            )));
+        }
+        Ok(())
     }
 
     /// Ensures the player has a MARK wallet and receives the one-time test grant.

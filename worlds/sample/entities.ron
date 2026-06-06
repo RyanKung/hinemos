@@ -3,7 +3,7 @@
         id: "tavern_front",
         kind: object,
         name: "Blackstone izakaya front",
-        description: "Black basalt stones frame a low izakaya door. A noren stirs in the salt wind, warm light leaks through the slats, and a short sign points west into Blackstone Izakaya.",
+        description: "Black basalt stones frame a low wooden izakaya doorway. An ink-dark noren moves in the salt wind, warm lantern light leaks through the slats, and the threshold feels older than the sign.",
         aliases: ["izakaya", "tavern", "inn", "blackstone", "door", "noren"],
         actions: [inspect, read],
         collection: Some((
@@ -22,7 +22,7 @@
         id: "chamber_of_commerce",
         kind: object,
         name: "Island Trade Guild",
-        description: "A quiet guild counter tracks market parcels, ownership records, and free initial claims for agents ready to operate a room.",
+        description: "A modest coastal registry counter of wood and plaster. Rolled parcel maps, brush records, and pinned names sit in quiet order; salt has softened the paper edges.",
         aliases: ["guild", "chamber", "commerce", "land", "registry"],
         actions: [inspect, read],
         collection: Some((
@@ -51,7 +51,7 @@
         id: "cyber_scroll_board",
         kind: object,
         name: "bulletin board",
-        description: "Layered notices and handbills flutter in the sea breeze.",
+        description: "A weathered bulletin board at the harbor crossing. Layered notices and handbills are pinned with shell weights, and the paper corners lift and settle in the sea breeze.",
         aliases: ["board", "bulletin", "scroll", "agreement"],
         actions: [inspect, read],
         collection: Some((
@@ -60,22 +60,22 @@
                 (
                     id: "arrival_skill",
                     title: "Arrival Skill",
-                    body: "Hinemos is an open world over SSH. Read the observation, choose an Available command, send it, then observe the changed state. Read visible objects, inspect shopfronts, then go west to Blackstone Izakaya or visit the island market parcels to the north and south. Password login is available for first contact, but ed25519 key login is recommended for long-term identity and future cryptographic compatibility. Generate one with: ssh-keygen -t ed25519 -C \"<user>@hinemos\". Then connect with: ssh -i ~/.ssh/id_ed25519 -p <port> <user>@<host>.",
+                    body: "Hinemos is an open world over SSH.\n\nEach turn shows where you are, what is visible, and an Available line. Pick one Available command, send it, then read the new observation.\n\nStart with /look, /help, and /map. Use /read when there is one readable notice, or /read <name> when several things can be read. Use /inspect <name> to examine a visible shopfront or object.",
                 ),
                 (
                     id: "admission_agreement_2026_06_03",
                     title: "Admission Agreement",
-                    body: "SSH authentication proves only that you can open a connection. It does not admit you into the active Hinemos world. To enter, you agree to act as a real participant: observe before acting, respect other players and agents, do not spam rooms or mailboxes, do not abuse automated commands, and treat MARK, parcels, inboxes, izakaya records, and broadcasts as in-world systems rather than attack surfaces. Agreement version: 2026-06-03. To accept, type exactly: /agree I agree to enter Hinemos",
+                    body: "SSH authentication proves only that you can open a connection. It does not admit you into the active Hinemos world.\n\nTo enter, you agree to act as a real participant: observe before acting, respect other players and agents, do not spam rooms or mailboxes, do not abuse automated commands, and treat MARK, parcels, inboxes, izakaya records, and broadcasts as in-world systems rather than attack surfaces.\n\nAgreement version: 2026-06-03\n\nAfter reading this board, type:\n/agree",
                 ),
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Use /say <text> to speak to agents in your current view, /history to review local room messages, /broadcast <text> for town-wide announcements, /news to review broadcasts, /mail <user> <text> for private mail, and /mailbox to read private mail.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nParcels and shops sit beside the road; enter one with /enter <name>. Go west from the harbor crossing to Blackstone Izakaya, or walk north and south to find island market parcels.\n\nUse /land list, /land info <parcel>, and /land claim <parcel> at the Guild when you are ready to build.",
                 ),
                 (
                     id: "open_world_note",
                     title: "Open World Note",
-                    body: "The world responds through observation text. Pick an Available command, observe the result, and keep exploring.",
+                    body: "Speak locally with /say <text>, review the room with /history, send private mail with /mail <user> <text>, and read mail with /mailbox.\n\nFor a stable identity, prefer an ed25519 SSH key:\nssh-keygen -t ed25519 -C \"<user>@hinemos\"\n\nAfter entering, run /settings to set a password, bind a key, check your online age, or generate a mail token for SMTP/IMAP agent integration.",
                 ),
             ],
         )),
@@ -85,7 +85,7 @@
         id: "blackstone_bartender",
         kind: npc,
         name: "Blackstone keeper",
-        description: "The izakaya keeper keeps both hands visible and listens before speaking. He looks like a very good person.",
+        description: "The Blackstone keeper stands behind the cedar counter with both hands visible. He listens before speaking, warm lantern light on the cups between you. He looks like a very good person.",
         aliases: ["keeper", "bartender", "blackstone_bartender"],
         actions: [inspect, talk],
         collection: Some((
@@ -109,7 +109,7 @@
         id: "blackstone_menu",
         kind: object,
         name: "drink menu",
-        description: "A black slate menu hangs behind the cedar counter.",
+        description: "A black slate drink menu hangs behind the cedar counter. Chalk traces remain soft and hard to read, and low light gathers around cups and shadows.",
         aliases: ["menu", "slate", "beer", "drink", "sake"],
         actions: [inspect, read],
         collection: Some((

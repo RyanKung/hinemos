@@ -408,11 +408,55 @@ pub(crate) fn send_command_error(
     error: anyhow::Error,
     prompt: bool,
 ) -> Result<()> {
-    session.data(channel, format!("{error}\r\n").into_bytes())?;
+    session.data(
+        channel,
+        format!("{}\r\n", world_error_feedback(&error.to_string())).into_bytes(),
+    )?;
     if prompt {
         send_prompt(session, channel)?;
     }
     Ok(())
+}
+
+pub(crate) fn world_error_feedback(message: &str) -> String {
+    if let Some(name) = message.strip_prefix("payment target not found: ") {
+        return format!("No player named {name} can be found for payment.");
+    }
+    if let Some(id) = message.strip_prefix("payment request not found: ") {
+        return format!("No payment request #{id} is open on the ledger.");
+    }
+    if let Some(parcel) = message.strip_prefix("parcel not found: ") {
+        return format!("The Guild has no parcel record named {parcel}.");
+    }
+    if message == "you do not own this parcel"
+        || message.starts_with("you do not own this parcel: ")
+    {
+        return "The Guild will not accept that build sheet here; you do not own this parcel."
+            .to_owned();
+    }
+    if let Some(id) = message.strip_prefix("shop command not found: ") {
+        return format!("No shop notice #{id} is waiting here.");
+    }
+    if let Some(target) = message.strip_prefix("entity is not visible: ") {
+        return format!("You do not see {target} here.");
+    }
+    if let Some(target) = message.strip_prefix("entity not found: ") {
+        return format!("The world has no visible record named {target}.");
+    }
+    if let Some(target) = message.strip_prefix("item is not visible: ") {
+        return format!("You do not see {target} here.");
+    }
+    if let Some(target) = message.strip_prefix("item not found: ") {
+        return format!("The world has no item record named {target}.");
+    }
+    if let Some(rest) = message.strip_prefix("parcel not adjacent here: ") {
+        return format!("That parcel is not beside this path. {rest}");
+    }
+    if message.starts_with("no adjacent parcel here") {
+        return "No parcel opens from here. Move along the street with /go, then use /enter <parcel>."
+            .to_owned();
+    }
+    message.to_owned()
 }
 
 pub(crate) fn send_stdin_closed_guidance(

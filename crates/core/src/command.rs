@@ -112,6 +112,11 @@ pub enum SemanticCommand {
         /// Settings action.
         action: SettingsAction,
     },
+    /// Bind an ed25519 SSH public key to the current account.
+    AddKey {
+        /// OpenSSH public key text.
+        public_key: String,
+    },
     /// Manage the durable inbox.
     Inbox {
         /// Inbox command action.

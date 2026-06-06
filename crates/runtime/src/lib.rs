@@ -260,6 +260,11 @@ impl GameRuntime {
                     "Settings are available in SSH sessions.".to_owned(),
                 )]
             }
+            SemanticCommand::AddKey { .. } => {
+                vec![message(
+                    "SSH key binding is available in SSH sessions.".to_owned(),
+                )]
+            }
             SemanticCommand::Inbox { .. } => {
                 vec![message("Inbox is available in SSH sessions.".to_owned())]
             }
@@ -531,6 +536,9 @@ fn available_commands(
         SemanticCommand::Settings {
             action: hinemos_core::SettingsAction::Show,
         },
+        SemanticCommand::AddKey {
+            public_key: "<ssh-ed25519-public-key>".to_owned(),
+        },
         SemanticCommand::Inbox {
             action: hinemos_core::InboxAction::List {
                 filter: "unread".to_owned(),
@@ -626,7 +634,19 @@ fn read_entity_message(entity: &Entity) -> String {
         Some(EntityCollection::BulletinBoard { items }) if !items.is_empty() => {
             let mut lines = vec![format!("{}:", entity.name)];
             for item in items {
-                lines.push(format!("- {}: {}", item.title, item.body));
+                let body_lines = item.body.lines().collect::<Vec<_>>();
+                if body_lines.len() <= 1 {
+                    lines.push(format!("- {}: {}", item.title, item.body));
+                } else {
+                    lines.push(format!("- {}:", item.title));
+                    lines.extend(body_lines.into_iter().map(|line| {
+                        if line.trim().is_empty() {
+                            "  ".to_owned()
+                        } else {
+                            format!("  {line}")
+                        }
+                    }));
+                }
             }
             lines.join("\n")
         }
@@ -717,6 +737,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("Arrival Skill"));
-        assert!(text.contains("go west to Blackstone Izakaya"));
+        assert!(text.contains("Guild Guide"));
+        assert!(text.contains("Blackstone Izakaya"));
     }
 }

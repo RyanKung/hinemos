@@ -125,6 +125,63 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
+            create table if not exists user_accounts (
+                username text primary key,
+                player_id text not null unique references player_profiles(player_id) on delete cascade,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            insert into user_accounts (username, player_id, created_at, updated_at)
+            select distinct on (username) username, player_id, created_at, last_seen_at
+            from password_identities
+            order by username, last_seen_at desc
+            on conflict (username) do nothing
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            insert into user_accounts (username, player_id, created_at, updated_at)
+            select distinct on (username) username, player_id, created_at, last_seen_at
+            from ssh_identities
+            order by username, last_seen_at desc
+            on conflict (username) do nothing
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            do $$
+            begin
+                alter table ssh_identities drop constraint if exists ssh_identities_player_id_key;
+            end $$;
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create unique index if not exists player_profiles_display_name_unique_idx
+            on player_profiles (display_name)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
             create table if not exists world_messages (
                 id bigserial primary key,
                 kind text not null check (kind in ('mail', 'say', 'broadcast')),

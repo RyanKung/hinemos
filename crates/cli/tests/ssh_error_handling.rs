@@ -42,10 +42,9 @@ fn pending_admission_blocks_world_until_board_agreement() {
 
     let input = [
         "/pay nobody 1 before-admission",
-        "/agree I agree to enter Hinemos",
-        "/read agreement",
-        "/agree wrong phrase",
-        "/agree I agree to enter Hinemos",
+        "/agree",
+        "/read",
+        "/agree",
         "/balance",
         "/quit",
     ]
@@ -94,6 +93,16 @@ fn pending_admission_blocks_world_until_board_agreement() {
     );
     assert_not_contains(
         &stdout,
+        "admission: /agree",
+        "agree is not advertised as a room action before reading",
+    );
+    assert_not_contains(
+        &stdout,
+        "Type /agree to enter. Until then",
+        "agree guidance belongs to the read result, not the room description",
+    );
+    assert_not_contains(
+        &stdout,
         "payment target not found",
         "pending payment command is blocked before world handling",
     );
@@ -104,13 +113,13 @@ fn pending_admission_blocks_world_until_board_agreement() {
     );
     assert_contains(
         &stdout,
-        "Agreement phrase did not match",
-        "wrong phrase is rejected",
+        "Next step: type /agree to enter.",
+        "agreement read gives a clear next step",
     );
     assert_contains(
         &stdout,
         "Agreement accepted: version 2026-06-03",
-        "correct phrase admits player",
+        "bare agree admits player after reading agreement",
     );
     assert_contains(
         &stdout,
@@ -154,15 +163,21 @@ fn command_errors_do_not_close_ssh_session() {
 
     let mut session = SshSession::spawn(host, port, &user);
     session.wait_for_stdout("Available:", Duration::from_secs(10));
+    admit_session(&mut session);
+
+    session.write_line("/go north");
+    session.wait_for_stdout("North Island Market Path 01", Duration::from_secs(10));
+    session.write_line("/read");
+    session.wait_for_stdout("What do you want to read?", Duration::from_secs(10));
 
     session.write_line("/inspect");
-    session.wait_for_stdout("missing command argument", Duration::from_secs(10));
+    session.wait_for_stdout("What do you want to inspect?", Duration::from_secs(10));
 
     session.write_line("/inspect taverb_front");
     session.wait_for_any_stdout(
         &[
-            "entity is not visible: taverb_front",
-            "entity not found: taverb_front",
+            "You do not see taverb_front here.",
+            "The world has no visible record named taverb_front.",
         ],
         Duration::from_secs(10),
     );
@@ -174,8 +189,8 @@ fn command_errors_do_not_close_ssh_session() {
 
     assert_contains(
         &output,
-        "missing command argument",
-        "missing-argument error stays in session",
+        "What do you want to inspect?",
+        "friendly missing-argument error stays in session",
     );
     assert_contains(
         &output,
@@ -211,29 +226,45 @@ fn business_command_errors_do_not_close_ssh_session() {
 
     let mut session = SshSession::spawn(host, port, &user);
     session.wait_for_stdout("Available:", Duration::from_secs(10));
+    admit_session(&mut session);
 
     session.write_line("/pay nobody 1 typo-safe");
-    session.wait_for_stdout("payment target not found: nobody", Duration::from_secs(10));
+    session.wait_for_stdout(
+        "No player named nobody can be found for payment.",
+        Duration::from_secs(10),
+    );
     session.write_line("/look");
     session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/pay accept 999999");
-    session.wait_for_stdout("payment request not found: 999999", Duration::from_secs(10));
+    session.wait_for_stdout(
+        "No payment request #999999 is open on the ledger.",
+        Duration::from_secs(10),
+    );
     session.write_line("/look");
     session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/land info missing_parcel");
-    session.wait_for_stdout("parcel not found: missing_parcel", Duration::from_secs(10));
+    session.wait_for_stdout(
+        "The Guild has no parcel record named missing_parcel.",
+        Duration::from_secs(10),
+    );
     session.write_line("/look");
     session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/build title Should not disconnect");
-    session.wait_for_stdout("you do not own this parcel", Duration::from_secs(10));
+    session.wait_for_stdout(
+        "The Guild will not accept that build sheet here; you do not own this parcel.",
+        Duration::from_secs(10),
+    );
     session.write_line("/look");
     session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
     session.write_line("/shop request-payment 999999 1 hello");
-    session.wait_for_stdout("shop command not found: 999999", Duration::from_secs(10));
+    session.wait_for_stdout(
+        "No shop notice #999999 is waiting here.",
+        Duration::from_secs(10),
+    );
     session.write_line("/look");
     session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
 
@@ -241,27 +272,27 @@ fn business_command_errors_do_not_close_ssh_session() {
     let output = session.wait_success(Duration::from_secs(10));
     assert_contains(
         &output,
-        "payment target not found: nobody",
+        "No player named nobody can be found for payment.",
         "unknown payment target error",
     );
     assert_contains(
         &output,
-        "payment request not found: 999999",
+        "No payment request #999999 is open on the ledger.",
         "unknown payment request error",
     );
     assert_contains(
         &output,
-        "parcel not found: missing_parcel",
+        "The Guild has no parcel record named missing_parcel.",
         "unknown parcel error",
     );
     assert_contains(
         &output,
-        "you do not own this parcel",
+        "The Guild will not accept that build sheet here; you do not own this parcel.",
         "build ownership error",
     );
     assert_contains(
         &output,
-        "shop command not found: 999999",
+        "No shop notice #999999 is waiting here.",
         "unknown shop command error",
     );
     assert_contains(
@@ -272,6 +303,17 @@ fn business_command_errors_do_not_close_ssh_session() {
 
     terminate(&mut server);
     temp.remove_on_drop();
+}
+
+fn admit_session(session: &mut SshSession) {
+    session.write_line("/read");
+    session.wait_for_stdout("Agreement version: 2026-06-03", Duration::from_secs(10));
+    session.write_line("/agree");
+    session.wait_for_stdout(
+        "Agreement accepted: version 2026-06-03",
+        Duration::from_secs(10),
+    );
+    session.wait_for_stdout("Available:", Duration::from_secs(10));
 }
 
 #[test]
@@ -476,11 +518,93 @@ fn password_auth_records_first_password_and_reuses_identity() {
         "Welcome to Hinemos",
         "subsequent password login should not repeat the welcome",
     );
+    assert_contains(
+        &second_output,
+        "You entered by password",
+        "password login should remind the user every time",
+    );
+    assert_contains(
+        &second_output,
+        "/addkey <openssh-public-key>",
+        "password login should point to ed25519 key binding",
+    );
 
     let failed = run_ssh_password_batch_raw(&temp, host, port, &user, "wrong-password", ["/quit"]);
     assert!(
         !failed.status.success(),
         "wrong remembered password should not authenticate"
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres, SSH client, and ssh-keygen"]
+fn password_user_can_add_ed25519_key_and_blocks_unbound_keys() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+    assert_command_exists("ssh-keygen");
+
+    let temp = TestTempDir::new("hinemos-addkey");
+    let bound_key = temp.path.join("bound_ed25519");
+    let unbound_key = temp.path.join("unbound_ed25519");
+    for key in [&bound_key, &unbound_key] {
+        let keygen = Command::new("ssh-keygen")
+            .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+            .arg(key)
+            .output()
+            .expect("spawn ssh-keygen");
+        assert!(
+            keygen.status.success(),
+            "ssh-keygen failed: {}",
+            String::from_utf8_lossy(&keygen.stderr)
+        );
+    }
+    let public_key = fs::read_to_string(bound_key.with_extension("pub")).expect("read public key");
+
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("addkey_probe_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let password = "first-use-password";
+    let addkey_command = format!("/addkey {}", public_key.trim());
+    let addkey_output = run_ssh_password_batch(
+        &temp,
+        host,
+        port,
+        &user,
+        password,
+        [&addkey_command, "/quit"],
+    );
+    assert_contains(
+        &addkey_output,
+        "SSH ed25519 public key bound",
+        "/addkey should bind the ed25519 key",
+    );
+
+    let key_output = run_ssh_key_batch(&temp, host, port, &user, &bound_key, ["/quit"]);
+    assert_contains(
+        &key_output,
+        &format!("Authenticated as {user}"),
+        "bound key should authenticate as the same username",
+    );
+    assert_not_contains(
+        &key_output,
+        "First password login recorded",
+        "bound key login should not be treated as password auth",
+    );
+
+    let unbound = run_ssh_key_batch_raw(&temp, host, port, &user, &unbound_key, ["/quit"]);
+    assert!(
+        !unbound.status.success(),
+        "unbound key must not authenticate as an existing username"
     );
 
     terminate(&mut server);
@@ -628,6 +752,16 @@ fn first_login_with_only_rsa_key_recommends_ed25519() {
         "Welcome to Hinemos",
         "existing RSA identity should not repeat the welcome",
     );
+    assert_contains(
+        &second_output,
+        "You entered with a",
+        "existing RSA identity should repeat the key-type reminder",
+    );
+    assert_contains(
+        &second_output,
+        "/addkey <openssh-public-key>",
+        "existing RSA identity should point to ed25519 key binding",
+    );
 
     terminate(&mut server);
     temp.remove_on_drop();
@@ -757,6 +891,26 @@ fn run_ssh_key_batch<const N: usize>(
     key_path: &std::path::Path,
     commands: [&str; N],
 ) -> String {
+    let output = run_ssh_key_batch_raw(temp, host, port, user, key_path, commands);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "key ssh batch failed for {user}: {}\nstdout:\n{}",
+        stderr,
+        stdout
+    );
+    stdout.into_owned()
+}
+
+fn run_ssh_key_batch_raw<const N: usize>(
+    temp: &TestTempDir,
+    host: &str,
+    port: u16,
+    user: &str,
+    key_path: &std::path::Path,
+    commands: [&str; N],
+) -> std::process::Output {
     let isolated_home = temp.path.join(format!("key-home-{user}"));
     fs::create_dir_all(isolated_home.join(".ssh")).expect("create isolated key ssh home");
     let known_hosts = isolated_home.join(".ssh/known_hosts");
@@ -800,16 +954,7 @@ fn run_ssh_key_batch<const N: usize>(
         .write_all(input.as_bytes())
         .expect("write ssh commands");
     drop(child.stdin.take());
-    let output = wait_with_timeout(child, Duration::from_secs(30));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "key ssh batch failed for {user}: {}\nstdout:\n{}",
-        stderr,
-        stdout
-    );
-    stdout.into_owned()
+    wait_with_timeout(child, Duration::from_secs(30))
 }
 
 fn sql_literal(value: &str) -> String {

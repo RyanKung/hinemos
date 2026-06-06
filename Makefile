@@ -53,6 +53,7 @@ sync-source:
 		--exclude .cargo-home \
 		--exclude .cache \
 		--exclude .host-build \
+		--exclude .playwright-cli \
 		--exclude target \
 		--exclude web/landing/dist \
 		--exclude .env \

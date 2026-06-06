@@ -9,4 +9,5 @@ edition = "2024"
 gloo-net = "0.6.0"
 serde = { version = "1.0.228", features = ["derive"] }
 wasm-bindgen-futures = "0.4.56"
+web-sys = { version = "0.3.83", features = ["Clipboard", "Navigator", "Window"] }
 yew = { version = "0.21.0", features = ["csr"] }
