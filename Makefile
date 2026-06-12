@@ -10,7 +10,7 @@ HOST_BINARY ?= $(HOST_BUILD_DIR)/hinemos
 LANDING_DIST ?= $(REPO)/web/landing/dist
 HINEMOS_RELEASE_TARGET ?= x86_64-unknown-linux-gnu
 
-.PHONY: help fmt fmt-fix check test build-host build-landing sync-source sync-binary sync-landing install-host restart-host deploy-host status-host clean-host
+.PHONY: help fmt fmt-fix check test build-host build-landing sync-source sync-binary sync-landing install-host restart-host deploy-host status-host clean-host test-landing-agent-matrix
 
 help:
 	@printf '%s\n' \
@@ -27,6 +27,7 @@ help:
 		'  make install-host   - Install the remote systemd services' \
 		'  make restart-host   - Restart the remote Hinemos services' \
 		'  make deploy-host    - Build, sync, install, and restart' \
+		'  make test-landing-agent-matrix - Run the landing page agent matrix' \
 		'  make status-host    - Show remote service status' \
 		'  make clean-host     - Remove local host-build/cache artifacts'
 
@@ -46,7 +47,7 @@ build-host:
 	HINEMOS_RELEASE_TARGET=$(HINEMOS_RELEASE_TARGET) scripts/host-release-build.sh $(REPO)
 
 build-landing:
-	cd $(REPO)/web/landing && NO_COLOR=false trunk build --release
+	cd $(REPO)/web/landing && env -u NO_COLOR trunk build --release
 
 sync-source:
 	$(RSYNC) \
@@ -74,6 +75,9 @@ restart-host:
 	$(SSH) $(HOST) 'sudo systemctl restart hinemos.service hinemos-http.service hinemos-mail.service'
 
 deploy-host: build-host build-landing sync-source sync-binary sync-landing install-host restart-host
+
+test-landing-agent-matrix:
+	scripts/landing_agent_matrix.sh
 
 status-host:
 	$(SSH) $(HOST) 'systemctl is-active hinemos.service hinemos-http.service hinemos-mail.service && cd $(REMOTE_DIR) && git rev-parse --short HEAD'

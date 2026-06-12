@@ -4,6 +4,9 @@
 
 mod messages;
 mod schema;
+mod storage_ext;
+mod storage_memory;
+mod storage_payments;
 mod types;
 
 use std::future::Future;
@@ -13,26 +16,51 @@ use argon2::Argon2;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use hinemos_core::PlayerState;
 use rand_core::OsRng;
-use serde_json::json;
 use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 use messages::NewInboxItem;
-use types::{
-    PlayerStateRow, credit_balance, debit_balance, ensure_balance_row, ensure_player_account,
-    fetch_balance_pool, fetch_balance_tx, fetch_parcel_by_id, player_account_id,
-    player_id_from_password_username, resolve_payment_target,
-};
+pub(crate) use types::PlayerStateRow;
+use types::player_id_from_password_username;
 pub use types::{
-    StorageError, StoredAccountSettings, StoredAdmission, StoredBalance, StoredIdentity,
-    StoredInboxItem, StoredMailAuthToken, StoredOperatorCommand, StoredParcel,
-    StoredPasswordIdentity, StoredPaymentRequest, StoredTransfer, StoredWorldMessage,
+    NewMemoryAtom, NewMemoryEvent, StorageError, StoredAccountSettings, StoredAdmission,
+    StoredAgentSelfModel, StoredBalance, StoredIdentity, StoredInboxItem, StoredMailAuthToken,
+    StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
+    StoredPasswordIdentity, StoredPaymentRequest, StoredServiceRoom, StoredSocialEdge,
+    StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
 pub const TEST_CURRENCY: &str = "MARK";
 
 const INITIAL_MARK_GRANT: i64 = 1_000;
+
+/// Parameters for registering or updating an externally hosted service room.
+#[derive(Debug, Clone, Copy)]
+pub struct ServiceRoomUpsert<'a> {
+    /// Stable view identifier for the external room.
+    pub view_id: &'a str,
+    /// Front/street view where the room entrance is advertised.
+    pub front_view_id: Option<&'a str>,
+    /// Entity identifier for the room entrance in the front view.
+    pub front_entity_id: Option<&'a str>,
+    /// Human-readable in-world address.
+    pub address: Option<&'a str>,
+    /// Display label for the room.
+    pub label: Option<&'a str>,
+    /// Comma-separated aliases that enter this room.
+    pub enter_aliases: Option<&'a str>,
+    /// Mail user owned by the external room service.
+    pub room_user: &'a str,
+    /// Player/principal id owned by the external room service.
+    pub room_player_id: &'a str,
+    /// Optional status text shown at the room entrance.
+    pub status_text: Option<&'a str>,
+    /// Optional command list supplied by the room service.
+    pub custom_commands: Option<&'a str>,
+    /// Whether the room is currently enabled.
+    pub enabled: bool,
+}
 
 /// Async player-state persistence boundary.
 pub trait PlayerStateStore {
@@ -69,6 +97,14 @@ impl PlayerStateStore for PgStorage {
     ) -> Pin<Box<dyn Future<Output = Result<(), StorageError>> + Send + 'a>> {
         Box::pin(async move { PgStorage::save_player_state(self, player).await })
     }
+}
+
+fn room_mail_user(parcel_id: &str) -> String {
+    format!("room-{parcel_id}")
+}
+
+fn room_mail_player_id(parcel_id: &str) -> String {
+    format!("room:{parcel_id}")
 }
 
 impl PgStorage {
@@ -349,6 +385,86 @@ impl PgStorage {
         .await?;
 
         Ok(token)
+    }
+
+    /// Sets or rotates the SMTP/IMAP auth token for a room mailbox.
+    pub async fn set_room_mail_auth_token(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        token: &str,
+    ) -> Result<StoredMailAuthToken, StorageError> {
+        if token.is_empty() {
+            return Err(StorageError::InvalidAccountSetting(
+                "room mail auth token must not be empty".to_owned(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let room_user = room_mail_user(parcel_id);
+        let room_player_id = room_mail_player_id(parcel_id);
+        let parcel = sqlx::query(
+            r#"
+            update commercial_parcels
+            set room_user = coalesce(room_user, $3),
+                room_player_id = coalesce(room_player_id, $4),
+                updated_at = now()
+            where parcel_id = $1
+              and owner_player_id = $2
+            returning coalesce(room_user, $3) as room_user,
+                      coalesce(room_player_id, $4) as room_player_id
+            "#,
+        )
+        .bind(parcel_id)
+        .bind(owner_player_id)
+        .bind(&room_user)
+        .bind(&room_player_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(parcel) = parcel else {
+            return Err(StorageError::NotParcelOwner(parcel_id.to_owned()));
+        };
+        let room_user: String = parcel.get("room_user");
+        let room_player_id: String = parcel.get("room_player_id");
+
+        let salt = SaltString::generate(&mut OsRng);
+        let token_hash = Argon2::default()
+            .hash_password(token.as_bytes(), &salt)
+            .map_err(StorageError::from_password_hash)?
+            .to_string();
+
+        sqlx::query(
+            r#"
+            insert into player_profiles (player_id, display_name)
+            values ($1, $2)
+            on conflict (player_id) do update
+            set display_name = excluded.display_name,
+                updated_at = now()
+            "#,
+        )
+        .bind(&room_player_id)
+        .bind(&room_user)
+        .execute(&mut *tx)
+        .await?;
+
+        let auth = sqlx::query_as::<_, StoredMailAuthToken>(
+            r#"
+            insert into mail_auth_tokens (username, player_id, token_hash)
+            values ($1, $2, $3)
+            on conflict (username) do update
+            set player_id = excluded.player_id,
+                token_hash = excluded.token_hash,
+                updated_at = now()
+            returning username, player_id
+            "#,
+        )
+        .bind(room_user)
+        .bind(room_player_id)
+        .bind(token_hash)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+
+        Ok(auth)
     }
 
     /// Authenticates a SMTP/IMAP username with its dedicated mail auth token.
@@ -672,625 +788,6 @@ impl PgStorage {
                 "username {username} belongs to another player"
             )));
         }
-        Ok(())
-    }
-
-    /// Ensures the player has a MARK wallet and receives the one-time test grant.
-    pub async fn ensure_player_wallet(
-        &self,
-        username: &str,
-        player_id: &str,
-    ) -> Result<StoredBalance, StorageError> {
-        let mut tx = self.pool.begin().await?;
-        let account_id = player_account_id(player_id);
-        ensure_player_account(&mut tx, &account_id, username, player_id).await?;
-        ensure_balance_row(&mut tx, &account_id).await?;
-
-        let grant_key = format!("initial_mark_grant:{account_id}");
-        let inserted = sqlx::query(
-            r#"
-            insert into world_ledger_entries (
-                asset, debit_account_id, credit_account_id, amount, reason, memo, idempotency_key
-            )
-            values ('MARK', null, $1, $2, 'initial_grant', 'initial test MARK grant', $3)
-            on conflict (idempotency_key) do nothing
-            returning id
-            "#,
-        )
-        .bind(&account_id)
-        .bind(INITIAL_MARK_GRANT)
-        .bind(&grant_key)
-        .fetch_optional(&mut *tx)
-        .await?
-        .is_some();
-
-        if inserted {
-            credit_balance(&mut tx, &account_id, INITIAL_MARK_GRANT).await?;
-        }
-
-        let balance = fetch_balance_tx(&mut tx, &account_id).await?;
-        tx.commit().await?;
-        Ok(balance)
-    }
-
-    /// Loads a player's MARK balance.
-    pub async fn player_balance(&self, player_id: &str) -> Result<StoredBalance, StorageError> {
-        let account_id = player_account_id(player_id);
-        fetch_balance_pool(&self.pool, &account_id).await
-    }
-
-    /// Transfers MARK from a player to a user or player account.
-    pub async fn transfer_mark(
-        &self,
-        sender_user: &str,
-        sender_player_id: &str,
-        target: &str,
-        amount: i64,
-        memo: &str,
-    ) -> Result<StoredTransfer, StorageError> {
-        if amount <= 0 {
-            return Err(StorageError::InvalidAmount(amount));
-        }
-
-        let mut tx = self.pool.begin().await?;
-        let sender_account_id = player_account_id(sender_player_id);
-        ensure_player_account(&mut tx, &sender_account_id, sender_user, sender_player_id).await?;
-        ensure_balance_row(&mut tx, &sender_account_id).await?;
-
-        let target = resolve_payment_target(&mut tx, target).await?;
-        let target_account_id = player_account_id(&target.player_id);
-        ensure_player_account(
-            &mut tx,
-            &target_account_id,
-            &target.username,
-            &target.player_id,
-        )
-        .await?;
-        ensure_balance_row(&mut tx, &target_account_id).await?;
-
-        if sender_account_id == target_account_id {
-            return Err(StorageError::SelfPayment);
-        }
-
-        debit_balance(&mut tx, &sender_account_id, amount).await?;
-        credit_balance(&mut tx, &target_account_id, amount).await?;
-        let ledger_id = sqlx::query(
-            r#"
-            insert into world_ledger_entries (
-                asset, debit_account_id, credit_account_id, amount, reason, memo
-            )
-            values ('MARK', $1, $2, $3, 'player_payment', $4)
-            returning id
-            "#,
-        )
-        .bind(&sender_account_id)
-        .bind(&target_account_id)
-        .bind(amount)
-        .bind(memo)
-        .fetch_one(&mut *tx)
-        .await?
-        .get::<i64, _>("id");
-        let sender_balance = fetch_balance_tx(&mut tx, &sender_account_id).await?.amount;
-        tx.commit().await?;
-
-        Ok(StoredTransfer {
-            ledger_id,
-            asset: TEST_CURRENCY.to_owned(),
-            amount,
-            sender_account_id,
-            target_account_id,
-            target_user: target.username,
-            memo: memo.to_owned(),
-            sender_balance,
-        })
-    }
-
-    /// Lists all commercial parcels.
-    pub async fn list_commercial_parcels(&self) -> Result<Vec<StoredParcel>, StorageError> {
-        let parcels = sqlx::query_as::<_, StoredParcel>(
-            r#"
-            select parcel_id, view_id, district, position, owner_user, owner_player_id,
-                   status, title, description, style, operator_prompt, custom_commands
-            from commercial_parcels
-            order by district, position
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(parcels)
-    }
-
-    /// Loads a commercial parcel by parcel id.
-    pub async fn commercial_parcel(&self, parcel_id: &str) -> Result<StoredParcel, StorageError> {
-        fetch_parcel_by_id(&self.pool, parcel_id).await
-    }
-
-    /// Loads a commercial parcel by view id.
-    pub async fn commercial_parcel_by_view(
-        &self,
-        view_id: &str,
-    ) -> Result<Option<StoredParcel>, StorageError> {
-        let parcel = sqlx::query_as::<_, StoredParcel>(
-            r#"
-            select parcel_id, view_id, district, position, owner_user, owner_player_id,
-                   status, title, description, style, operator_prompt, custom_commands
-            from commercial_parcels
-            where view_id = $1
-            "#,
-        )
-        .bind(view_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(parcel)
-    }
-
-    /// Claims a free commercial parcel.
-    pub async fn claim_commercial_parcel(
-        &self,
-        parcel_id: &str,
-        owner_user: &str,
-        owner_player_id: &str,
-    ) -> Result<StoredParcel, StorageError> {
-        let updated = sqlx::query_as::<_, StoredParcel>(
-            r#"
-            update commercial_parcels
-            set owner_user = $2,
-                owner_player_id = $3,
-                status = 'claimed',
-                updated_at = now()
-            where parcel_id = $1
-              and owner_player_id is null
-            returning parcel_id, view_id, district, position, owner_user, owner_player_id,
-                      status, title, description, style, operator_prompt, custom_commands
-            "#,
-        )
-        .bind(parcel_id)
-        .bind(owner_user)
-        .bind(owner_player_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        if let Some(parcel) = updated {
-            return Ok(parcel);
-        }
-
-        let existing = self.commercial_parcel(parcel_id).await?;
-        if existing.owner_player_id.is_some() {
-            Err(StorageError::ParcelAlreadyOwned(parcel_id.to_owned()))
-        } else {
-            Ok(existing)
-        }
-    }
-
-    /// Transfers a commercial parcel to another known player.
-    pub async fn transfer_commercial_parcel(
-        &self,
-        parcel_id: &str,
-        owner_player_id: &str,
-        target: &str,
-    ) -> Result<StoredParcel, StorageError> {
-        let mut tx = self.pool.begin().await?;
-        let target = resolve_payment_target(&mut tx, target).await?;
-        let updated = sqlx::query_as::<_, StoredParcel>(
-            r#"
-            update commercial_parcels
-            set owner_user = $3,
-                owner_player_id = $4,
-                updated_at = now()
-            where parcel_id = $1
-              and owner_player_id = $2
-            returning parcel_id, view_id, district, position, owner_user, owner_player_id,
-                      status, title, description, style, operator_prompt, custom_commands
-            "#,
-        )
-        .bind(parcel_id)
-        .bind(owner_player_id)
-        .bind(&target.username)
-        .bind(&target.player_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        tx.commit().await?;
-
-        updated.ok_or_else(|| StorageError::NotParcelOwner(parcel_id.to_owned()))
-    }
-
-    /// Updates one build sheet field for an owned parcel.
-    pub async fn update_parcel_build_field(
-        &self,
-        view_id: &str,
-        owner_player_id: &str,
-        field: &str,
-        value: &str,
-    ) -> Result<StoredParcel, StorageError> {
-        let column = match field {
-            "title" => "title",
-            "description" => "description",
-            "style" => "style",
-            "prompt" => "operator_prompt",
-            "commands" => "custom_commands",
-            _ => return Err(StorageError::UnknownBuildField(field.to_owned())),
-        };
-        let query = format!(
-            "update commercial_parcels set {column} = $3, updated_at = now() \
-             where view_id = $1 and owner_player_id = $2 \
-             returning parcel_id, view_id, district, position, owner_user, owner_player_id, \
-                       status, title, description, style, operator_prompt, custom_commands"
-        );
-        let updated = sqlx::query_as::<_, StoredParcel>(&query)
-            .bind(view_id)
-            .bind(owner_player_id)
-            .bind(value)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        updated.ok_or_else(|| StorageError::NotParcelOwner(view_id.to_owned()))
-    }
-
-    /// Publishes an owned parcel build sheet.
-    pub async fn publish_parcel_build(
-        &self,
-        view_id: &str,
-        owner_player_id: &str,
-    ) -> Result<StoredParcel, StorageError> {
-        let updated = sqlx::query_as::<_, StoredParcel>(
-            r#"
-            update commercial_parcels
-            set status = 'built',
-                updated_at = now()
-            where view_id = $1
-              and owner_player_id = $2
-              and coalesce(title, '') <> ''
-              and coalesce(description, '') <> ''
-            returning parcel_id, view_id, district, position, owner_user, owner_player_id,
-                      status, title, description, style, operator_prompt, custom_commands
-            "#,
-        )
-        .bind(view_id)
-        .bind(owner_player_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        updated.ok_or_else(|| StorageError::BuildNotPublishable(view_id.to_owned()))
-    }
-
-    /// Stores a raw visitor command for a shop operator.
-    pub async fn save_operator_command(
-        &self,
-        parcel: &StoredParcel,
-        sender_user: &str,
-        sender_player_id: &str,
-        raw_input: &str,
-        delivered: bool,
-    ) -> Result<StoredOperatorCommand, StorageError> {
-        let owner_user = parcel
-            .owner_user
-            .as_deref()
-            .ok_or_else(|| StorageError::ParcelNotBuilt(parcel.parcel_id.clone()))?;
-        let owner_player_id = parcel
-            .owner_player_id
-            .as_deref()
-            .ok_or_else(|| StorageError::ParcelNotBuilt(parcel.parcel_id.clone()))?;
-        let status = if delivered { "delivered" } else { "pending" };
-        let command = sqlx::query_as::<_, StoredOperatorCommand>(
-            r#"
-            insert into operator_commands (
-                view_id, parcel_id, sender_user, sender_player_id,
-                owner_user, owner_player_id, raw_input, status, delivered_at
-            )
-            values ($1, $2, $3, $4, $5, $6, $7, $8,
-                    case when $8 = 'delivered' then now() else null end)
-            returning id, view_id, parcel_id, sender_user, sender_player_id,
-                      owner_user, owner_player_id, raw_input, status,
-                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            "#,
-        )
-        .bind(&parcel.view_id)
-        .bind(&parcel.parcel_id)
-        .bind(sender_user)
-        .bind(sender_player_id)
-        .bind(owner_user)
-        .bind(owner_player_id)
-        .bind(raw_input)
-        .bind(status)
-        .fetch_one(&self.pool)
-        .await?;
-        let subject = format!("Shop command for {}", parcel.parcel_id);
-        self.create_inbox_item(NewInboxItem {
-            kind: "shop_command",
-            recipient_user: owner_user,
-            recipient_player_id: owner_player_id,
-            sender_user,
-            sender_player_id,
-            subject: &subject,
-            body: raw_input,
-            source_kind: Some("operator_command"),
-            source_id: Some(command.id),
-            payload: json!({
-                "parcelId": parcel.parcel_id,
-                "viewId": parcel.view_id,
-                "commandId": command.id,
-                "rawInput": raw_input
-            }),
-        })
-        .await?;
-        Ok(command)
-    }
-
-    /// Loads recent raw visitor commands for shops owned by a player.
-    pub async fn recent_operator_commands(
-        &self,
-        owner_player_id: &str,
-        limit: i64,
-    ) -> Result<Vec<StoredOperatorCommand>, StorageError> {
-        let commands = sqlx::query_as::<_, StoredOperatorCommand>(
-            r#"
-            select id, view_id, parcel_id, sender_user, sender_player_id,
-                   owner_user, owner_player_id, raw_input, status,
-                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            from operator_commands
-            where owner_player_id = $1
-            order by id desc
-            limit $2
-            "#,
-        )
-        .bind(owner_player_id)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(commands)
-    }
-
-    /// Creates a payment request from a shop command owned by the operator.
-    pub async fn create_payment_request(
-        &self,
-        operator_command_id: i64,
-        owner_player_id: &str,
-        amount: i64,
-        delivery: &str,
-    ) -> Result<StoredPaymentRequest, StorageError> {
-        if amount <= 0 {
-            return Err(StorageError::InvalidAmount(amount));
-        }
-        let mut tx = self.pool.begin().await?;
-        let command = sqlx::query_as::<_, StoredOperatorCommand>(
-            r#"
-            select id, view_id, parcel_id, sender_user, sender_player_id,
-                   owner_user, owner_player_id, raw_input, status,
-                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            from operator_commands
-            where id = $1
-            for update
-            "#,
-        )
-        .bind(operator_command_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(StorageError::OperatorCommandNotFound(operator_command_id))?;
-
-        if command.owner_player_id != owner_player_id {
-            return Err(StorageError::NotParcelOwner(command.parcel_id));
-        }
-
-        let memo = format!("shop command #{}", command.id);
-        let request = sqlx::query_as::<_, StoredPaymentRequest>(
-            r#"
-            insert into payment_requests (
-                operator_command_id, parcel_id, payer_user, payer_player_id,
-                payee_user, payee_player_id, asset, amount, memo, delivery
-            )
-            values ($1, $2, $3, $4, $5, $6, 'MARK', $7, $8, $9)
-            returning id, operator_command_id, parcel_id, payer_user, payer_player_id,
-                      payee_user, payee_player_id, asset, amount, memo, delivery,
-                      status, ledger_id,
-                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            "#,
-        )
-        .bind(command.id)
-        .bind(command.parcel_id)
-        .bind(command.sender_user)
-        .bind(command.sender_player_id)
-        .bind(command.owner_user)
-        .bind(command.owner_player_id)
-        .bind(amount)
-        .bind(memo)
-        .bind(delivery)
-        .fetch_one(&mut *tx)
-        .await?;
-        sqlx::query(
-            r#"
-            update operator_commands
-            set status = 'handled'
-            where id = $1
-            "#,
-        )
-        .bind(command.id)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        let subject = format!("Payment request #{}", request.id);
-        let body = format!(
-            "{} requests {} {} for shop command #{} in {}. Accept with /pay accept {}.",
-            request.payee_user,
-            request.amount,
-            request.asset,
-            request.operator_command_id,
-            request.parcel_id,
-            request.id
-        );
-        self.create_inbox_item(NewInboxItem {
-            kind: "payment_request",
-            recipient_user: &request.payer_user,
-            recipient_player_id: &request.payer_player_id,
-            sender_user: &request.payee_user,
-            sender_player_id: &request.payee_player_id,
-            subject: &subject,
-            body: &body,
-            source_kind: Some("payment_request"),
-            source_id: Some(request.id),
-            payload: json!({
-                "requestId": request.id,
-                "operatorCommandId": request.operator_command_id,
-                "parcelId": request.parcel_id,
-                "amount": request.amount,
-                "asset": request.asset
-            }),
-        })
-        .await?;
-        Ok(request)
-    }
-
-    /// Loads pending payment requests for a player.
-    pub async fn pending_payment_requests(
-        &self,
-        payer_player_id: &str,
-        limit: i64,
-    ) -> Result<Vec<StoredPaymentRequest>, StorageError> {
-        let requests = sqlx::query_as::<_, StoredPaymentRequest>(
-            r#"
-            select id, operator_command_id, parcel_id, payer_user, payer_player_id,
-                   payee_user, payee_player_id, asset, amount, memo, delivery,
-                   status, ledger_id,
-                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            from payment_requests
-            where payer_player_id = $1
-              and status = 'pending'
-            order by id desc
-            limit $2
-            "#,
-        )
-        .bind(payer_player_id)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(requests)
-    }
-
-    /// Accepts a pending payment request, transfers MARK, and returns the paid request.
-    pub async fn accept_payment_request(
-        &self,
-        payer_user: &str,
-        payer_player_id: &str,
-        request_id: i64,
-    ) -> Result<(StoredPaymentRequest, i64), StorageError> {
-        let mut tx = self.pool.begin().await?;
-        let request = sqlx::query_as::<_, StoredPaymentRequest>(
-            r#"
-            select id, operator_command_id, parcel_id, payer_user, payer_player_id,
-                   payee_user, payee_player_id, asset, amount, memo, delivery,
-                   status, ledger_id,
-                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            from payment_requests
-            where id = $1
-            for update
-            "#,
-        )
-        .bind(request_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(StorageError::PaymentRequestNotFound(request_id))?;
-
-        if request.payer_player_id != payer_player_id {
-            return Err(StorageError::PaymentRequestForbidden(request_id));
-        }
-        if request.status != "pending" {
-            return Err(StorageError::PaymentRequestNotPending(request_id));
-        }
-
-        let sender_account_id = player_account_id(payer_player_id);
-        let target_account_id = player_account_id(&request.payee_player_id);
-        ensure_player_account(&mut tx, &sender_account_id, payer_user, payer_player_id).await?;
-        ensure_player_account(
-            &mut tx,
-            &target_account_id,
-            &request.payee_user,
-            &request.payee_player_id,
-        )
-        .await?;
-        ensure_balance_row(&mut tx, &sender_account_id).await?;
-        ensure_balance_row(&mut tx, &target_account_id).await?;
-
-        debit_balance(&mut tx, &sender_account_id, request.amount).await?;
-        credit_balance(&mut tx, &target_account_id, request.amount).await?;
-        let ledger_id = sqlx::query(
-            r#"
-            insert into world_ledger_entries (
-                asset, debit_account_id, credit_account_id, amount, reason, memo
-            )
-            values ('MARK', $1, $2, $3, 'shop_payment_request', $4)
-            returning id
-            "#,
-        )
-        .bind(&sender_account_id)
-        .bind(&target_account_id)
-        .bind(request.amount)
-        .bind(&request.memo)
-        .fetch_one(&mut *tx)
-        .await?
-        .get::<i64, _>("id");
-
-        let paid = sqlx::query_as::<_, StoredPaymentRequest>(
-            r#"
-            update payment_requests
-            set status = 'paid',
-                ledger_id = $2,
-                paid_at = now()
-            where id = $1
-            returning id, operator_command_id, parcel_id, payer_user, payer_player_id,
-                      payee_user, payee_player_id, asset, amount, memo, delivery,
-                      status, ledger_id,
-                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            "#,
-        )
-        .bind(request_id)
-        .bind(ledger_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        let sender_balance = fetch_balance_tx(&mut tx, &sender_account_id).await?.amount;
-        tx.commit().await?;
-        Ok((paid, sender_balance))
-    }
-
-    /// Loads a player state if one has been saved.
-    pub async fn load_player_state(
-        &self,
-        player_id: &str,
-    ) -> Result<Option<PlayerState>, StorageError> {
-        let Some(row) = sqlx::query_as::<_, PlayerStateRow>(
-            r#"
-            select player_id, current_view, inventory
-            from player_states
-            where player_id = $1
-            "#,
-        )
-        .bind(player_id)
-        .fetch_optional(&self.pool)
-        .await?
-        else {
-            return Ok(None);
-        };
-
-        Ok(Some(row.try_into()?))
-    }
-
-    /// Saves the current player state.
-    pub async fn save_player_state(&self, player: &PlayerState) -> Result<(), StorageError> {
-        let inventory = serde_json::to_value(&player.inventory)?;
-        sqlx::query(
-            r#"
-            insert into player_states (player_id, current_view, inventory)
-            values ($1, $2, $3)
-            on conflict (player_id) do update
-            set current_view = excluded.current_view,
-                inventory = excluded.inventory,
-                updated_at = now()
-            "#,
-        )
-        .bind(&player.id)
-        .bind(&player.current_view)
-        .bind(inventory)
-        .execute(&self.pool)
-        .await?;
-
         Ok(())
     }
 }

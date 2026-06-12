@@ -9,13 +9,13 @@ hinemos-core = { version = "0.1.0", path = "../core" }
 hinemos-http = { version = "0.1.0", path = "../protocol/http" }
 hinemos-runtime = { version = "0.1.0", path = "../runtime" }
 hinemos-ssh = { version = "0.1.0", path = "../protocol/ssh" }
+hinemos-storage = { version = "0.1.0", path = "../storage" }
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
-hinemos-storage = { version = "0.1.0", path = "../storage" }
 rustls = "0.23.40"
 
 [[bin]]

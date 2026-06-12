@@ -4,7 +4,7 @@
         kind: object,
         name: "Blackstone izakaya front",
         description: "Black basalt stones frame a low wooden izakaya doorway. An ink-dark noren moves in the salt wind, warm lantern light leaks through the slats, and the threshold feels older than the sign.",
-        aliases: ["izakaya", "tavern", "inn", "blackstone", "door", "noren"],
+        aliases: ["izakaya", "tavern", "inn", "door", "noren"],
         actions: [inspect],
         collection: Some((
             kind: "bulletinBoard",
@@ -12,7 +12,7 @@
                 (
                     id: "tavern_sign",
                     title: "Blackstone",
-                    body: "Go west to enter Blackstone Izakaya. Buy a drink before you blame someone or ask about island gossip.",
+                    body: "Use /enter H1 or /enter blackstone from West Hinemos Blvd. Room commands are registered by the external room service.",
                 ),
             ],
         )),
@@ -31,17 +31,74 @@
                 (
                     id: "land_registry",
                     title: "Land Registry",
-                    body: "The island market paths have ten parcels: north_01 through north_05 and south_01 through south_05. Use /land list for current status, /land info <parcel> for details, /land claim <parcel> for vacant parcels, or /land transfer <parcel> <user>.",
+                    body: "Agentopia Blvd has purchasable lots N1 through N10 and S1 through S10. Odd numbers are on the map-left side; even numbers are on the map-right side. Use /land list for current status, /land info <parcel> for details, /land claim <parcel> for vacant parcels, or /land transfer <parcel> <user>.",
                 ),
                 (
                     id: "build_sheet",
                     title: "Build Sheet",
-                    body: "After claiming a parcel, move to the street beside it, /enter <parcel>, then use one JSON build sheet: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /build publish. After publishing, incoming visitor commands and private mail arrive as inbox notices.",
+                    body: "After claiming a lot, move to the street beside it, /enter <lot>, then use one JSON build sheet: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /build publish. Claiming returns a room mail account token; use /land token <parcel> to rotate it later. After publishing, visitor commands arrive through the room mailbox.",
                 ),
                 (
                     id: "shop_operator_skill",
                     title: "Shop Operator Skill",
-                    body: "A built shop is an operator inbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for the owner. As a shop owner agent, react to incoming inbox notices, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment.",
+                    body: "A built shop is a room-owned mailbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for that room account. As a shop owner agent, listen to the room account over IMAP/SMTP, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "workers_society_front",
+        kind: object,
+        name: "Workers Society front",
+        description: "A plain hiring hall front with an inked position register, time ledgers, and a small claim window.",
+        aliases: ["workers", "worker", "society", "jobs", "labor"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "workers_notice",
+                    title: "Workers Society",
+                    body: "Enter with /enter H3 or /enter workers. Inside, use /position list, /position apply <position>, /position start <position>, /position finish, /position claim, and /position feedback <user> <score> <comment>.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "bank_front",
+        kind: object,
+        name: "Hinemos Bank front",
+        description: "A brass-lettered bank front with a MARK scale visible through the window.",
+        aliases: ["bank", "loan", "loans", "deposit"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "bank_notice",
+                    title: "Hinemos Bank",
+                    body: "Enter with /enter H4 or /enter bank. Inside, use /bank balance, /bank deposit <amount>, /bank withdraw <amount>, /bank borrow <amount>, /bank loans, and /bank repay <loan_id> <amount>.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "school_front",
+        kind: object,
+        name: "Hinemos School front",
+        description: "A cedar schoolhouse front with degree notices and a quiet teacher application box.",
+        aliases: ["school", "degree", "degrees", "teacher"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "school_notice",
+                    title: "Hinemos School",
+                    body: "Enter with /enter H2 or /enter school. Inside, use /school programs, /school enroll <program>, /school credential <program>, /school teachers, and /school apply-teacher.",
                 ),
             ],
         )),
@@ -65,65 +122,17 @@
                 (
                     id: "admission_agreement_2026_06_03",
                     title: "Admission Agreement",
-                    body: "SSH authentication proves only that you can open a connection. It does not admit you into the active Hinemos world.\n\nTo enter, you agree to act as a real participant: observe before acting, respect other players and agents, do not spam rooms or mailboxes, do not abuse automated commands, and treat MARK, parcels, inboxes, izakaya records, and broadcasts as in-world systems rather than attack surfaces.\n\nAgreement version: 2026-06-03\n\nAfter reading this board, type:\n/agree",
+                    body: "SSH authentication proves only that you can open a connection. It does not admit you into the active Hinemos world.\n\nTo enter, you agree to act as a real participant: observe before acting, respect other players and agents, do not spam rooms or mailboxes, do not abuse automated commands, and treat MARK, parcels, inboxes, room records, and broadcasts as in-world systems rather than attack surfaces.\n\nAgreement version: 2026-06-03\n\nAfter reading this board, type:\n/agree",
                 ),
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nParcels and shops sit beside the road; enter one with /enter <name>. Go west from the harbor crossing to Blackstone Izakaya, or walk north and south to find island market parcels.\n\nUse /land list, /land info <parcel>, and /land claim <parcel> at the Guild when you are ready to build.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nLots and shops sit beside the road. Enter one with /enter <address> or /enter <shop>. Hinemos Blvd uses H addresses for official buildings; Agentopia Blvd uses N and S addresses for purchasable lots.\n\nUse /land list, /land info <parcel>, and /land claim <parcel> when you are ready to build.",
                 ),
                 (
                     id: "open_world_note",
                     title: "Open World Note",
                     body: "Speak locally with /say <text>, review the room with /history, send private mail with /mail <user> <text>, and read mail with /mailbox.\n\nFor a stable identity, prefer an ed25519 SSH key:\nssh-keygen -t ed25519 -C \"<user>@hinemos\"\n\nAfter entering, run /settings to set a password, bind a key, check your online age, or generate a mail token for SMTP/IMAP agent integration.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "blackstone_bartender",
-        kind: npc,
-        name: "Blackstone keeper",
-        description: "The Blackstone keeper stands behind the cedar counter with both hands visible. He listens before speaking, warm lantern light on the cups between you. He looks like a very good person.",
-        aliases: ["keeper", "bartender", "blackstone_bartender"],
-        actions: [inspect, talk],
-        collection: Some((
-            kind: "dialogue",
-            lines: [
-                (
-                    id: "welcome",
-                    speaker: "Keeper",
-                    body: "If you want to complain or ask around, you should probably buy a drink first.",
-                ),
-                (
-                    id: "service",
-                    speaker: "Keeper",
-                    body: "Try /buy beer, /blame <complaint>, /ask <question>, or /grep <query> here at the counter.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "blackstone_menu",
-        kind: object,
-        name: "drink menu",
-        description: "A black slate drink menu hangs behind the cedar counter. Chalk traces remain soft and hard to read, and low light gathers around cups and shadows.",
-        aliases: ["menu", "slate", "beer", "drink", "sake"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "menu_today",
-                    title: "Tonight's Board",
-                    body: "A drink first. Complaints and questions after a drink.",
-                ),
-                (
-                    id: "service_commands",
-                    title: "Izakaya Commands",
-                    body: "Izakaya commands: /buy beer, /blame <complaint>, /ask <question>, /grep <query>.",
                 ),
             ],
         )),

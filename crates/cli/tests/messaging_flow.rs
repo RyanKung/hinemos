@@ -24,16 +24,21 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let mut target_session = SshSession::spawn(host, port, &target);
+    let sender_key = admitted_key(&temp, host, port, &sender);
+    let target_key = admitted_key(&temp, host, port, &target);
+    let bystander_key = admitted_key(&temp, host, port, &bystander);
+
+    let mut target_session = SshSession::spawn_with_key(host, port, &target, &target_key);
     target_session.wait_for_stdout("Available:", Duration::from_secs(10));
-    let mut bystander_session = SshSession::spawn(host, port, &bystander);
+    let mut bystander_session = SshSession::spawn_with_key(host, port, &bystander, &bystander_key);
     bystander_session.wait_for_stdout("Available:", Duration::from_secs(10));
 
-    let sender_output = run_ssh_batch(
+    let sender_output = run_ssh_batch_with_key(
         host,
         port,
         &sender,
-        [&format!("/mail {target} {message}"), "/quit"],
+        &sender_key,
+        &[&format!("/mail {target} {message}"), "/quit"],
     );
     assert_contains(
         &sender_output,
@@ -41,10 +46,11 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
         "sender sees mail confirmation",
     );
     target_session.wait_for_stdout(
-        &format!("Inbox: new mail #1 from {sender}"),
+        &format!("Mail from {sender}: Private mail"),
         Duration::from_secs(10),
     );
-    target_session.wait_for_stdout("Use: /mail read 1", Duration::from_secs(10));
+    target_session.wait_for_stdout(&message, Duration::from_secs(10));
+    target_session.wait_for_stdout("(saved to /mailbox as #1.)", Duration::from_secs(10));
 
     target_session.write_line("/mailbox");
     target_session.wait_for_stdout("Mailbox", Duration::from_secs(10));
@@ -63,7 +69,7 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
     let target_output = target_session.wait_success(Duration::from_secs(10));
     assert_contains(
         &target_output,
-        &format!("Inbox: new mail #1 from {sender}"),
+        &format!("Mail from {sender}: Private mail"),
         "target receives live direct mail",
     );
     assert_contains(
@@ -79,6 +85,123 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
         &bystander_output,
         &message,
         "bystander does not receive direct mail",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
+fn external_room_commands_are_data_registered_and_delivered_by_mail() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-external-room-mail");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let sender = format!("room_sender_{}_{}", std::process::id(), epoch_seconds());
+    let message = format!(
+        "external_room_probe_{}_{}",
+        std::process::id(),
+        epoch_seconds()
+    );
+    let server_log = temp.path.join("hinemos-server.log");
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+    let room_user = format!("room-protocol-test-{}", epoch_seconds());
+    let room_player_id = format!("room:protocol-test:{}", epoch_seconds());
+    let room_address = format!("TEST{}", std::process::id());
+    let room_view_id = format!("external_protocol_room_{}", std::process::id());
+    test_database.query_value(&format!(
+        "insert into service_rooms (
+             view_id, front_view_id, front_entity_id, address, label, enter_aliases,
+             room_user, room_player_id, status_text, custom_commands, enabled
+         ) values (
+             '{room_view_id}', 'arrival_street', 'cyber_scroll_board', '{room_address}',
+             'Protocol Test Room', 'protocol test room',
+             '{room_user}', '{room_player_id}',
+             'Protocol test service room.',
+             '/room ask <question>',
+             true
+         ) returning room_user"
+    ));
+    let sender_key = admitted_key(&temp, host, port, &sender);
+
+    let output = run_ssh_batch_with_key(
+        host,
+        port,
+        &sender,
+        &sender_key,
+        &[
+            &format!("/enter {room_address}"),
+            "/look",
+            &format!("/room ask {message}"),
+            "plain room chat from test",
+            "/unknown-room-command",
+            "/go south",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &output,
+        "Available:",
+        "room observation renders available commands",
+    );
+    assert_contains(
+        &output,
+        "- local:",
+        "room observation groups service-room commands as local actions",
+    );
+    assert_contains(
+        &output,
+        "/room ask <question>",
+        "room commands come from service-room registration data",
+    );
+    assert_not_contains(
+        &output,
+        "talk:",
+        "external service rooms do not expose generic talk commands",
+    );
+    assert_contains(
+        &output,
+        &format!("Sent to room service {room_user}."),
+        "room command is delivered through the service-room mail protocol",
+    );
+    assert_contains(
+        &output,
+        "That command is not on the town board. Choose one Available command.",
+        "unknown slash commands are rejected by core command handling",
+    );
+    assert_contains(
+        &output,
+        "Harbor Square",
+        "external service room can return to its registered front view",
+    );
+
+    let count = test_database.query_value(&format!(
+        "select count(*) from inbox_items where recipient_user = '{room_user}' and sender_user = '{sender}' and body = '/room ask {message}'"
+    ));
+    assert_eq!(
+        count, "1",
+        "room input is persisted for the external service"
+    );
+    let plain_count = test_database.query_value(&format!(
+        "select count(*) from inbox_items where recipient_user = '{room_user}' and sender_user = '{sender}' and body = 'plain room chat from test'"
+    ));
+    assert_eq!(
+        plain_count, "1",
+        "plain room chat is persisted for the external service"
+    );
+    let unknown_count = test_database.query_value(&format!(
+        "select count(*) from inbox_items where recipient_user = '{room_user}' and sender_user = '{sender}' and body = '/unknown-room-command'"
+    ));
+    assert_eq!(
+        unknown_count, "0",
+        "unknown slash commands are not sent to the external service"
     );
 
     terminate(&mut server);
@@ -113,14 +236,18 @@ fn configured_mail_domain_addresses_deliver_to_local_user() {
     );
     wait_for_server(host, port, &mut server, &server_log);
 
-    let mut target_session = SshSession::spawn(host, port, &target);
+    let sender_key = admitted_key(&temp, host, port, &sender);
+    let target_key = admitted_key(&temp, host, port, &target);
+
+    let mut target_session = SshSession::spawn_with_key(host, port, &target, &target_key);
     target_session.wait_for_stdout("Available:", Duration::from_secs(10));
 
-    let sender_output = run_ssh_batch(
+    let sender_output = run_ssh_batch_with_key(
         host,
         port,
         &sender,
-        [
+        &sender_key,
+        &[
             &format!("/mail {external_address} should_not_deliver"),
             &format!("/mail {target_address} {message}"),
             "/quit",
@@ -138,9 +265,10 @@ fn configured_mail_domain_addresses_deliver_to_local_user() {
     );
 
     target_session.wait_for_stdout(
-        &format!("Inbox: new mail #1 from {sender}@hinemos.local"),
+        &format!("Mail from {sender}@hinemos.local: Private mail"),
         Duration::from_secs(10),
     );
+    target_session.wait_for_stdout(&message, Duration::from_secs(10));
     target_session.write_line("/mail read 1");
     target_session.wait_for_stdout("Inbox #1", Duration::from_secs(10));
     target_session.wait_for_stdout(
@@ -185,7 +313,11 @@ fn ssh_mailbox_protocol_receives_newmail_without_polling() {
     );
     wait_for_server(host, port, &mut server, &server_log);
 
-    let mut mailbox_session = SshSession::spawn_exec(host, port, &target, ["mailbox"]);
+    let sender_key = admitted_key(&temp, host, port, &sender);
+    let target_key = admitted_key(&temp, host, port, &target);
+
+    let mut mailbox_session =
+        SshSession::spawn_exec_with_key(host, port, &target, &target_key, ["mailbox"]);
     mailbox_session.wait_for_stdout(
         &format!("OK HINEMOS-MAIL ready user {target}@hinemos.local"),
         Duration::from_secs(10),
@@ -193,11 +325,12 @@ fn ssh_mailbox_protocol_receives_newmail_without_polling() {
     mailbox_session.write_line("IDLE");
     mailbox_session.wait_for_stdout("IDLE active", Duration::from_secs(10));
 
-    let sender_output = run_ssh_batch(
+    let sender_output = run_ssh_batch_with_key(
         host,
         port,
         &sender,
-        [&format!("/mail {target} {message}"), "/quit"],
+        &sender_key,
+        &[&format!("/mail {target} {message}"), "/quit"],
     );
     assert_contains(
         &sender_output,
@@ -261,14 +394,18 @@ fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let mut agent_session = SshSession::spawn(host, port, &agent);
+    let sender_key = admitted_key(&temp, host, port, &sender);
+    let agent_key = admitted_key(&temp, host, port, &agent);
+
+    let mut agent_session = SshSession::spawn_with_key(host, port, &agent, &agent_key);
     agent_session.wait_for_stdout("Available:", Duration::from_secs(10));
 
-    let sender_output = run_ssh_batch(
+    let sender_output = run_ssh_batch_with_key(
         host,
         port,
         &sender,
-        [&format!("/mail {agent} {message}"), "/quit"],
+        &sender_key,
+        &[&format!("/mail {agent} {message}"), "/quit"],
     );
     assert_contains(
         &sender_output,
@@ -276,9 +413,13 @@ fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
         "sender sees mail confirmation",
     );
 
-    let notice_prefix = "Inbox: new mail #";
+    agent_session.wait_for_stdout(
+        &format!("Mail from {sender}: Private mail"),
+        Duration::from_secs(10),
+    );
+    agent_session.wait_for_stdout(&message, Duration::from_secs(10));
+    let notice_prefix = "(saved to /mailbox as #";
     agent_session.wait_for_stdout(notice_prefix, Duration::from_secs(10));
-    agent_session.wait_for_stdout(&format!(" from {sender}"), Duration::from_secs(10));
     let inbox_id = parse_hash_id(&agent_session.stdout_text(), notice_prefix);
 
     agent_session.write_line(&format!("/mail read {inbox_id}"));
@@ -290,7 +431,7 @@ fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
     let agent_output = agent_session.wait_success(Duration::from_secs(10));
     assert_contains(
         &agent_output,
-        &format!("Inbox: new mail #{inbox_id} from {sender}"),
+        &format!("Mail from {sender}: Private mail"),
         "agent sees parseable live inbox notice",
     );
     assert_contains(
@@ -323,18 +464,23 @@ fn same_view_say_reaches_only_players_in_that_view() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let mut listener_session = SshSession::spawn(host, port, &listener);
+    let speaker_key = admitted_key(&temp, host, port, &speaker);
+    let listener_key = admitted_key(&temp, host, port, &listener);
+    let outsider_key = admitted_key(&temp, host, port, &outsider);
+
+    let mut listener_session = SshSession::spawn_with_key(host, port, &listener, &listener_key);
     listener_session.wait_for_stdout("Available:", Duration::from_secs(10));
-    let mut outsider_session = SshSession::spawn(host, port, &outsider);
+    let mut outsider_session = SshSession::spawn_with_key(host, port, &outsider, &outsider_key);
     outsider_session.wait_for_stdout("Available:", Duration::from_secs(10));
     outsider_session.write_line("/go west");
-    outsider_session.wait_for_stdout("Blackstone Izakaya", Duration::from_secs(10));
+    outsider_session.wait_for_stdout("West Hinemos Blvd", Duration::from_secs(10));
 
-    let speaker_output = run_ssh_batch(
+    let speaker_output = run_ssh_batch_with_key(
         host,
         port,
         &speaker,
-        [&format!("/say {message}"), "/history", "/quit"],
+        &speaker_key,
+        &[&format!("/say {message}"), "/history", "/quit"],
     );
     assert_contains(
         &speaker_output,
@@ -389,7 +535,8 @@ fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let mut observer_session = SshSession::spawn(host, port, &observer);
+    let observer_key = admitted_key(&temp, host, port, &observer);
+    let mut observer_session = SshSession::spawn_with_key(host, port, &observer, &observer_key);
     observer_session.wait_for_stdout("Available:", Duration::from_secs(10));
 
     let mut peer_sessions = Vec::new();
@@ -400,7 +547,8 @@ fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
             std::process::id(),
             epoch_seconds()
         );
-        let session = SshSession::spawn(host, port, &peer);
+        let key = admitted_key(&temp, host, port, &peer);
+        let session = SshSession::spawn_with_key(host, port, &peer, &key);
         session.wait_for_stdout("Available:", Duration::from_secs(10));
         peer_sessions.push(session);
         peers.push(peer);
@@ -459,18 +607,23 @@ fn broadcast_reaches_all_online_players_and_persists_in_news() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let mut session_a = SshSession::spawn(host, port, &listener_a);
+    let sender_key = admitted_key(&temp, host, port, &sender);
+    let listener_a_key = admitted_key(&temp, host, port, &listener_a);
+    let listener_b_key = admitted_key(&temp, host, port, &listener_b);
+
+    let mut session_a = SshSession::spawn_with_key(host, port, &listener_a, &listener_a_key);
     session_a.wait_for_stdout("Available:", Duration::from_secs(10));
-    let mut session_b = SshSession::spawn(host, port, &listener_b);
+    let mut session_b = SshSession::spawn_with_key(host, port, &listener_b, &listener_b_key);
     session_b.wait_for_stdout("Available:", Duration::from_secs(10));
     session_b.write_line("/go west");
-    session_b.wait_for_stdout("Blackstone Izakaya", Duration::from_secs(10));
+    session_b.wait_for_stdout("West Hinemos Blvd", Duration::from_secs(10));
 
-    let sender_output = run_ssh_batch(
+    let sender_output = run_ssh_batch_with_key(
         host,
         port,
         &sender,
-        [&format!("/broadcast {message}"), "/news", "/quit"],
+        &sender_key,
+        &[&format!("/broadcast {message}"), "/news", "/quit"],
     );
     assert_contains(
         &sender_output,

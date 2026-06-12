@@ -190,6 +190,11 @@ pub enum LandAction {
         /// Target user or player id.
         target: String,
     },
+    /// Rotate and show the room mailbox token for an owned parcel.
+    Token {
+        /// Parcel id.
+        parcel_id: String,
+    },
 }
 
 /// Wallet payment actions.

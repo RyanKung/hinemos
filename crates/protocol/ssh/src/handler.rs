@@ -2,6 +2,14 @@
 
 use super::*;
 
+#[path = "handler_business.rs"]
+mod handler_business;
+#[path = "handler_helpers.rs"]
+mod handler_helpers;
+#[path = "handler_io.rs"]
+mod handler_io;
+#[path = "handler_memory.rs"]
+mod handler_memory;
 mod session;
 
 use crate::auth::AuthIdentity;
@@ -10,7 +18,12 @@ use crate::presence::PresenceDeliveryMode;
 use crate::render::*;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use hinemos_storage::{StoredAdmission, StoredParcel};
+use handler_helpers::*;
+use hinemos_core::{Direction, ExitObservation, SettingsAction};
+use hinemos_storage::{
+    StoredAdmission, StoredAgentSelfModel, StoredMemoryAtom, StoredMemoryEvent, StoredParcel,
+    StoredServiceRoom, StoredSocialEdge,
+};
 use rand::Rng;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +36,7 @@ const AGREEMENT_VERSION: &str = "2026-06-03";
 const ADMISSION_VIEW_ID: &str = "arrival_street";
 const PENDING_PRESENCE_VIEW_ID: &str = "__pending_admission";
 const ADMISSION_BOARD_ENTITY_ID: &str = "cyber_scroll_board";
+const MAX_SHELL_INPUT_BYTES: usize = 4096;
 
 pub(crate) struct ConnectionHandler {
     shared: Arc<SharedState>,
@@ -30,6 +44,7 @@ pub(crate) struct ConnectionHandler {
     peer_addr: Option<SocketAddr>,
     identity: Option<AuthIdentity>,
     input_buffer: String,
+    discarding_oversized_input: bool,
     commands_seen: u64,
     channel: Option<ChannelId>,
     chrome: Option<Chrome>,
@@ -49,6 +64,7 @@ impl ConnectionHandler {
             peer_addr,
             identity: None,
             input_buffer: String::new(),
+            discarding_oversized_input: false,
             commands_seen: 0,
             channel: None,
             chrome: None,
@@ -96,6 +112,9 @@ impl ConnectionHandler {
             {
                 send_command_error(session, channel, error, false)?;
             }
+            if let Err(error) = self.send_memory_context(channel, session, identity).await {
+                send_command_error(session, channel, error, false)?;
+            }
         } else {
             session.data(
                 channel,
@@ -104,7 +123,7 @@ impl ConnectionHandler {
                     .into_bytes(),
             )?;
         }
-        match self.shared.runtime.observe_json(&identity.player_id).await {
+        match self.observe_current_json(&identity.player_id).await {
             Ok(observation) => {
                 if let Err(error) = self
                     .send_text_observation(channel, session, observation)
@@ -113,7 +132,7 @@ impl ConnectionHandler {
                     send_command_error(session, channel, error, false)?;
                 }
             }
-            Err(error) => send_command_error(session, channel, error.into(), false)?,
+            Err(error) => send_command_error(session, channel, error, false)?,
         }
         if prompt {
             send_prompt(session, channel)?;
@@ -181,6 +200,13 @@ impl ConnectionHandler {
 
         self.shared.presence.lock().await.touch(self.connection_id);
         self.commands_seen += 1;
+        if let Ok(player) = self.shared.runtime.player_state(&identity.player_id).await {
+            let _ = self
+                .shared
+                .storage
+                .record_view_presence(&identity.user, &identity.player_id, &player.current_view)
+                .await;
+        }
 
         let Some(chrome) = &self.chrome else {
             session.data(channel, b"Session is not ready.\r\n".to_vec())?;
@@ -197,20 +223,19 @@ impl ConnectionHandler {
 
         if !line.trim_start().starts_with('/')
             && self
-                .handle_blackstone_chat(channel, session, line, identity, prompt)
+                .handle_service_room_input(channel, session, line, identity, prompt)
                 .await?
         {
             return Ok(());
         }
 
-        let mut current_observation =
-            match self.shared.runtime.observe_json(&identity.player_id).await {
-                Ok(observation) => observation,
-                Err(error) => {
-                    send_command_error(session, channel, error.into(), prompt)?;
-                    return Ok(());
-                }
-            };
+        let mut current_observation = match self.observe_current_json(&identity.player_id).await {
+            Ok(observation) => observation,
+            Err(error) => {
+                send_command_error(session, channel, error, prompt)?;
+                return Ok(());
+            }
+        };
         let admission = self
             .shared
             .storage
@@ -227,7 +252,29 @@ impl ConnectionHandler {
                     && line.trim_start().starts_with('/')
                 {
                     match self
+                        .handle_memory_command(channel, session, line, identity, prompt)
+                        .await
+                    {
+                        Ok(true) => return Ok(()),
+                        Ok(false) => {}
+                        Err(error) => {
+                            send_command_error(session, channel, error, prompt)?;
+                            return Ok(());
+                        }
+                    }
+                    match self
                         .handle_operator_input(channel, session, line, identity, prompt)
+                        .await
+                    {
+                        Ok(true) => return Ok(()),
+                        Ok(false) => {}
+                        Err(error) => {
+                            send_command_error(session, channel, error, prompt)?;
+                            return Ok(());
+                        }
+                    }
+                    match self
+                        .handle_service_room_input(channel, session, line, identity, prompt)
                         .await
                     {
                         Ok(true) => return Ok(()),
@@ -278,6 +325,17 @@ impl ConnectionHandler {
         if let Err(error) = self.dispatch_live_message(&command, identity).await {
             send_command_error(session, channel, error, prompt)?;
             return Ok(());
+        }
+        match self
+            .handle_service_room_local_command(channel, session, &command, identity, prompt)
+            .await
+        {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(error) => {
+                send_command_error(session, channel, error, prompt)?;
+                return Ok(());
+            }
         }
         let (observation, player_state) = match self
             .shared
@@ -479,11 +537,7 @@ impl ConnectionHandler {
             )
             .into_bytes(),
         )?;
-        let observation = self
-            .shared
-            .runtime
-            .observe_json(&identity.player_id)
-            .await?;
+        let observation = self.observe_current_json(&identity.player_id).await?;
         self.send_text_observation(channel, session, observation)
             .await?;
         Ok(())
@@ -517,6 +571,7 @@ impl ConnectionHandler {
                     .runtime
                     .player_state(&identity.player_id)
                     .await?;
+                let observation = self.observe_current_json(&identity.player_id).await?;
                 let messages = self
                     .shared
                     .storage
@@ -531,8 +586,23 @@ impl ConnectionHandler {
                 )?;
                 session.data(
                     channel,
-                    format!("You are still in: {}\r\n", player.current_view).into_bytes(),
+                    format!("You are still in: {}.\r\n", observation.title).into_bytes(),
                 )?;
+            }
+            SemanticCommand::Inventory => {
+                let player = self
+                    .shared
+                    .runtime
+                    .player_state(&identity.player_id)
+                    .await?;
+                if player.inventory.is_empty() {
+                    session.data(channel, b"Inventory: empty.\r\n".to_vec())?;
+                } else {
+                    session.data(
+                        channel,
+                        format!("Inventory: {}.\r\n", player.inventory.join(", ")).into_bytes(),
+                    )?;
+                }
             }
             SemanticCommand::Who => {
                 let player = self
@@ -598,10 +668,99 @@ impl ConnectionHandler {
                 self.handle_shop_command(channel, session, action, identity)
                     .await?;
             }
-            SemanticCommand::Extension { name, input }
-                if hinemos_blackstone::extension_command_names().contains(&name.as_str()) =>
-            {
-                self.handle_extension_command(channel, session, input, identity)
+            _ => return Ok(false),
+        }
+
+        if prompt {
+            send_prompt(session, channel)?;
+        }
+        Ok(true)
+    }
+
+    async fn handle_service_room_input(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        input: &str,
+        identity: &AuthIdentity,
+        prompt: bool,
+    ) -> Result<bool> {
+        let player = self
+            .shared
+            .runtime
+            .player_state(&identity.player_id)
+            .await?;
+        let Some(room) = self
+            .shared
+            .storage
+            .service_room_by_view(&player.current_view)
+            .await?
+        else {
+            return Ok(false);
+        };
+        if input.trim_start().starts_with('/')
+            && !service_room_accepts_input(room.custom_commands.as_deref(), input)
+        {
+            return Ok(false);
+        }
+        self.shared
+            .storage
+            .save_service_room_input(&room, &identity.user, &identity.player_id, input)
+            .await?;
+        session.data(
+            channel,
+            format!("Sent to room service {}.\r\n", room.room_user).into_bytes(),
+        )?;
+        if prompt {
+            send_prompt(session, channel)?;
+        }
+        Ok(true)
+    }
+
+    async fn handle_service_room_local_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        command: &SemanticCommand,
+        identity: &AuthIdentity,
+        prompt: bool,
+    ) -> Result<bool> {
+        let mut player = self
+            .shared
+            .runtime
+            .player_state(&identity.player_id)
+            .await?;
+        let Some(room) = self
+            .shared
+            .storage
+            .service_room_by_view(&player.current_view)
+            .await?
+        else {
+            return Ok(false);
+        };
+
+        match command {
+            SemanticCommand::Look | SemanticCommand::Map => {
+                let observation = self.service_room_observation(&identity.player_id, &room);
+                self.send_text_observation(channel, session, observation)
+                    .await?;
+            }
+            SemanticCommand::Move {
+                direction: Direction::South,
+            } => {
+                let Some(front_view_id) = room.front_view_id.clone() else {
+                    return Ok(false);
+                };
+                player.current_view = front_view_id;
+                self.shared.runtime.set_player_state(player.clone()).await?;
+                PlayerStateStore::save_player_state(&self.shared.storage, &player).await?;
+                self.shared
+                    .presence
+                    .lock()
+                    .await
+                    .update_view(self.connection_id, player.current_view.clone());
+                let observation = self.observe_current_json(&identity.player_id).await?;
+                self.send_text_observation(channel, session, observation)
                     .await?;
             }
             _ => return Ok(false),
@@ -613,1253 +772,85 @@ impl ConnectionHandler {
         Ok(true)
     }
 
-    async fn handle_settings_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        action: &SettingsAction,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        match action {
-            SettingsAction::Show => {
-                let settings = self
+    async fn observe_current_json(&self, player_id: &str) -> Result<JsonObservation> {
+        match self.shared.runtime.observe_json(player_id).await {
+            Ok(observation) => Ok(observation),
+            Err(error) => {
+                let player = self.shared.runtime.player_state(player_id).await?;
+                if let Some(room) = self
                     .shared
                     .storage
-                    .account_settings(&identity.user, &identity.player_id)
-                    .await?;
-                let mail_address =
-                    format_mail_user(&identity.user, self.shared.mail_domain.as_deref());
-                let key = settings.key_fingerprint.as_deref().unwrap_or("not set");
-                let mut next_steps = Vec::new();
-                if !settings.has_mail_token {
-                    next_steps.push("Generate your SMTP/IMAP token with /settings mail-token.");
-                }
-                let next_steps = if next_steps.is_empty() {
-                    "Next steps: account settings are complete.\r\n".to_owned()
+                    .service_room_by_view(&player.current_view)
+                    .await?
+                {
+                    Ok(self.service_room_observation(player_id, &room))
                 } else {
-                    format!("Next steps:\r\n- {}\r\n", next_steps.join("\r\n- "))
-                };
-                let agent_protocol = format!(
-                    "Agent realtime mail:\r\n- Login: IMAP/SMTP username `{}`; token is generated by `/settings mail-token`.\r\n- Setup: use ed25519 SSH login for account access.\r\n- Listen: keep an IMAP IDLE connection open; when EXISTS arrives, FETCH the new message, handle it, then STORE +FLAGS (\\Seen). This is the supported no-prompt path for autonomous agents.\r\n",
-                    identity.user
-                );
-                session.data(
-                    channel,
-                    format!(
-                        "Settings\r\nUser: {}\r\nPlayer: {}\r\nDisplay name: {}\r\nOnline days: {}\r\nSSH key: {}\r\nMail address: {}\r\nMail token: {}\r\n{}{}Use /settings mail-token to generate or rotate your SMTP/IMAP token.\r\n",
-                        identity.user,
-                        settings.player_id,
-                        settings.display_name,
-                        settings.online_days,
-                        key,
-                        mail_address,
-                        enabled_label(settings.has_mail_token),
-                        next_steps,
-                        agent_protocol,
-                    )
-                    .into_bytes(),
-                )?;
-            }
-            SettingsAction::MailToken => {
-                let token = generate_mail_auth_token();
-                self.shared
-                    .storage
-                    .set_mail_auth_token(&identity.user, &identity.player_id, &token)
-                    .await?;
-                let address = format_mail_user(&identity.user, self.shared.mail_domain.as_deref());
-                session.data(
-                    channel,
-                    format!(
-                        "Generated a new SMTP/IMAP mail auth token.\r\nUsername: {}\r\nAddress: {}\r\nToken: {}\r\nThis token is shown once; run /settings mail-token again to rotate it.\r\nAgent setup: configure SMTP and IMAP with this username/token. For realtime autonomous handling, keep an IMAP IDLE listener open and process EXISTS notifications without waiting for a world prompt.\r\n",
-                        identity.user, address, token
-                    )
-                    .into_bytes(),
-                )?;
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_enter_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        target: &str,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        let mut player = self
-            .shared
-            .runtime
-            .player_state(&identity.player_id)
-            .await?;
-        let parcels = self.shared.storage.list_commercial_parcels().await?;
-        let visible = visible_street_parcels(&player.current_view, &parcels);
-        let parcel = resolve_enter_target(&visible, target)?;
-
-        player.current_view = parcel.view_id.clone();
-        self.shared.runtime.set_player_state(player.clone()).await?;
-        PlayerStateStore::save_player_state(&self.shared.storage, &player).await?;
-        self.shared
-            .presence
-            .lock()
-            .await
-            .update_view(self.connection_id, player.current_view.clone());
-
-        session.data(
-            channel,
-            format!("You enter {}.\r\n", parcel.parcel_id).into_bytes(),
-        )?;
-        let observation = self
-            .shared
-            .runtime
-            .observe_json(&identity.player_id)
-            .await?;
-        self.send_text_observation(channel, session, observation)
-            .await?;
-        Ok(())
-    }
-
-    async fn handle_operator_input(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        line: &str,
-        identity: &AuthIdentity,
-        prompt: bool,
-    ) -> Result<bool> {
-        let player = self
-            .shared
-            .runtime
-            .player_state(&identity.player_id)
-            .await?;
-        let Some(parcel) = self
-            .shared
-            .storage
-            .commercial_parcel_by_view(&player.current_view)
-            .await?
-        else {
-            return Ok(false);
-        };
-        if parcel.status != "built" {
-            return Ok(false);
-        }
-        let Some(owner_player_id) = parcel.owner_player_id.as_deref() else {
-            return Ok(false);
-        };
-        if owner_player_id == identity.player_id {
-            if is_custom_command_input(&parcel, line) {
-                session.data(
-                    channel,
-                    format!(
-                        "You own this shop. Visitors use {} here; their requests arrive in your inbox and /shop inbox.\r\n",
-                        line.split_whitespace().next().unwrap_or("this command")
-                    )
-                    .into_bytes(),
-                )?;
-                if prompt {
-                    send_prompt(session, channel)?;
+                    Err(error.into())
                 }
-                return Ok(true);
             }
-            return Ok(false);
         }
+    }
 
-        let recipients = self
-            .shared
-            .presence
-            .lock()
-            .await
-            .direct_recipients(self.connection_id, owner_player_id);
-        let delivered = !recipients.is_empty();
-        let command = self
-            .shared
-            .storage
-            .save_operator_command(
-                &parcel,
-                &identity.user,
-                &identity.player_id,
-                line,
-                delivered,
-            )
-            .await?;
-        let inbox_item = self
-            .shared
-            .storage
-            .inbox_item_by_source(owner_player_id, "operator_command", command.id)
-            .await?;
-        if delivered {
-            deliver_live_inbox_notice(recipients, &inbox_item, self.shared.mail_domain.as_deref())
-                .await;
-        }
-        session.data(
-            channel,
-            format!(
-                "Shop request #{} sent to owner {} for parcel {}.\r\nStatus: {}.\r\n{}",
-                command.id,
-                command.owner_user,
-                command.parcel_id,
-                if delivered { "delivered" } else { "queued" },
-                custom_command_preview(&parcel, line)
-                    .map(|preview| format!("Preview: {preview}\r\n"))
+    fn service_room_observation(
+        &self,
+        player_id: &str,
+        room: &StoredServiceRoom,
+    ) -> JsonObservation {
+        let title = room.label.clone().unwrap_or_else(|| room.view_id.clone());
+        let return_label = room.address.as_deref().unwrap_or("street");
+        let mut available_commands = vec![
+            SemanticCommand::Look,
+            SemanticCommand::Map,
+            SemanticCommand::Inventory,
+            SemanticCommand::History,
+            SemanticCommand::Help,
+            SemanticCommand::Settings {
+                action: SettingsAction::Show,
+            },
+            SemanticCommand::Who,
+            SemanticCommand::Say {
+                text: String::new(),
+            },
+            SemanticCommand::Move {
+                direction: Direction::South,
+            },
+        ];
+        available_commands.extend(
+            command_inputs(room.custom_commands.as_deref()).map(|input| {
+                let name = input
+                    .trim_start_matches('/')
+                    .split_whitespace()
+                    .next()
                     .unwrap_or_default()
-            )
-            .into_bytes(),
-        )?;
-        if prompt {
-            send_prompt(session, channel)?;
-        }
-        Ok(true)
-    }
-
-    async fn handle_pay_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        action: &PayAction,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        match action {
-            PayAction::Direct {
-                target,
-                amount,
-                memo,
-            } => {
-                let transfer = self
-                    .shared
-                    .storage
-                    .transfer_mark(&identity.user, &identity.player_id, target, *amount, memo)
-                    .await?;
-                session.data(
-                    channel,
-                    format!(
-                        "Paid {} {} to {}. Ledger #{}. Balance: {} {}.\r\n",
-                        transfer.amount,
-                        transfer.asset,
-                        transfer.target_user,
-                        transfer.ledger_id,
-                        transfer.sender_balance,
-                        transfer.asset
-                    )
-                    .into_bytes(),
-                )?;
-                let recipients = self
-                    .shared
-                    .presence
-                    .lock()
-                    .await
-                    .direct_recipients(self.connection_id, target);
-                if !recipients.is_empty() {
-                    let memo_text = if transfer.memo.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" memo={}", transfer.memo)
-                    };
-                    deliver_live_message(
-                        recipients,
-                        &format!(
-                            "[payment from {}] {} {}{}",
-                            identity.user, transfer.amount, transfer.asset, memo_text
-                        ),
-                    )
-                    .await;
-                }
-            }
-            PayAction::Requests => {
-                let requests = self
-                    .shared
-                    .storage
-                    .pending_payment_requests(&identity.player_id, 20)
-                    .await?;
-                send_payment_request_list(session, channel, &requests)?;
-            }
-            PayAction::Accept { request_id } => {
-                let (request, sender_balance) = self
-                    .shared
-                    .storage
-                    .accept_payment_request(&identity.user, &identity.player_id, *request_id)
-                    .await?;
-                session.data(
-                    channel,
-                    render_paid_request(&request, sender_balance).into_bytes(),
-                )?;
-                let recipients = self
-                    .shared
-                    .presence
-                    .lock()
-                    .await
-                    .direct_recipients(self.connection_id, &request.payee_player_id);
-                if !recipients.is_empty() {
-                    deliver_live_message(
-                        recipients,
-                        &format!(
-                            "[payment request #{} paid by {}] {} {}",
-                            request.id, identity.user, request.amount, request.asset
-                        ),
-                    )
-                    .await;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_inbox_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        action: &InboxAction,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        match action {
-            InboxAction::List { filter } => {
-                let items = self
-                    .shared
-                    .storage
-                    .list_inbox_items(&identity.user, &identity.player_id, Some(filter), 20)
-                    .await?;
-                session.data(
-                    channel,
-                    render_inbox_items("Inbox", &items, self.shared.mail_domain.as_deref())
-                        .replace('\n', "\r\n")
-                        .into_bytes(),
-                )?;
-            }
-            InboxAction::Read { item_id } => {
-                let item = self
-                    .shared
-                    .storage
-                    .read_inbox_item(&identity.user, &identity.player_id, *item_id)
-                    .await?;
-                session.data(
-                    channel,
-                    render_inbox_item(&item, self.shared.mail_domain.as_deref())
-                        .replace('\n', "\r\n")
-                        .into_bytes(),
-                )?;
-            }
-            InboxAction::Claim { item_id } => {
-                let item = self
-                    .shared
-                    .storage
-                    .claim_inbox_item(&identity.user, &identity.player_id, *item_id)
-                    .await?;
-                session.data(
-                    channel,
-                    format!(
-                        "Claimed inbox #{} kind={} subject={}. Lease until {}.\r\n",
-                        item.id,
-                        item.kind,
-                        item.subject,
-                        item.lease_until.as_deref().unwrap_or("unknown")
-                    )
-                    .into_bytes(),
-                )?;
-            }
-            InboxAction::Ack { item_id } => {
-                let item = self
-                    .shared
-                    .storage
-                    .finish_inbox_item(&identity.user, &identity.player_id, *item_id, "acked")
-                    .await?;
-                session.data(
-                    channel,
-                    format!("Acked inbox #{} kind={}.\r\n", item.id, item.kind).into_bytes(),
-                )?;
-            }
-            InboxAction::Archive { item_id } => {
-                let item = self
-                    .shared
-                    .storage
-                    .finish_inbox_item(&identity.user, &identity.player_id, *item_id, "archived")
-                    .await?;
-                session.data(
-                    channel,
-                    format!("Archived inbox #{} kind={}.\r\n", item.id, item.kind).into_bytes(),
-                )?;
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_land_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        action: &LandAction,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        match action {
-            LandAction::List => {
-                let parcels = self.shared.storage.list_commercial_parcels().await?;
-                session.data(
-                    channel,
-                    render_parcel_list(&parcels)
-                        .replace('\n', "\r\n")
-                        .into_bytes(),
-                )?;
-            }
-            LandAction::Info { parcel_id } => {
-                let parcel = self.shared.storage.commercial_parcel(parcel_id).await?;
-                session.data(
-                    channel,
-                    render_parcel_detail(&parcel)
-                        .replace('\n', "\r\n")
-                        .into_bytes(),
-                )?;
-            }
-            LandAction::Claim { parcel_id } => {
-                let parcel = self
-                    .shared
-                    .storage
-                    .claim_commercial_parcel(parcel_id, &identity.user, &identity.player_id)
-                    .await?;
-                session.data(
-                    channel,
-                    format!(
-                        "Claimed parcel {}. You can build here with /build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /build publish. From the street, enter with /enter {}. Custom commands are auto-filled if omitted.\r\n",
-                        parcel.parcel_id, parcel.parcel_id
-                    )
-                    .into_bytes(),
-                )?;
-            }
-            LandAction::Transfer { parcel_id, target } => {
-                let parcel = self
-                    .shared
-                    .storage
-                    .transfer_commercial_parcel(parcel_id, &identity.player_id, target)
-                    .await?;
-                session.data(
-                    channel,
-                    format!(
-                        "Transferred parcel {} to {}.\r\n",
-                        parcel.parcel_id,
-                        parcel.owner_user.as_deref().unwrap_or("unknown")
-                    )
-                    .into_bytes(),
-                )?;
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_build_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        action: &BuildAction,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        let player = self
-            .shared
-            .runtime
-            .player_state(&identity.player_id)
-            .await?;
-        match action {
-            BuildAction::Help => {
-                session.data(channel, build_help().as_bytes().to_vec())?;
-            }
-            BuildAction::Apply { sheet } => {
-                let mut updated = Vec::new();
-                for (field, value) in [
-                    ("title", sheet.title.as_deref()),
-                    ("description", sheet.description.as_deref()),
-                    ("style", sheet.style.as_deref()),
-                    ("prompt", sheet.prompt.as_deref()),
-                    ("commands", sheet.commands.as_deref()),
-                ] {
-                    let Some(value) = non_empty(value) else {
-                        continue;
-                    };
-                    self.shared
-                        .storage
-                        .update_parcel_build_field(
-                            &player.current_view,
-                            &identity.player_id,
-                            field,
-                            value,
-                        )
-                        .await?;
-                    updated.push(field);
-                }
-                if non_empty(sheet.commands.as_deref()).is_none() {
-                    self.shared
-                        .storage
-                        .update_parcel_build_field(
-                            &player.current_view,
-                            &identity.player_id,
-                            "commands",
-                            default_build_commands(),
-                        )
-                        .await?;
-                    updated.push("commands");
-                }
-                if updated.is_empty() {
-                    anyhow::bail!("build JSON did not include editable fields");
-                }
-                session.data(
-                    channel,
-                    format!(
-                        "Updated build sheet for current parcel: {}.\r\n",
-                        updated.join(", ")
-                    )
-                    .into_bytes(),
-                )?;
-            }
-            BuildAction::Set { field, value } => {
-                let parcel = self
-                    .shared
-                    .storage
-                    .update_parcel_build_field(
-                        &player.current_view,
-                        &identity.player_id,
-                        field,
-                        value,
-                    )
-                    .await?;
-                session.data(
-                    channel,
-                    format!("Updated {} for parcel {}.\r\n", field, parcel.parcel_id).into_bytes(),
-                )?;
-            }
-            BuildAction::Publish => {
-                let parcel = self
-                    .shared
-                    .storage
-                    .publish_parcel_build(&player.current_view, &identity.player_id)
-                    .await?;
-                session.data(
-                    channel,
-                    format!("Published parcel {} as a built shop.\r\n", parcel.parcel_id)
-                        .into_bytes(),
-                )?;
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_shop_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        action: &ShopAction,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        match action {
-            ShopAction::Inbox => {
-                let commands = self
-                    .shared
-                    .storage
-                    .recent_operator_commands(&identity.player_id, 20)
-                    .await?;
-                send_operator_command_list(session, channel, &commands)?;
-            }
-            ShopAction::RequestPayment {
-                command_id,
-                amount,
-                delivery,
-            } => {
-                let request = self
-                    .shared
-                    .storage
-                    .create_payment_request(*command_id, &identity.player_id, *amount, delivery)
-                    .await?;
-                let inbox_item = self
-                    .shared
-                    .storage
-                    .inbox_item_by_source(&request.payer_player_id, "payment_request", request.id)
-                    .await?;
-                session.data(
-                    channel,
-                    format!(
-                        "Created payment request #{} for {}: {} {}. Delivery is locked until payment.\r\n",
-                        request.id, request.payer_user, request.amount, request.asset
-                    )
-                    .into_bytes(),
-                )?;
-                let recipients = self
-                    .shared
-                    .presence
-                    .lock()
-                    .await
-                    .direct_recipients(self.connection_id, &request.payer_player_id);
-                if !recipients.is_empty() {
-                    deliver_live_inbox_notice(
-                        recipients,
-                        &inbox_item,
-                        self.shared.mail_domain.as_deref(),
-                    )
-                    .await;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_extension_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        input: &str,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        let player = self
-            .shared
-            .runtime
-            .player_state(&identity.player_id)
-            .await?;
-        let response = self
-            .shared
-            .blackstone
-            .handle(
-                &identity.user,
-                &identity.player_id,
-                &player.current_view,
-                input,
-            )
-            .await?;
-        session.data(channel, response.into_bytes())?;
-        Ok(())
-    }
-
-    async fn handle_blackstone_chat(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        input: &str,
-        identity: &AuthIdentity,
-        prompt: bool,
-    ) -> Result<bool> {
-        let player = self
-            .shared
-            .runtime
-            .player_state(&identity.player_id)
-            .await?;
-        let Some(response) = self
-            .shared
-            .blackstone
-            .handle_chat(
-                &identity.user,
-                &identity.player_id,
-                &player.current_view,
-                input,
-            )
-            .await?
-        else {
-            return Ok(false);
-        };
-        session.data(channel, response.into_bytes())?;
-        if prompt {
-            send_prompt(session, channel)?;
-        }
-        Ok(true)
-    }
-
-    async fn send_text_observation(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        mut observation: JsonObservation,
-    ) -> Result<()> {
-        let parcels = self.shared.storage.list_commercial_parcels().await?;
-        if let Some(parcel) = self
-            .shared
-            .storage
-            .commercial_parcel_by_view(&observation.view_id)
-            .await?
-        {
-            overlay_parcel_observation(&mut observation, &parcel);
-        } else {
-            let visible = visible_street_parcels(&observation.view_id, &parcels);
-            overlay_street_parcels(&mut observation, &visible);
-        }
-        let player_id = observation.player_id.clone();
-        self.shared
-            .blackstone
-            .decorate_observation(&player_id, &mut observation)
-            .await?;
-        let admission = self.shared.storage.player_admission(&player_id).await?;
-        if !admission.is_agreed() {
-            restrict_pending_admission_observation(&mut observation, &admission);
-        }
-        let view_users = self
-            .shared
-            .presence
-            .lock()
-            .await
-            .view_users(self.connection_id, &observation.view_id);
-        observation.online_users = render_online_summary(&view_users, 10);
-        send_text_observation(session, channel, &observation, self.terminal_cols)?;
-        Ok(())
-    }
-
-    async fn send_command_observation(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        command: &SemanticCommand,
-        observation: JsonObservation,
-    ) -> Result<()> {
-        if should_render_full_observation(command) {
-            self.send_text_observation(channel, session, observation)
-                .await?;
-        } else {
-            send_text_events(session, channel, &observation)?;
-        }
-        Ok(())
-    }
-
-    async fn dispatch_live_message(
-        &self,
-        command: &SemanticCommand,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        let (recipients, message) = match command {
-            SemanticCommand::Say { text } => {
-                let player = self
-                    .shared
-                    .runtime
-                    .player_state(&identity.player_id)
-                    .await?;
-                self.shared
-                    .storage
-                    .save_say_message(
-                        &identity.user,
-                        &identity.player_id,
-                        &player.current_view,
-                        text,
-                    )
-                    .await?;
-                let recipients = self
-                    .shared
-                    .presence
-                    .lock()
-                    .await
-                    .view_recipients(self.connection_id, &player.current_view);
-                (recipients, format!("[say from {}] {text}", identity.user))
-            }
-            SemanticCommand::Mail { target, text } => {
-                let target = normalize_mail_target(target, self.shared.mail_domain.as_deref())?;
-                let inbox_item = self
-                    .shared
-                    .storage
-                    .save_mail_message(&identity.user, &identity.player_id, &target, text)
-                    .await?;
-                let recipients = self
-                    .shared
-                    .presence
-                    .lock()
-                    .await
-                    .direct_recipients(self.connection_id, &target);
-                deliver_live_inbox_notice(
-                    recipients,
-                    &inbox_item,
-                    self.shared.mail_domain.as_deref(),
-                )
-                .await;
-                return Ok(());
-            }
-            SemanticCommand::Broadcast { text } => {
-                self.shared
-                    .storage
-                    .save_broadcast_message(&identity.user, &identity.player_id, text)
-                    .await?;
-                let recipients = self
-                    .shared
-                    .presence
-                    .lock()
-                    .await
-                    .broadcast_recipients(self.connection_id);
-                (
-                    recipients,
-                    format!("[broadcast from {}] {text}", identity.user),
-                )
-            }
-            _ => return Ok(()),
-        };
-
-        deliver_live_message(recipients, &message).await;
-        Ok(())
-    }
-
-    async fn handle_exec_request(
-        &mut self,
-        channel: ChannelId,
-        data: &[u8],
-        session: &mut Session,
-    ) -> Result<()> {
-        let command = String::from_utf8_lossy(data).trim().to_owned();
-        session.channel_success(channel)?;
-        if command == "mailbox" {
-            self.start_mailbox_channel(channel, session).await?;
-        } else if command.is_empty() {
-            session.data(channel, exec_help().replace('\n', "\r\n").into_bytes())?;
-            session.exit_status_request(channel, 1)?;
-            session.close(channel)?;
-        } else {
-            session.data(
-                channel,
-                format!(
-                    "{}\r\nSSH exec is not a world command interface. Rejected exec command: {command}\r\n",
-                    exec_help()
-                )
-                .into_bytes(),
-            )?;
-            session.exit_status_request(channel, 1)?;
-            session.close(channel)?;
-        }
-        Ok(())
-    }
-
-    async fn start_mailbox_channel(
-        &mut self,
-        channel: ChannelId,
-        session: &mut Session,
-    ) -> Result<()> {
-        let Some(identity) = &self.identity else {
-            session.data(channel, b"ERR authentication required\r\n".to_vec())?;
-            session.exit_status_request(channel, 1)?;
-            session.close(channel)?;
-            return Ok(());
-        };
-
-        let admission = self
-            .shared
-            .storage
-            .player_admission(&identity.player_id)
-            .await?;
-        if !admission.is_agreed() {
-            session.data(
-                channel,
-                format!(
-                    "ERR {}\r\n",
-                    admission_guidance(&admission).replace('\n', " ")
-                )
-                .into_bytes(),
-            )?;
-            session.exit_status_request(channel, 1)?;
-            session.close(channel)?;
-            return Ok(());
-        }
-
-        self.mode = Some(ConnectionMode::Mailbox);
-        self.shared.presence.lock().await.attach_channel(
-            self.connection_id,
-            session.handle(),
-            channel,
-            PresenceDeliveryMode::Mailbox,
+                    .to_owned();
+                SemanticCommand::Extension { name, input }
+            }),
         );
-        session.data(
-            channel,
-            format!(
-                "OK HINEMOS-MAIL ready user {}\r\n{}\r\n",
-                format_mail_user(&identity.user, self.shared.mail_domain.as_deref()),
-                mailbox_help()
-            )
-            .into_bytes(),
-        )?;
-        Ok(())
-    }
 
-    async fn handle_terminal_input(
-        &mut self,
-        channel: ChannelId,
-        data: &[u8],
-        session: &mut Session,
-    ) -> Result<()> {
-        if self.mode == Some(ConnectionMode::Mailbox) {
-            return self.handle_mailbox_input(channel, data, session).await;
-        }
-
-        if data == [3] {
-            session.close(channel)?;
-            return Ok(());
-        }
-
-        if self
-            .shared
-            .presence
-            .lock()
-            .await
-            .poll_kick(self.connection_id)
-        {
-            session.close(channel)?;
-            return Ok(());
-        }
-
-        let incoming = String::from_utf8_lossy(data);
-        for character in incoming.chars() {
-            match character {
-                '\r' | '\n' => {
-                    if character == '\n' && self.input_buffer.is_empty() {
-                        continue;
-                    }
-                    session.data(channel, b"\r\n".to_vec())?;
-                    let line = std::mem::take(&mut self.input_buffer);
-                    self.handle_command_line(channel, line.trim(), session, true)
-                        .await?;
-                }
-                '\u{8}' | '\u{7f}' => {
-                    if self.input_buffer.pop().is_some() {
-                        session.data(channel, b"\x08 \x08".to_vec())?;
-                    }
-                }
-                _ if character.is_control() => {}
-                _ => {
-                    self.input_buffer.push(character);
-                    session.data(channel, character.to_string().into_bytes())?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn handle_mailbox_input(
-        &mut self,
-        channel: ChannelId,
-        data: &[u8],
-        session: &mut Session,
-    ) -> Result<()> {
-        if data == [3] {
-            session.close(channel)?;
-            return Ok(());
-        }
-
-        if self
-            .shared
-            .presence
-            .lock()
-            .await
-            .poll_kick(self.connection_id)
-        {
-            session.close(channel)?;
-            return Ok(());
-        }
-
-        let incoming = String::from_utf8_lossy(data);
-        for character in incoming.chars() {
-            match character {
-                '\r' | '\n' => {
-                    if character == '\n' && self.input_buffer.is_empty() {
-                        continue;
-                    }
-                    let line = std::mem::take(&mut self.input_buffer);
-                    self.handle_mailbox_line(channel, line.trim(), session)
-                        .await?;
-                }
-                _ if character.is_control() => {}
-                _ => self.input_buffer.push(character),
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_mailbox_line(
-        &mut self,
-        channel: ChannelId,
-        line: &str,
-        session: &mut Session,
-    ) -> Result<()> {
-        let Some(identity) = &self.identity else {
-            session.data(channel, b"ERR authentication required\r\n".to_vec())?;
-            return Ok(());
-        };
-        self.shared.presence.lock().await.touch(self.connection_id);
-        if line.is_empty() {
-            return Ok(());
-        }
-
-        let (command, rest) = line
-            .split_once(char::is_whitespace)
-            .map_or((line, ""), |(command, rest)| (command, rest.trim()));
-        match command.to_ascii_uppercase().as_str() {
-            "HELP" => {
-                session.data(channel, format!("{}\r\n", mailbox_help()).into_bytes())?;
-            }
-            "NOOP" => {
-                session.data(channel, b"OK NOOP\r\n".to_vec())?;
-            }
-            "IDLE" => {
-                session.data(
-                    channel,
-                    b"+ IDLE active; new inbox items are pushed as * NEWMAIL\r\n".to_vec(),
-                )?;
-            }
-            "LIST" => {
-                let filter = if rest.is_empty() { "open" } else { rest };
-                let items = self
-                    .shared
-                    .storage
-                    .list_inbox_items(&identity.user, &identity.player_id, Some(filter), 50)
-                    .await?;
-                for item in &items {
-                    session.data(
-                        channel,
-                        format!(
-                            "* ITEM {} KIND {} STATUS {} FROM {} SUBJECT {}\r\n",
-                            item.id,
-                            item.kind,
-                            item.status,
-                            format_mail_user(&item.sender_user, self.shared.mail_domain.as_deref()),
-                            item.subject
-                        )
-                        .into_bytes(),
-                    )?;
-                }
-                session.data(
-                    channel,
-                    format!("OK LIST {} item(s)\r\n", items.len()).into_bytes(),
-                )?;
-            }
-            "READ" => {
-                let item_id = parse_mailbox_item_id(rest)?;
-                let item = self
-                    .shared
-                    .storage
-                    .read_inbox_item(&identity.user, &identity.player_id, item_id)
-                    .await?;
-                session.data(
-                    channel,
-                    format!(
-                        "* MESSAGE {}\r\nKIND {}\r\nSTATUS {}\r\nFROM {}\r\nSUBJECT {}\r\nBODY {}\r\n.\r\nOK READ {}\r\n",
-                        item.id,
-                        item.kind,
-                        item.status,
-                        format_mail_user(&item.sender_user, self.shared.mail_domain.as_deref()),
-                        item.subject,
-                        item.body,
-                        item.id
-                    )
-                    .into_bytes(),
-                )?;
-            }
-            "ACK" => {
-                let item_id = parse_mailbox_item_id(rest)?;
-                let item = self
-                    .shared
-                    .storage
-                    .finish_inbox_item(&identity.user, &identity.player_id, item_id, "acked")
-                    .await?;
-                session.data(channel, format!("OK ACK {}\r\n", item.id).into_bytes())?;
-            }
-            "SEND" => {
-                let Some((target, body)) = rest.split_once(char::is_whitespace) else {
-                    session.data(
-                        channel,
-                        b"ERR usage: SEND <user-or-address> <body>\r\n".to_vec(),
-                    )?;
-                    return Ok(());
-                };
-                let target = normalize_mail_target(target, self.shared.mail_domain.as_deref())?;
-                let inbox_item = self
-                    .shared
-                    .storage
-                    .save_mail_message(&identity.user, &identity.player_id, &target, body.trim())
-                    .await?;
-                let recipients = self
-                    .shared
-                    .presence
-                    .lock()
-                    .await
-                    .direct_recipients(self.connection_id, &target);
-                deliver_live_inbox_notice(
-                    recipients,
-                    &inbox_item,
-                    self.shared.mail_domain.as_deref(),
-                )
-                .await;
-                session.data(
-                    channel,
-                    format!(
-                        "OK SEND {} TO {}\r\n",
-                        inbox_item.id,
-                        format_mail_user(&target, self.shared.mail_domain.as_deref())
-                    )
-                    .into_bytes(),
-                )?;
-            }
-            "QUIT" => {
-                session.data(channel, b"OK goodbye\r\n".to_vec())?;
-                session.exit_status_request(channel, 0)?;
-                session.close(channel)?;
-            }
-            _ => {
-                session.data(channel, b"ERR unknown mailbox command\r\n".to_vec())?;
-            }
-        }
-        Ok(())
-    }
-}
-
-fn visible_street_parcels<'a>(view_id: &str, parcels: &'a [StoredParcel]) -> Vec<&'a StoredParcel> {
-    let Some(parcel_id) = street_parcel_id(view_id) else {
-        return Vec::new();
-    };
-    parcels
-        .iter()
-        .filter(|parcel| parcel.parcel_id == parcel_id)
-        .collect()
-}
-
-fn street_parcel_id(view_id: &str) -> Option<&str> {
-    view_id.strip_prefix("street_")
-}
-
-fn slash_parse_feedback(line: &str, error: &SlashParseError) -> String {
-    let command = line
-        .trim()
-        .strip_prefix('/')
-        .and_then(|rest| rest.split_whitespace().next())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    match error {
-        SlashParseError::MissingArgument => match command.as_str() {
-            "read" => "What do you want to read? Try /read <name>.".to_owned(),
-            "inspect" | "x" | "examine" => {
-                "What do you want to inspect? Try /inspect <name>.".to_owned()
-            }
-            "go" | "move" => "Which way do you want to go? Try /go north or /go south.".to_owned(),
-            "enter" | "visit" => "Where do you want to enter? Try /enter <place>.".to_owned(),
-            "talk" => "Who do you want to talk to? Try /talk <name>.".to_owned(),
-            "take" | "get" | "pick" => "What do you want to take? Try /take <name>.".to_owned(),
-            "pay" => {
-                "Who do you want to pay, and how much? Try /pay <user> <amount> <memo>.".to_owned()
-            }
-            "mail" | "inbox" => "Which mail item do you mean? Try /mail read <id>.".to_owned(),
-            "land" => {
-                "Which land command do you need? Try /land list or /land info <parcel>.".to_owned()
-            }
-            "settings" => "Which setting do you want to change? Try /settings.".to_owned(),
-            "build" => {
-                "What do you want to build? Use one JSON build sheet after /build.".to_owned()
-            }
-            "shop" => "Which shop notice do you want to handle? Try /shop request-payment <cmd_id> <amount> <delivery>."
-                .to_owned(),
-            _ => "That command needs a little more detail. Choose one Available command and include its target."
-                .to_owned(),
-        },
-        SlashParseError::UnexpectedArgument => {
-            "That command does not need anything after it. Send it by itself.".to_owned()
-        }
-        SlashParseError::InvalidAmount => "The amount must be a plain number of MARK.".to_owned(),
-        SlashParseError::InvalidInboxFilter => {
-            "That mailbox shelf is unknown. Try open, unread, claimed, done, or all.".to_owned()
-        }
-        SlashParseError::InvalidJson => {
-            "The build sheet could not be read as JSON. Check the braces and quotes.".to_owned()
-        }
-        SlashParseError::UnknownCommand => {
-            "That command is not on the town board. Choose one Available command.".to_owned()
+        JsonObservation {
+            player_id: player_id.to_owned(),
+            view_id: room.view_id.clone(),
+            title: title.clone(),
+            ascii_art: vec![
+                "============================================================".to_owned(),
+                format!("                  {}", title.to_ascii_uppercase()),
+                "============================================================".to_owned(),
+                "                           <Me>".to_owned(),
+                "                            |".to_owned(),
+                format!("                    south to {return_label}"),
+            ],
+            description:
+                "This externally hosted room is connected through the room mailbox protocol."
+                    .to_owned(),
+            exits: vec![ExitObservation {
+                direction: Direction::South,
+                target_known: room.front_view_id.is_some(),
+                label: room.address.clone(),
+            }],
+            entities: Vec::new(),
+            online_users: Vec::new(),
+            available_commands,
+            events: Vec::new(),
         }
     }
-}
-
-fn resolve_enter_target<'a>(
-    visible: &[&'a StoredParcel],
-    target: &str,
-) -> Result<&'a StoredParcel> {
-    let normalized = normalize_enter_target(target);
-    if normalized.is_empty() {
-        anyhow::bail!("Where do you want to enter? Try /enter <place>.");
-    }
-
-    visible
-        .iter()
-        .copied()
-        .find(|parcel| {
-            normalize_enter_target(&parcel.parcel_id) == normalized
-                || parcel
-                    .title
-                    .as_deref()
-                    .is_some_and(|title| normalize_enter_target(title) == normalized)
-        })
-        .ok_or_else(|| {
-            let available = visible
-                .iter()
-                .map(|parcel| parcel.parcel_id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            if available.is_empty() {
-                anyhow::anyhow!(
-                    "no adjacent parcel here; move along the street with /go, then use /enter <parcel>"
-                )
-            } else {
-                anyhow::anyhow!("parcel not adjacent here: {target}. Available: {available}")
-            }
-        })
-}
-
-fn normalize_enter_target(target: &str) -> String {
-    target.trim().to_ascii_lowercase()
-}
-
-fn admission_guidance(_admission: &StoredAdmission) -> String {
-    let next_step = "Read the board agreement first: /read agreement";
-    format!(
-        "Admission pending. SSH authentication is complete, but this account is not admitted into the world yet.\n{next_step}. Until then, other commands are blocked."
-    )
-}
-
-fn send_pending_admission_rejection(
-    session: &mut Session,
-    channel: ChannelId,
-    admission: &StoredAdmission,
-    prompt: bool,
-) -> Result<()> {
-    session.data(
-        channel,
-        format!(
-            "{}\r\n",
-            admission_guidance(admission).replace('\n', "\r\n")
-        )
-        .into_bytes(),
-    )?;
-    if prompt {
-        send_prompt(session, channel)?;
-    }
-    Ok(())
-}
-
-fn restrict_pending_admission_observation(
-    observation: &mut JsonObservation,
-    admission: &StoredAdmission,
-) {
-    observation.description = format!(
-        "{}\n\n{}",
-        observation.description,
-        admission_guidance(admission)
-    );
-    observation.exits.clear();
-    observation.available_commands = vec![
-        SemanticCommand::Look,
-        SemanticCommand::Read {
-            target: hinemos_core::EntityRef::new(ADMISSION_BOARD_ENTITY_ID),
-        },
-        SemanticCommand::Help,
-        SemanticCommand::Quit,
-    ];
-}
-
-fn mailbox_help() -> &'static str {
-    "Commands: HELP, IDLE, LIST [open|unread|claimed|done|all], READ <id>, SEND <user-or-address> <body>, ACK <id>, NOOP, QUIT"
-}
-
-fn enabled_label(enabled: bool) -> &'static str {
-    if enabled { "set" } else { "not set" }
-}
-
-fn generate_mail_auth_token() -> String {
-    let mut bytes = [0_u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
-    URL_SAFE_NO_PAD.encode(bytes)
-}
-
-fn parse_mailbox_item_id(input: &str) -> Result<i64> {
-    let item_id = input
-        .split_whitespace()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("missing inbox item id"))?;
-    item_id
-        .parse::<i64>()
-        .map_err(|error| anyhow::anyhow!("invalid inbox item id: {error}"))
 }

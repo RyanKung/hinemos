@@ -212,6 +212,74 @@ pub fn run_ssh_batch<const N: usize>(
     stdout.into_owned()
 }
 
+pub fn generate_ed25519_key(path: &Path) {
+    let output = Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(path)
+        .output()
+        .expect("spawn ssh-keygen");
+    assert!(
+        output.status.success(),
+        "ssh-keygen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+pub fn run_ssh_batch_with_key(
+    host: &str,
+    port: u16,
+    user: &str,
+    key_path: &Path,
+    commands: &[&str],
+) -> String {
+    let input = format!("{}\n", commands.join("\n"));
+    let mut child = ssh_command(host, port, user, Some(key_path))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn ssh batch");
+    child
+        .stdin
+        .as_mut()
+        .expect("open ssh stdin")
+        .write_all(input.as_bytes())
+        .expect("write ssh commands");
+    drop(child.stdin.take());
+    let output = wait_with_timeout(child, Duration::from_secs(30));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "ssh batch failed for {user}: {}\nstdout:\n{}",
+        stderr,
+        stdout
+    );
+    stdout.into_owned()
+}
+
+pub fn admit_ssh_user(host: &str, port: u16, user: &str, key_path: &Path) {
+    let output = run_ssh_batch_with_key(
+        host,
+        port,
+        user,
+        key_path,
+        &["/read agreement", "/agree", "/quit"],
+    );
+    assert_contains(
+        &output,
+        "Agreement accepted",
+        "test user completes admission",
+    );
+}
+
+pub fn admitted_key(temp: &TestTempDir, host: &str, port: u16, user: &str) -> PathBuf {
+    let key_path = temp.path.join(format!("{user}_ed25519"));
+    generate_ed25519_key(&key_path);
+    admit_ssh_user(host, port, user, &key_path);
+    key_path
+}
+
 pub struct SshSession {
     child: Child,
     stdin: std::process::ChildStdin,
@@ -223,26 +291,36 @@ pub struct SshSession {
 
 impl SshSession {
     pub fn spawn(host: &str, port: u16, user: &str) -> Self {
-        Self::spawn_with_args(host, port, user, [])
+        Self::spawn_with_args(host, port, user, None, [])
+    }
+
+    pub fn spawn_with_key(host: &str, port: u16, user: &str, key_path: &Path) -> Self {
+        Self::spawn_with_args(host, port, user, Some(key_path), [])
     }
 
     #[allow(dead_code)]
     pub fn spawn_exec<const N: usize>(host: &str, port: u16, user: &str, args: [&str; N]) -> Self {
-        Self::spawn_with_args(host, port, user, args)
+        Self::spawn_with_args(host, port, user, None, args)
     }
 
-    fn spawn_with_args<const N: usize>(host: &str, port: u16, user: &str, args: [&str; N]) -> Self {
-        let mut child = Command::new("ssh")
-            .args([
-                "-T",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-p",
-                &port.to_string(),
-                &format!("{user}@{host}"),
-            ])
+    pub fn spawn_exec_with_key<const N: usize>(
+        host: &str,
+        port: u16,
+        user: &str,
+        key_path: &Path,
+        args: [&str; N],
+    ) -> Self {
+        Self::spawn_with_args(host, port, user, Some(key_path), args)
+    }
+
+    fn spawn_with_args<const N: usize>(
+        host: &str,
+        port: u16,
+        user: &str,
+        key_path: Option<&Path>,
+        args: [&str; N],
+    ) -> Self {
+        let mut child = ssh_command(host, port, user, key_path)
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -310,6 +388,27 @@ impl SshSession {
     fn stderr_text(&self) -> String {
         String::from_utf8_lossy(&self.stderr.lock().expect("stderr lock")).to_string()
     }
+}
+
+fn ssh_command(host: &str, port: u16, user: &str, key_path: Option<&Path>) -> Command {
+    let mut command = Command::new("ssh");
+    command.args([
+        "-T",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+    ]);
+    if let Some(key_path) = key_path {
+        command
+            .arg("-i")
+            .arg(key_path)
+            .args(["-o", "IdentitiesOnly=yes"]);
+    }
+    command.args(["-p", &port.to_string(), &format!("{user}@{host}")]);
+    command
 }
 
 pub fn assert_contains(output: &str, needle: &str, description: &str) {
@@ -703,7 +802,14 @@ fn common_helpers_are_reachable_for_lints() {
         as fn(&Path, &str, u16, &Path, &str, [(&str, &str); 0]) -> Child;
     let _ = wait_for_server as fn(&str, u16, &mut Child, &Path);
     let _ = run_ssh_batch::<0> as fn(&str, u16, &str, [&str; 0]) -> String;
+    let _ = generate_ed25519_key as fn(&Path);
+    let _ = run_ssh_batch_with_key as fn(&str, u16, &str, &Path, &[&str]) -> String;
+    let _ = admit_ssh_user as fn(&str, u16, &str, &Path);
+    let _ = admitted_key as fn(&TestTempDir, &str, u16, &str) -> PathBuf;
     let _ = SshSession::spawn as fn(&str, u16, &str) -> SshSession;
+    let _ = SshSession::spawn_with_key as fn(&str, u16, &str, &Path) -> SshSession;
+    let _ =
+        SshSession::spawn_exec_with_key::<0> as fn(&str, u16, &str, &Path, [&str; 0]) -> SshSession;
     let _ = SshSession::write_line as fn(&mut SshSession, &str);
     let _ = SshSession::wait_for_stdout as fn(&SshSession, &str, Duration);
     let _ = SshSession::wait_for_any_stdout as fn(&SshSession, &[&str], Duration) -> String;

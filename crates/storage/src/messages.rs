@@ -2,7 +2,9 @@
 
 use serde_json::json;
 
-use crate::{PgStorage, StorageError, StoredInboxItem, StoredWorldMessage};
+use crate::{
+    NewMemoryAtom, NewMemoryEvent, PgStorage, StorageError, StoredInboxItem, StoredWorldMessage,
+};
 
 impl PgStorage {
     /// Persists a mailbox message. Mail has no expiry.
@@ -32,34 +34,145 @@ impl PgStorage {
         subject: &str,
         body: &str,
     ) -> Result<StoredInboxItem, StorageError> {
+        self.save_mail_message_to_principal(
+            sender_user,
+            sender_player_id,
+            target,
+            target,
+            subject,
+            body,
+        )
+        .await
+    }
+
+    /// Persists a mailbox message with an explicit recipient principal.
+    pub async fn save_mail_message_to_principal(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        recipient_user: &str,
+        recipient_player_id: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<StoredInboxItem, StorageError> {
         sqlx::query(
             r#"
             insert into world_messages (
                 kind, sender_user, sender_player_id, target_user, target_player_id, body
             )
-            values ('mail', $1, $2, $3, $3, $4)
+            values ('mail', $1, $2, $3, $4, $5)
             "#,
         )
         .bind(sender_user)
         .bind(sender_player_id)
-        .bind(target)
+        .bind(recipient_user)
+        .bind(recipient_player_id)
         .bind(body)
         .execute(&self.pool)
         .await?;
 
-        self.create_inbox_item(NewInboxItem {
-            kind: "mail",
-            recipient_user: target,
-            recipient_player_id: target,
-            sender_user,
+        let inbox_item = self
+            .create_inbox_item(NewInboxItem {
+                kind: "mail",
+                recipient_user,
+                recipient_player_id,
+                sender_user,
+                sender_player_id,
+                subject,
+                body,
+                source_kind: None,
+                source_id: None,
+                payload: json!({ "target": recipient_user }),
+            })
+            .await?;
+
+        let sent_event = self
+            .append_memory_event(NewMemoryEvent {
+                agent_id: sender_player_id.to_owned(),
+                source: "mail".to_owned(),
+                event_type: "mail_sent".to_owned(),
+                actors: json!([sender_user, recipient_user]),
+                content: format!("Sent mail to {recipient_user}: {body}"),
+                world_refs: json!({
+                    "kind": "mail",
+                    "inbox_item_id": inbox_item.id,
+                    "subject": subject,
+                    "target_user": recipient_user
+                }),
+                salience: 0.6,
+            })
+            .await?;
+
+        let received_event = self
+            .append_memory_event(NewMemoryEvent {
+                agent_id: recipient_player_id.to_owned(),
+                source: "mail".to_owned(),
+                event_type: "mail_received".to_owned(),
+                actors: json!([sender_user, recipient_user]),
+                content: format!("Received mail from {sender_user}: {body}"),
+                world_refs: json!({
+                    "kind": "mail",
+                    "inbox_item_id": inbox_item.id,
+                    "subject": subject,
+                    "sender_user": sender_user
+                }),
+                salience: 0.7,
+            })
+            .await?;
+
+        let sent_atom = self
+            .upsert_memory_atom(NewMemoryAtom {
+                agent_id: sender_player_id.to_owned(),
+                kind: "social".to_owned(),
+                subject: recipient_user.to_owned(),
+                predicate: "messaged".to_owned(),
+                object: json!({
+                    "direction": "sent",
+                    "subject": subject,
+                    "last_body": body
+                }),
+                summary: format!("Sent mail to {recipient_user}: {body}"),
+                evidence_event_ids: vec![sent_event.id],
+                confidence: 0.7,
+                importance: 0.6,
+                emotional_valence: 0.0,
+            })
+            .await?;
+        self.touch_social_edge(
             sender_player_id,
-            subject,
-            body,
-            source_kind: None,
-            source_id: None,
-            payload: json!({ "target": target }),
-        })
-        .await
+            recipient_player_id,
+            sent_atom.id,
+            Some("mail_contact"),
+        )
+        .await?;
+
+        let received_atom = self
+            .upsert_memory_atom(NewMemoryAtom {
+                agent_id: recipient_player_id.to_owned(),
+                kind: "social".to_owned(),
+                subject: sender_user.to_owned(),
+                predicate: "messaged".to_owned(),
+                object: json!({
+                    "direction": "received",
+                    "subject": subject,
+                    "last_body": body
+                }),
+                summary: format!("Received mail from {sender_user}: {body}"),
+                evidence_event_ids: vec![received_event.id],
+                confidence: 0.75,
+                importance: 0.7,
+                emotional_valence: 0.0,
+            })
+            .await?;
+        self.touch_social_edge(
+            recipient_player_id,
+            sender_player_id,
+            received_atom.id,
+            Some("mail_contact"),
+        )
+        .await?;
+
+        Ok(inbox_item)
     }
 
     /// Persists a same-view say message with a 24 hour expiry.
@@ -85,6 +198,20 @@ impl PgStorage {
         .execute(&self.pool)
         .await?;
 
+        self.append_memory_event(NewMemoryEvent {
+            agent_id: sender_player_id.to_owned(),
+            source: "chat".to_owned(),
+            event_type: "say_message_sent".to_owned(),
+            actors: json!([sender_user]),
+            content: format!("Said in {target_view}: {body}"),
+            world_refs: json!({
+                "kind": "say",
+                "target_view": target_view
+            }),
+            salience: 0.35,
+        })
+        .await?;
+
         Ok(())
     }
 
@@ -107,6 +234,19 @@ impl PgStorage {
         .bind(sender_player_id)
         .bind(body)
         .execute(&self.pool)
+        .await?;
+
+        self.append_memory_event(NewMemoryEvent {
+            agent_id: sender_player_id.to_owned(),
+            source: "broadcast".to_owned(),
+            event_type: "broadcast_sent".to_owned(),
+            actors: json!([sender_user]),
+            content: format!("Broadcast: {body}"),
+            world_refs: json!({
+                "kind": "broadcast"
+            }),
+            salience: 0.75,
+        })
         .await?;
 
         Ok(())
@@ -235,6 +375,12 @@ impl PgStorage {
         .bind(item.payload)
         .fetch_one(&self.pool)
         .await?;
+        if row.kind == "mail" {
+            sqlx::query("select pg_notify('hinemos_inbox_mail', $1)")
+                .bind(row.id.to_string())
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(row)
     }
 
@@ -287,6 +433,25 @@ impl PgStorage {
     ) -> Result<StoredInboxItem, StorageError> {
         self.inbox_item_for_player(username, player_id, item_id)
             .await
+    }
+
+    /// Reads one inbox item by id.
+    pub async fn inbox_item(&self, item_id: i64) -> Result<StoredInboxItem, StorageError> {
+        let item = sqlx::query_as::<_, StoredInboxItem>(
+            r#"
+            select id, kind, recipient_user, recipient_player_id,
+                   sender_user, sender_player_id, subject, body, status, attempts,
+                   to_char(lease_until, 'YYYY-MM-DD HH24:MI:SS TZ') as lease_until,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from inbox_items
+            where id = $1
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StorageError::InboxItemNotFound(item_id))?;
+        Ok(item)
     }
 
     /// Reads one inbox item by its idempotent source.

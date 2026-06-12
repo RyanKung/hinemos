@@ -1,4 +1,10 @@
 docs
+docs/
+scripts/local/
+scripts/*.local.sh
+scripts/**/__pycache__/
+scripts/**/*.pyc
+temp/
 target
 .cargo-target
 .host-build

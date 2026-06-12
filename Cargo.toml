@@ -5,7 +5,6 @@ members = [
     "crates/core",
     "crates/runtime",
     "crates/storage",
-    "crates/blackstone",
     "crates/protocol/http",
     "crates/protocol/ssh",
 ]

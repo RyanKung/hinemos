@@ -125,6 +125,19 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
+            create table if not exists view_presence (
+                player_id text primary key references player_profiles(player_id) on delete cascade,
+                username text not null,
+                view_id text not null,
+                last_seen_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
             create table if not exists user_accounts (
                 username text primary key,
                 player_id text not null unique references player_profiles(player_id) on delete cascade,
@@ -385,6 +398,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
                 position integer not null,
                 owner_user text,
                 owner_player_id text,
+                room_user text,
+                room_player_id text,
                 status text not null default 'vacant'
                     check (status in ('vacant', 'claimed', 'built')),
                 title text,
@@ -401,7 +416,74 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    sqlx::query("alter table commercial_parcels add column if not exists room_user text")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("alter table commercial_parcels add column if not exists room_player_id text")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        r#"
+            create unique index if not exists commercial_parcels_room_user_idx
+            on commercial_parcels (room_user)
+            where room_user is not null
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create unique index if not exists commercial_parcels_room_player_idx
+            on commercial_parcels (room_player_id)
+            where room_player_id is not null
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
     seed_commercial_parcels(pool).await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists service_rooms (
+                view_id text primary key,
+                front_view_id text,
+                front_entity_id text,
+                address text,
+                label text,
+                enter_aliases text,
+                room_user text not null unique,
+                room_player_id text not null unique,
+                status_text text,
+                custom_commands text,
+                enabled boolean not null default true,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    for column in [
+        "front_view_id text",
+        "front_entity_id text",
+        "address text",
+        "label text",
+        "enter_aliases text",
+        "status_text text",
+        "custom_commands text",
+        "enabled boolean not null default true",
+    ] {
+        sqlx::query(&format!(
+            "alter table service_rooms add column if not exists {column}"
+        ))
+        .execute(pool)
+        .await?;
+    }
 
     sqlx::query(
         r#"
@@ -462,6 +544,143 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
         r#"
             create index if not exists payment_requests_payer_idx
             on payment_requests (payer_player_id, status, created_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists memory_events (
+                id bigserial primary key,
+                agent_id text not null,
+                occurred_at timestamptz not null default now(),
+                source text not null,
+                event_type text not null,
+                actors jsonb not null default '[]'::jsonb,
+                content text not null,
+                world_refs jsonb not null default '{}'::jsonb,
+                salience double precision not null default 0.5
+                    check (salience >= 0.0 and salience <= 1.0),
+                embedding jsonb,
+                created_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists memory_events_agent_time_idx
+            on memory_events (agent_id, occurred_at desc, id desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists memory_events_actor_gin_idx
+            on memory_events using gin (actors)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists memory_atoms (
+                id bigserial primary key,
+                agent_id text not null,
+                kind text not null
+                    check (kind in ('episodic', 'social', 'self', 'norm', 'goal', 'preference', 'commitment')),
+                subject text not null,
+                predicate text not null,
+                object jsonb not null default '{}'::jsonb,
+                summary text not null,
+                evidence_event_ids bigint[] not null default array[]::bigint[],
+                confidence double precision not null default 0.5
+                    check (confidence >= 0.0 and confidence <= 1.0),
+                importance double precision not null default 0.5
+                    check (importance >= 0.0 and importance <= 1.0),
+                emotional_valence double precision not null default 0.0
+                    check (emotional_valence >= -1.0 and emotional_valence <= 1.0),
+                embedding jsonb,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                expires_at timestamptz,
+                unique (agent_id, kind, subject, predicate)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists memory_atoms_agent_kind_idx
+            on memory_atoms (agent_id, kind, importance desc, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists memory_atoms_subject_idx
+            on memory_atoms (agent_id, subject, importance desc, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists social_edges (
+                agent_id text not null,
+                target_id text not null,
+                trust double precision not null default 0.0
+                    check (trust >= -1.0 and trust <= 1.0),
+                affinity double precision not null default 0.0
+                    check (affinity >= -1.0 and affinity <= 1.0),
+                obligation double precision not null default 0.0
+                    check (obligation >= 0.0 and obligation <= 1.0),
+                rivalry double precision not null default 0.0
+                    check (rivalry >= 0.0 and rivalry <= 1.0),
+                familiarity double precision not null default 0.0
+                    check (familiarity >= 0.0 and familiarity <= 1.0),
+                tags text[] not null default array[]::text[],
+                evidence_memory_ids bigint[] not null default array[]::bigint[],
+                updated_at timestamptz not null default now(),
+                primary key (agent_id, target_id)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists agent_self_models (
+                agent_id text not null,
+                version bigint not null,
+                identity jsonb not null default '{}'::jsonb,
+                current_state jsonb not null default '{}'::jsonb,
+                style jsonb not null default '{}'::jsonb,
+                derived_from_memory_ids bigint[] not null default array[]::bigint[],
+                created_at timestamptz not null default now(),
+                primary key (agent_id, version)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists agent_self_models_latest_idx
+            on agent_self_models (agent_id, version desc)
             "#,
     )
     .execute(pool)

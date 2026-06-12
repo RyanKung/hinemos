@@ -674,10 +674,6 @@ fn message(text: String) -> ObservationEvent {
 }
 
 fn render_ascii_art_for_view(view: &View) -> Vec<String> {
-    if view.ascii_art.is_empty() {
-        return Vec::new();
-    }
-
     view.ascii_art.clone()
 }
 
@@ -732,7 +728,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("Arrival Skill"));
+        assert!(text.contains("Admission Agreement"));
         assert!(text.contains("Guild Guide"));
-        assert!(text.contains("Blackstone Izakaya"));
+        assert!(text.contains("Open World Note"));
     }
 }

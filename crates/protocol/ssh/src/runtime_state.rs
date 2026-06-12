@@ -78,8 +78,7 @@ impl RuntimeHandle {
             .reload_from_world_dir_preserving_players(dir)?;
         let world = runtime.world()?;
         *state = RuntimeState {
-            chrome: Chrome::with_world(&world)
-                .with_extension_commands(hinemos_blackstone::extension_command_names()),
+            chrome: Chrome::with_world(&world),
             runtime,
         };
         Ok(())
@@ -123,8 +122,7 @@ struct RuntimeState {
 
 impl RuntimeState {
     fn new(world: WorldState) -> Self {
-        let chrome = Chrome::with_world(&world)
-            .with_extension_commands(hinemos_blackstone::extension_command_names());
+        let chrome = Chrome::with_world(&world);
         let runtime = GameRuntime::new(world);
         Self { runtime, chrome }
     }
@@ -135,5 +133,5 @@ pub(crate) fn parse_command(
     observation: Option<&JsonObservation>,
     input: &str,
 ) -> Result<SemanticCommand, SlashParseError> {
-    chrome.parse_command_with_observation(input, observation)
+    chrome.parse_player_input_with_observation(input, observation)
 }

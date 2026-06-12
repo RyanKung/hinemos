@@ -1,11 +1,17 @@
 //! Rendering and channel output helpers for SSH sessions.
 
+#[path = "render_map.rs"]
+mod render_map;
+#[cfg(test)]
+#[path = "render_tests.rs"]
+mod render_tests;
+
 use anyhow::Result;
 use hinemos_core::{JsonObservation, SemanticCommand};
 use hinemos_runtime::{Chrome, render_text_events, render_text_observation_with_width};
 use hinemos_storage::{
     PgStorage, StoredInboxItem, StoredOperatorCommand, StoredParcel, StoredPaymentRequest,
-    StoredWorldMessage, TEST_CURRENCY,
+    StoredServiceRoom, StoredWorldMessage, TEST_CURRENCY,
 };
 use russh::ChannelId;
 use russh::server::Session;
@@ -13,6 +19,7 @@ use russh::server::Session;
 use crate::auth::AuthIdentity;
 use crate::config::format_mail_user;
 use crate::presence::{PresenceDelivery, PresenceDeliveryMode, PresenceViewUser};
+use render_map::{apply_auto_ascii_map, overlay_ascii_parcel_label, overlay_ascii_title};
 
 pub(crate) fn send_text_observation(
     session: &mut Session,
@@ -20,18 +27,116 @@ pub(crate) fn send_text_observation(
     observation: &hinemos_core::JsonObservation,
     terminal_cols: Option<usize>,
 ) -> Result<()> {
-    session.data(
-        channel,
-        render_text_observation_with_width(observation, terminal_cols)
-            .replace('\n', "\r\n")
-            .into_bytes(),
-    )?;
+    let width = frame_width(terminal_cols);
+    let content_width = width.saturating_sub(4);
+    let map_width = map_width_for_content(content_width);
+    let mut observation = observation.clone();
+    apply_auto_ascii_map(&mut observation, map_width);
+    center_ascii_map(&mut observation, content_width);
+    let rendered = render_text_observation_with_width(&observation, Some(content_width));
+    let framed = frame_text(&rendered, width);
+    session.data(channel, format!("\x1b[2J\x1b[H{framed}").into_bytes())?;
     Ok(())
 }
 
 pub(crate) fn clear_terminal(session: &mut Session, channel: ChannelId) -> Result<()> {
     session.data(channel, b"\x1b[2J\x1b[H".to_vec())?;
     Ok(())
+}
+
+fn frame_width(terminal_cols: Option<usize>) -> usize {
+    terminal_cols.unwrap_or(88).clamp(48, 120)
+}
+
+fn map_width_for_content(content_width: usize) -> usize {
+    content_width.saturating_sub(4).clamp(44, 96)
+}
+
+fn frame_text(text: &str, width: usize) -> String {
+    let inner = width.saturating_sub(2);
+    let horizontal = "─".repeat(inner);
+    let mut output = String::new();
+    output.push_str(&format!("╭{horizontal}╮\r\n"));
+    for line in text.lines() {
+        for segment in visual_segments(line, inner) {
+            output.push('│');
+            output.push_str(&segment);
+            output.push_str(&" ".repeat(inner.saturating_sub(visual_width(&segment))));
+            output.push_str("│\r\n");
+        }
+    }
+    output.push_str(&format!("╰{horizontal}╯\r\n"));
+    output
+}
+
+fn visual_segments(line: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![String::new()];
+    }
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0;
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            current.push(ch);
+            for next in chars.by_ref() {
+                current.push(next);
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            continue;
+        }
+        let ch_width = 1;
+        if current_width + ch_width > width && !current.is_empty() {
+            segments.push(current);
+            current = String::new();
+            current_width = 0;
+        }
+        current.push(ch);
+        current_width += ch_width;
+    }
+    segments.push(current);
+    segments
+}
+
+fn visual_width(text: &str) -> usize {
+    let mut width = 0;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            for next in chars.by_ref() {
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            width += 1;
+        }
+    }
+    width
+}
+
+fn center_ascii_map(observation: &mut JsonObservation, content_width: usize) {
+    if observation.ascii_art.is_empty() {
+        return;
+    }
+    let map_width = observation
+        .ascii_art
+        .iter()
+        .map(|line| visual_width(line))
+        .max()
+        .unwrap_or(0);
+    if map_width >= content_width {
+        return;
+    }
+    let padding = " ".repeat((content_width - map_width) / 2);
+    for line in &mut observation.ascii_art {
+        if !line.trim().is_empty() {
+            *line = format!("{padding}{line}");
+        }
+    }
 }
 
 pub(crate) fn send_text_events(
@@ -96,7 +201,7 @@ pub(crate) fn overlay_parcel_observation(observation: &mut JsonObservation, parc
         }
         _ => {
             observation.description = format!(
-                "Vacant commercial parcel {}. Claim it for free from the Chamber of Commerce with /land claim {}.",
+                "Vacant commercial parcel {}. Claim it from the land registry with /land claim {}.",
                 parcel.parcel_id, parcel.parcel_id
             );
         }
@@ -139,28 +244,62 @@ pub(crate) fn overlay_street_parcels(observation: &mut JsonObservation, parcels:
         }));
 }
 
-fn overlay_ascii_title(observation: &mut JsonObservation, title: &str) {
-    let old_title = observation.title.trim().to_ascii_uppercase();
-    if old_title.is_empty() {
-        return;
+pub(crate) fn overlay_service_room(observation: &mut JsonObservation, room: &StoredServiceRoom) {
+    if let Some(status) = room
+        .status_text
+        .as_deref()
+        .filter(|status| !status.is_empty())
+    {
+        observation.description = format!("{}\n{status}", observation.description);
     }
+    observation
+        .available_commands
+        .extend(
+            command_inputs(room.custom_commands.as_deref()).map(|input| {
+                let name = input
+                    .trim_start_matches('/')
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned();
+                SemanticCommand::Extension { name, input }
+            }),
+        );
+}
 
-    for line in &mut observation.ascii_art {
-        if line.trim() == old_title {
-            let indent = line.len() - line.trim_start().len();
-            *line = format!("{}[{title}]", " ".repeat(indent));
+pub(crate) fn overlay_service_room_entries(
+    observation: &mut JsonObservation,
+    rooms: &[StoredServiceRoom],
+) {
+    let mut lines = Vec::new();
+    for room in rooms {
+        let Some(front_entity_id) = room.front_entity_id.as_deref() else {
+            continue;
+        };
+        if !observation
+            .entities
+            .iter()
+            .any(|entity| entity.id == front_entity_id)
+        {
+            continue;
         }
+        let address = room.address.as_deref().unwrap_or(&room.view_id);
+        let label = room.label.as_deref().unwrap_or(&room.view_id);
+        lines.push(format!("- {address} {label}. Enter: /enter {address}."));
+        observation.available_commands.push(SemanticCommand::Enter {
+            target: address.to_owned(),
+        });
+    }
+    if !lines.is_empty() {
+        observation.description = format!("{}\n{}", observation.description, lines.join("\n"));
     }
 }
 
-fn overlay_ascii_parcel_label(observation: &mut JsonObservation, parcel_id: &str, title: &str) {
-    let from = format!("[{parcel_id}]");
-    let to = format!("[{title}]");
-    for line in &mut observation.ascii_art {
-        if line.contains(&from) {
-            *line = line.replace(&from, &to);
-        }
-    }
+pub(crate) fn service_room_accepts_input(commands: Option<&str>, raw_input: &str) -> bool {
+    let Some(input_command) = raw_input.split_whitespace().next() else {
+        return false;
+    };
+    command_inputs(commands).any(|command| command.split_whitespace().next() == Some(input_command))
 }
 
 pub(crate) fn render_parcel_list(parcels: &[StoredParcel]) -> String {
@@ -193,7 +332,7 @@ pub(crate) fn render_parcel_list(parcels: &[StoredParcel]) -> String {
         lines.push("No vacant parcels right now. Use /land info <parcel> for details.".to_owned());
     } else {
         lines.push(format!(
-            "{vacant_count} vacant parcel(s). Use /land claim <parcel>, /land info <parcel>, or /land transfer <parcel> <user>."
+            "{vacant_count} vacant parcel(s). Use /land claim <parcel>, /land token <parcel>, /land info <parcel>, or /land transfer <parcel> <user>."
         ));
     }
     lines.push(String::new());
@@ -226,21 +365,28 @@ pub(crate) fn render_inbox_items(
                 lease
             ));
         }
+        lines.push(
+            "Use /mail read <id>, /mail claim <id>, /mail ack <id>, or /mail archive <id>."
+                .to_owned(),
+        );
     }
-    lines.push(
-        "Use /mail read <id>, /mail claim <id>, /mail ack <id>, or /mail archive <id>.".to_owned(),
-    );
     lines.push(String::new());
     lines.join("\n")
 }
 
 pub(crate) fn render_inbox_new_notice(item: &StoredInboxItem, mail_domain: Option<&str>) -> String {
+    let sender = compact_inbox_field(&format_mail_user(&item.sender_user, mail_domain));
+    if item.kind == "mail" {
+        return format!(
+            "Mail from {sender}: {}\n{}\n(saved to /mailbox as #{}.)\n",
+            compact_inbox_field(&item.subject),
+            item.body.trim(),
+            item.id
+        );
+    }
     format!(
         "Inbox: new {} #{} from {}\nUse: /mail read {}\n",
-        item.kind,
-        item.id,
-        compact_inbox_field(&format_mail_user(&item.sender_user, mail_domain)),
-        item.id
+        item.kind, item.id, sender, item.id
     )
 }
 
@@ -277,13 +423,14 @@ fn compact_inbox_field(value: &str) -> String {
 
 pub(crate) fn render_parcel_detail(parcel: &StoredParcel) -> String {
     format!(
-        "Parcel {}\nView: {}\nDistrict: {} {}\nStatus: {}\nOwner: {}\nTitle: {}\nDescription: {}\nStyle: {}\nPrompt: {}\nCommands: {}\n\n",
+        "Parcel {}\nView: {}\nDistrict: {} {}\nStatus: {}\nOwner: {}\nRoom mail: {}\nTitle: {}\nDescription: {}\nStyle: {}\nPrompt: {}\nCommands: {}\n\n",
         parcel.parcel_id,
         parcel.view_id,
         parcel.district,
         parcel.position,
         parcel.status,
         parcel.owner_user.as_deref().unwrap_or("-"),
+        parcel.room_user.as_deref().unwrap_or("-"),
         parcel.title.as_deref().unwrap_or("-"),
         parcel.description.as_deref().unwrap_or("-"),
         parcel.style.as_deref().unwrap_or("-"),
@@ -315,18 +462,22 @@ pub(crate) fn is_custom_command_input(parcel: &StoredParcel, raw_input: &str) ->
     let Some(input_command) = raw_input.split_whitespace().next() else {
         return false;
     };
-    custom_command_inputs(parcel).any(|command| command == input_command)
+    custom_command_inputs(parcel)
+        .any(|command| command.split_whitespace().next() == Some(input_command))
 }
 
 fn custom_command_inputs(parcel: &StoredParcel) -> impl Iterator<Item = String> + '_ {
-    parcel
-        .custom_commands
-        .as_deref()
+    command_inputs(parcel.custom_commands.as_deref())
+}
+
+pub(crate) fn command_inputs(commands: Option<&str>) -> impl Iterator<Item = String> + '_ {
+    commands
         .unwrap_or_default()
         .split(['\n', ';'])
         .filter_map(|entry| {
+            let entry = entry.trim();
             let command = entry.split_whitespace().next()?;
-            command.starts_with('/').then(|| command.to_owned())
+            command.starts_with('/').then(|| entry.to_owned())
         })
 }
 
@@ -478,7 +629,7 @@ pub(crate) fn world_error_feedback(message: &str) -> String {
         return format!("That parcel is not beside this path. {rest}");
     }
     if message.starts_with("no adjacent parcel here") {
-        return "No parcel opens from here. Move along the street with /go, then use /enter <parcel>."
+        return "Nothing opens from this side. Move along the street with /go, or use /enter <place> when a shopfront or parcel is visible."
             .to_owned();
     }
     message.to_owned()
@@ -740,138 +891,4 @@ pub(crate) fn exec_help() -> &'static str {
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
      Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
      Wallet commands: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>."
-}
-
-#[cfg(test)]
-mod tests {
-    use hinemos_core::JsonObservation;
-    use hinemos_runtime::render_text_observation;
-    use hinemos_storage::StoredParcel;
-
-    use super::{overlay_parcel_observation, overlay_street_parcels, render_parcel_list};
-
-    #[test]
-    fn built_parcel_replaces_static_ascii_title_with_shop_title() {
-        let mut observation = JsonObservation {
-            player_id: "player".to_owned(),
-            view_id: "north_parcel_01".to_owned(),
-            title: "North Commercial Parcel 01".to_owned(),
-            ascii_art: vec![
-                "               NORTH COMMERCIAL PARCEL 01".to_owned(),
-                "                       |".to_owned(),
-                "                    <Me>".to_owned(),
-            ],
-            description: "Static parcel description.".to_owned(),
-            exits: Vec::new(),
-            entities: Vec::new(),
-            online_users: Vec::new(),
-            available_commands: Vec::new(),
-            events: Vec::new(),
-        };
-        let parcel = StoredParcel {
-            parcel_id: "north_01".to_owned(),
-            view_id: "north_parcel_01".to_owned(),
-            district: "north".to_owned(),
-            position: 1,
-            owner_user: Some("mainiu".to_owned()),
-            owner_player_id: Some("player".to_owned()),
-            status: "built".to_owned(),
-            title: Some("Offline Tool Broker".to_owned()),
-            description: Some("Simple tools.".to_owned()),
-            style: Some("ledger".to_owned()),
-            operator_prompt: Some("reply tersely".to_owned()),
-            custom_commands: Some("/hello preview=hello price=25".to_owned()),
-        };
-
-        overlay_parcel_observation(&mut observation, &parcel);
-        let rendered = render_text_observation(&observation);
-
-        assert!(rendered.contains("Offline Tool Broker"));
-        assert!(rendered.contains("[Offline Tool Broker]"));
-        assert!(rendered.contains("Shop commands: /hello - hello, price 25"));
-        assert!(!rendered.contains("Custom commands: /hello preview=hello price=25"));
-        assert!(!rendered.contains("NORTH COMMERCIAL PARCEL 01"));
-    }
-
-    #[test]
-    fn built_street_parcel_replaces_static_ascii_label_with_shop_title() {
-        let mut observation = JsonObservation {
-            player_id: "player".to_owned(),
-            view_id: "street_north_01".to_owned(),
-            title: "North Commercial Street 01".to_owned(),
-            ascii_art: vec![
-                "               north to street 02".to_owned(),
-                "                       |".to_owned(),
-                "       [north_01] --- <Me>".to_owned(),
-                "                       |".to_owned(),
-            ],
-            description: "Static street description.".to_owned(),
-            exits: Vec::new(),
-            entities: Vec::new(),
-            online_users: Vec::new(),
-            available_commands: Vec::new(),
-            events: Vec::new(),
-        };
-        let parcel = StoredParcel {
-            parcel_id: "north_01".to_owned(),
-            view_id: "parcel_north_01".to_owned(),
-            district: "north".to_owned(),
-            position: 1,
-            owner_user: Some("mainiu".to_owned()),
-            owner_player_id: Some("player".to_owned()),
-            status: "built".to_owned(),
-            title: Some("Corall牛比站".to_owned()),
-            description: Some("Simple tools.".to_owned()),
-            style: Some("ledger".to_owned()),
-            operator_prompt: Some("reply tersely".to_owned()),
-            custom_commands: Some("/hello preview=hello price=25".to_owned()),
-        };
-
-        overlay_street_parcels(&mut observation, &[&parcel]);
-        let rendered = render_text_observation(&observation);
-
-        assert!(rendered.contains("[Corall牛比站]"));
-        assert!(!rendered.contains("[north_01]"));
-        assert!(rendered.contains("Enter: /enter north_01"));
-    }
-
-    #[test]
-    fn parcel_list_renders_status_for_humans() {
-        let parcels = vec![
-            StoredParcel {
-                parcel_id: "north_01".to_owned(),
-                view_id: "parcel_north_01".to_owned(),
-                district: "north".to_owned(),
-                position: 1,
-                owner_user: Some("mainiu".to_owned()),
-                owner_player_id: Some("player".to_owned()),
-                status: "built".to_owned(),
-                title: Some("Corall牛比站".to_owned()),
-                description: Some("Simple tools.".to_owned()),
-                style: Some("ledger".to_owned()),
-                operator_prompt: Some("reply tersely".to_owned()),
-                custom_commands: Some("/hello preview=hello price=25".to_owned()),
-            },
-            StoredParcel {
-                parcel_id: "north_02".to_owned(),
-                view_id: "parcel_north_02".to_owned(),
-                district: "north".to_owned(),
-                position: 2,
-                owner_user: None,
-                owner_player_id: None,
-                status: "vacant".to_owned(),
-                title: None,
-                description: None,
-                style: None,
-                operator_prompt: None,
-                custom_commands: None,
-            },
-        ];
-
-        let rendered = render_parcel_list(&parcels);
-
-        assert!(rendered.contains("north_01: Corall牛比站. Owner: mainiu."));
-        assert!(rendered.contains("north_02: vacant. Claim: /land claim north_02."));
-        assert!(!rendered.contains("view=parcel_north_01"));
-    }
 }

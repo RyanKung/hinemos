@@ -164,18 +164,22 @@ pub struct StoredTransfer {
 /// Commercial parcel state.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredParcel {
-    /// Stable parcel id, for example north_01.
+    /// Stable parcel id, for example N1.
     pub parcel_id: String,
     /// Static RON view id overlaid by this parcel.
     pub view_id: String,
     /// Parcel district: north or south.
     pub district: String,
-    /// One-based position away from the crossroads.
+    /// One-based door number in the district.
     pub position: i32,
     /// Owning SSH username.
     pub owner_user: Option<String>,
     /// Owning player id.
     pub owner_player_id: Option<String>,
+    /// Room-owned mail username.
+    pub room_user: Option<String>,
+    /// Room-owned mail player id.
+    pub room_player_id: Option<String>,
     /// vacant, claimed, or built.
     pub status: String,
     /// Built shop title.
@@ -188,6 +192,33 @@ pub struct StoredParcel {
     pub operator_prompt: Option<String>,
     /// Owner-authored custom command help.
     pub custom_commands: Option<String>,
+}
+
+/// Externally hosted room service registration.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredServiceRoom {
+    /// Runtime view id handled by this service.
+    pub view_id: String,
+    /// Street view id where the room entrance is visible.
+    pub front_view_id: Option<String>,
+    /// Entity id for the visible entrance object.
+    pub front_entity_id: Option<String>,
+    /// Short address token for entering from the street.
+    pub address: Option<String>,
+    /// Player-facing room label.
+    pub label: Option<String>,
+    /// Additional enter aliases separated by whitespace, comma, newline, or semicolon.
+    pub enter_aliases: Option<String>,
+    /// Room-owned mail username.
+    pub room_user: String,
+    /// Room-owned mail player id.
+    pub room_player_id: String,
+    /// Player-facing status text appended to the room observation.
+    pub status_text: Option<String>,
+    /// Data-authored command help, one command per line or semicolon.
+    pub custom_commands: Option<String>,
+    /// Whether this registration is active.
+    pub enabled: bool,
 }
 
 /// Raw visitor command forwarded to a shop operator.
@@ -244,6 +275,152 @@ pub struct StoredPaymentRequest {
     pub status: String,
     /// Ledger row id after payment.
     pub ledger_id: Option<i64>,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
+/// New append-only memory event.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct NewMemoryEvent {
+    /// Stable agent/player id that owns this memory.
+    pub agent_id: String,
+    /// Event source, for example chat, trade, system, or manual.
+    pub source: String,
+    /// Event classifier, for example promise_made or trade_executed.
+    pub event_type: String,
+    /// Actors involved in the event.
+    pub actors: Value,
+    /// Human-readable event content.
+    pub content: String,
+    /// References into world systems such as conversation, trade, or location ids.
+    pub world_refs: Value,
+    /// Event salience from 0.0 to 1.0.
+    pub salience: f64,
+}
+
+/// Stored append-only memory event.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, sqlx::FromRow)]
+pub struct StoredMemoryEvent {
+    /// Database id.
+    pub id: i64,
+    /// Stable agent/player id that owns this memory.
+    pub agent_id: String,
+    /// Database formatted occurrence time.
+    pub occurred_at: String,
+    /// Event source.
+    pub source: String,
+    /// Event classifier.
+    pub event_type: String,
+    /// Actors involved in the event.
+    pub actors: Value,
+    /// Human-readable event content.
+    pub content: String,
+    /// References into world systems.
+    pub world_refs: Value,
+    /// Event salience from 0.0 to 1.0.
+    pub salience: f64,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
+/// New or updated semantic memory atom.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct NewMemoryAtom {
+    /// Stable agent/player id that owns this memory.
+    pub agent_id: String,
+    /// Memory kind: episodic, social, self, norm, goal, preference, or commitment.
+    pub kind: String,
+    /// Entity this memory is about.
+    pub subject: String,
+    /// Relation or property being remembered.
+    pub predicate: String,
+    /// Structured object payload.
+    pub object: Value,
+    /// Human-readable memory summary.
+    pub summary: String,
+    /// Event ids that justify this memory.
+    pub evidence_event_ids: Vec<i64>,
+    /// Confidence from 0.0 to 1.0.
+    pub confidence: f64,
+    /// Importance from 0.0 to 1.0.
+    pub importance: f64,
+    /// Emotional valence from -1.0 to 1.0.
+    pub emotional_valence: f64,
+}
+
+/// Stored semantic memory atom.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, sqlx::FromRow)]
+pub struct StoredMemoryAtom {
+    /// Database id.
+    pub id: i64,
+    /// Stable agent/player id that owns this memory.
+    pub agent_id: String,
+    /// Memory kind.
+    pub kind: String,
+    /// Entity this memory is about.
+    pub subject: String,
+    /// Relation or property being remembered.
+    pub predicate: String,
+    /// Structured object payload.
+    pub object: Value,
+    /// Human-readable memory summary.
+    pub summary: String,
+    /// Event ids that justify this memory.
+    pub evidence_event_ids: Vec<i64>,
+    /// Confidence from 0.0 to 1.0.
+    pub confidence: f64,
+    /// Importance from 0.0 to 1.0.
+    pub importance: f64,
+    /// Emotional valence from -1.0 to 1.0.
+    pub emotional_valence: f64,
+    /// Database formatted creation time.
+    pub created_at: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+    /// Database formatted expiry time.
+    pub expires_at: Option<String>,
+}
+
+/// Stored social graph edge from one agent to another identity.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, sqlx::FromRow)]
+pub struct StoredSocialEdge {
+    /// Stable agent/player id that owns the relationship.
+    pub agent_id: String,
+    /// Target identity id or handle.
+    pub target_id: String,
+    /// Trust score from -1.0 to 1.0.
+    pub trust: f64,
+    /// Affinity score from -1.0 to 1.0.
+    pub affinity: f64,
+    /// Obligation score from 0.0 to 1.0.
+    pub obligation: f64,
+    /// Rivalry score from 0.0 to 1.0.
+    pub rivalry: f64,
+    /// Familiarity score from 0.0 to 1.0.
+    pub familiarity: f64,
+    /// Relationship tags.
+    pub tags: Vec<String>,
+    /// Memory ids that justify this edge.
+    pub evidence_memory_ids: Vec<i64>,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
+/// Stored self-model snapshot loaded when an agent logs in.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, sqlx::FromRow)]
+pub struct StoredAgentSelfModel {
+    /// Stable agent/player id that owns this model.
+    pub agent_id: String,
+    /// Monotonic model version.
+    pub version: i64,
+    /// Identity and long-term self description.
+    pub identity: Value,
+    /// Current goals, commitments, conflicts, and focus.
+    pub current_state: Value,
+    /// Behavioral style knobs.
+    pub style: Value,
+    /// Memory ids used to derive this model.
+    pub derived_from_memory_ids: Vec<i64>,
     /// Database formatted creation time.
     pub created_at: String,
 }
@@ -345,21 +522,51 @@ impl StorageError {
 }
 
 pub(crate) async fn seed_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
-    for district in ["north", "south"] {
-        for position in 1..=5 {
-            let parcel_id = format!("{district}_{position:02}");
+    migrate_legacy_parcel_ids(pool).await?;
+    for (district, prefix) in [("north", "N"), ("south", "S")] {
+        for position in 1..=10 {
+            let parcel_id = format!("{prefix}{position}");
             let view_id = format!("parcel_{parcel_id}");
             sqlx::query(
                 r#"
                 insert into commercial_parcels (parcel_id, view_id, district, position)
                 values ($1, $2, $3, $4)
-                on conflict (parcel_id) do nothing
+                on conflict do nothing
                 "#,
             )
             .bind(parcel_id)
             .bind(view_id)
             .bind(district)
             .bind(position)
+            .execute(pool)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn migrate_legacy_parcel_ids(pool: &PgPool) -> Result<(), StorageError> {
+    for (district, prefix) in [("north", "N"), ("south", "S")] {
+        for position in (1..=5).rev() {
+            let old_id = format!("{district}_{position:02}");
+            let new_position = position * 2 - 1;
+            let new_id = format!("{prefix}{new_position}");
+            let new_view = format!("parcel_{new_id}");
+            sqlx::query(
+                r#"
+                update commercial_parcels
+                set parcel_id = $2, view_id = $3, position = $4, updated_at = now()
+                where parcel_id = $1
+                  and not exists (
+                      select 1 from commercial_parcels existing
+                      where existing.parcel_id = $2
+                  )
+                "#,
+            )
+            .bind(old_id)
+            .bind(new_id)
+            .bind(new_view)
+            .bind(new_position)
             .execute(pool)
             .await?;
         }
@@ -374,6 +581,7 @@ pub(crate) async fn fetch_parcel_by_id(
     let parcel = sqlx::query_as::<_, StoredParcel>(
         r#"
         select parcel_id, view_id, district, position, owner_user, owner_player_id,
+               room_user, room_player_id,
                status, title, description, style, operator_prompt, custom_commands
         from commercial_parcels
         where parcel_id = $1

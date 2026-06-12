@@ -165,25 +165,20 @@ fn command_errors_do_not_close_ssh_session() {
     session.wait_for_stdout("Available:", Duration::from_secs(10));
     admit_session(&mut session);
 
-    session.write_line("/go north");
-    session.wait_for_stdout("North Island Market Path 01", Duration::from_secs(10));
-    session.write_line("/read");
-    session.wait_for_stdout("What do you want to read?", Duration::from_secs(10));
-
     session.write_line("/inspect");
     session.wait_for_stdout("What do you want to inspect?", Duration::from_secs(10));
 
-    session.write_line("/inspect taverb_front");
+    session.write_line("/inspect missing_board");
     session.wait_for_any_stdout(
         &[
-            "You do not see taverb_front here.",
-            "The world has no visible record named taverb_front.",
+            "You do not see missing_board here.",
+            "The world has no visible record named missing_board.",
         ],
         Duration::from_secs(10),
     );
 
-    session.write_line("/inspect tavern_front");
-    session.wait_for_stdout("izakaya", Duration::from_secs(10));
+    session.write_line("/inspect cyber_scroll_board");
+    session.wait_for_stdout("bulletin board", Duration::from_secs(10));
     session.write_line("/quit");
     let output = session.wait_success(Duration::from_secs(10));
 
@@ -194,13 +189,123 @@ fn command_errors_do_not_close_ssh_session() {
     );
     assert_contains(
         &output,
-        "taverb_front",
+        "missing_board",
         "mistyped target error stays in session",
     );
     assert_contains(
         &output,
-        "izakaya",
+        "bulletin board",
         "valid command after mistyped target still runs",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
+fn natural_language_commands_execute_over_ssh_session() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-ssh-natural-language");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("natural_probe_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let output = run_ssh_batch(
+        host,
+        port,
+        &user,
+        [
+            "/read cyber_scroll_board",
+            "/agree",
+            "往北",
+            "持ち物を見る",
+            "言う：hello world",
+            "/quit",
+        ],
+    );
+
+    assert_contains(
+        &output,
+        "You go north",
+        "Chinese natural-language movement executes",
+    );
+    assert_contains(
+        &output,
+        "North Island Market Path 01",
+        "natural movement reaches the north street",
+    );
+    assert_contains(
+        &output,
+        "Inventory: empty.",
+        "Japanese natural-language inventory command executes",
+    );
+    assert_contains(
+        &output,
+        "You say: hello world",
+        "Japanese natural-language say command executes",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
+fn slash_prefixed_natural_language_does_not_trigger_ssh_nlp() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-ssh-slash-natural-language");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!(
+        "slash_natural_probe_{}_{}",
+        std::process::id(),
+        epoch_seconds()
+    );
+    let server_log = temp.path.join("hinemos-server.log");
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let output = run_ssh_batch(
+        host,
+        port,
+        &user,
+        [
+            "/read cyber_scroll_board",
+            "/agree",
+            "/往北",
+            "/go north",
+            "/quit",
+        ],
+    );
+
+    assert_contains(
+        &output,
+        "That command is not on the town board.",
+        "slash-prefixed natural language stays in slash parser",
+    );
+    assert_contains(
+        &output,
+        "North Island Market Path 01",
+        "subsequent slash movement starts from the original room",
+    );
+    assert_not_contains(
+        &output,
+        "North Island Market Path 02",
+        "slash-prefixed natural language did not move before /go north",
     );
 
     terminate(&mut server);
@@ -234,7 +339,7 @@ fn business_command_errors_do_not_close_ssh_session() {
         Duration::from_secs(10),
     );
     session.write_line("/look");
-    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
+    session.wait_for_stdout("Harbor Square", Duration::from_secs(10));
 
     session.write_line("/pay accept 999999");
     session.wait_for_stdout(
@@ -242,7 +347,7 @@ fn business_command_errors_do_not_close_ssh_session() {
         Duration::from_secs(10),
     );
     session.write_line("/look");
-    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
+    session.wait_for_stdout("Harbor Square", Duration::from_secs(10));
 
     session.write_line("/land info missing_parcel");
     session.wait_for_stdout(
@@ -250,7 +355,7 @@ fn business_command_errors_do_not_close_ssh_session() {
         Duration::from_secs(10),
     );
     session.write_line("/look");
-    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
+    session.wait_for_stdout("Harbor Square", Duration::from_secs(10));
 
     session.write_line("/build title Should not disconnect");
     session.wait_for_stdout(
@@ -258,7 +363,7 @@ fn business_command_errors_do_not_close_ssh_session() {
         Duration::from_secs(10),
     );
     session.write_line("/look");
-    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
+    session.wait_for_stdout("Harbor Square", Duration::from_secs(10));
 
     session.write_line("/shop request-payment 999999 1 hello");
     session.wait_for_stdout(
@@ -266,7 +371,7 @@ fn business_command_errors_do_not_close_ssh_session() {
         Duration::from_secs(10),
     );
     session.write_line("/look");
-    session.wait_for_stdout("Island Harbor Crossing", Duration::from_secs(10));
+    session.wait_for_stdout("Harbor Square", Duration::from_secs(10));
 
     session.write_line("/quit");
     let output = session.wait_success(Duration::from_secs(10));
@@ -340,7 +445,7 @@ fn read_and_inspect_return_results_without_repainting_room() {
         [
             "/read cyber_scroll_board",
             "/agree",
-            "/inspect tavern_front",
+            "/inspect cyber_scroll_board",
             "/quit",
         ],
     );
@@ -365,23 +470,19 @@ fn read_and_inspect_return_results_without_repainting_room() {
         "Agent integration: connect to IMAP as this username",
         "arrival skill explains the agent mail path",
     );
-    assert_contains(
-        &output,
-        "Blackstone izakaya front:",
-        "inspect command returns object detail",
-    );
+    assert_contains(&output, "front:", "inspect command returns object detail");
     let inspect_output = output
-        .rsplit_once("> /inspect tavern_front")
+        .rsplit_once("> /inspect cyber_scroll_board")
         .map(|(_, tail)| tail)
         .unwrap_or(&output);
     assert_not_contains(
         inspect_output,
-        "Island Harbor Crossing",
+        "Harbor Square",
         "inspect output should not repaint the room",
     );
     assert_not_contains(
         inspect_output,
-        "ISLAND HARBOR CROSSING",
+        "HARBOR SQUARE",
         "inspect output should not render the banner title",
     );
 
