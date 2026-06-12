@@ -240,7 +240,7 @@ fn natural_language_commands_execute_over_ssh_session() {
     );
     assert_contains(
         &output,
-        "North Island Market Path 01",
+        "Agentopia Blvd North 01",
         "natural movement reaches the north street",
     );
     assert_contains(
@@ -299,12 +299,12 @@ fn slash_prefixed_natural_language_does_not_trigger_ssh_nlp() {
     );
     assert_contains(
         &output,
-        "North Island Market Path 01",
+        "Agentopia Blvd North 01",
         "subsequent slash movement starts from the original room",
     );
     assert_not_contains(
         &output,
-        "North Island Market Path 02",
+        "Agentopia Blvd North 02",
         "slash-prefixed natural language did not move before /go north",
     );
 

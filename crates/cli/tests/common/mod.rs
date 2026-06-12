@@ -669,16 +669,19 @@ pub struct TestTempDir {
 }
 
 pub struct TestDatabase {
-    admin_url: String,
     name: String,
     pub url: String,
     drop_on_exit: bool,
+    isolation: TestDatabaseIsolation,
+}
+
+enum TestDatabaseIsolation {
+    Database { admin_url: String },
+    Schema { base_url: String },
 }
 
 impl TestDatabase {
     pub fn create(env: &HashMap<String, String>) -> Self {
-        assert_command_exists("createdb");
-        assert_command_exists("dropdb");
         let base_url = assert_database_env(env);
         let name = format!(
             "hinemos_test_{}_{}_{}",
@@ -689,22 +692,50 @@ impl TestDatabase {
         let admin_url = database_url_with_name(&base_url, "postgres");
         let url = database_url_with_name(&base_url, &name);
 
-        let output = Command::new("createdb")
+        let createdb = Command::new("createdb")
             .args(["--maintenance-db", &admin_url, &name])
+            .output();
+        if let Ok(output) = &createdb
+            && output.status.success()
+        {
+            return Self {
+                name,
+                url,
+                drop_on_exit: true,
+                isolation: TestDatabaseIsolation::Database { admin_url },
+            };
+        }
+
+        let createdb_error = match createdb {
+            Ok(output) => String::from_utf8_lossy(&output.stderr).into_owned(),
+            Err(error) => error.to_string(),
+        };
+        assert_command_exists("psql");
+        let schema_url = database_url_with_search_path(&base_url, &name);
+        let create_schema = Command::new("psql")
+            .args([
+                &base_url,
+                "--no-align",
+                "--tuples-only",
+                "--command",
+                &format!("create schema {name};"),
+            ])
             .output()
-            .expect("spawn createdb");
+            .expect("spawn psql create schema");
         assert!(
-            output.status.success(),
-            "failed to create isolated integration test database `{}`: {}",
+            create_schema.status.success(),
+            "failed to create isolated integration test database `{}`: {}\n\
+             fallback schema creation also failed: {}",
             name,
-            String::from_utf8_lossy(&output.stderr)
+            createdb_error,
+            String::from_utf8_lossy(&create_schema.stderr)
         );
 
         Self {
-            admin_url,
             name,
-            url,
+            url: schema_url,
             drop_on_exit: true,
+            isolation: TestDatabaseIsolation::Schema { base_url },
         }
     }
 
@@ -732,15 +763,30 @@ impl Drop for TestDatabase {
             eprintln!("test database kept: {}", self.name);
             return;
         }
-        let _ = Command::new("dropdb")
-            .args([
-                "--if-exists",
-                "--force",
-                "--maintenance-db",
-                &self.admin_url,
-                &self.name,
-            ])
-            .status();
+        match &self.isolation {
+            TestDatabaseIsolation::Database { admin_url } => {
+                let _ = Command::new("dropdb")
+                    .args([
+                        "--if-exists",
+                        "--force",
+                        "--maintenance-db",
+                        admin_url,
+                        &self.name,
+                    ])
+                    .status();
+            }
+            TestDatabaseIsolation::Schema { base_url } => {
+                let _ = Command::new("psql")
+                    .args([
+                        base_url,
+                        "--no-align",
+                        "--tuples-only",
+                        "--command",
+                        &format!("drop schema if exists {} cascade;", self.name),
+                    ])
+                    .status();
+            }
+        }
     }
 }
 
@@ -757,6 +803,11 @@ fn database_url_with_name(base_url: &str, database: &str) -> String {
         url.push_str(query);
     }
     url
+}
+
+fn database_url_with_search_path(base_url: &str, schema: &str) -> String {
+    let separator = if base_url.contains('?') { '&' } else { '?' };
+    format!("{base_url}{separator}options=-csearch_path%3D{schema}%2Cpublic")
 }
 
 impl TestTempDir {
