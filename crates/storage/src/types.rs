@@ -122,6 +122,12 @@ pub struct StoredInboxItem {
     pub subject: String,
     /// Full body.
     pub body: String,
+    /// Optional source kind for idempotency and threading.
+    pub source_kind: Option<String>,
+    /// Optional source id for idempotency and threading.
+    pub source_id: Option<i64>,
+    /// Structured item payload.
+    pub payload: Value,
     /// unread, claimed, acked, or archived.
     pub status: String,
     /// Number of processing claims.

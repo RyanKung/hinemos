@@ -132,6 +132,21 @@ pub trait InboxItemView {
     /// Full inbox item body.
     fn body(&self) -> &str;
 
+    /// Optional source kind for idempotency and threading.
+    fn source_kind(&self) -> Option<&str> {
+        None
+    }
+
+    /// Optional source id for idempotency and threading.
+    fn source_id(&self) -> Option<i64> {
+        None
+    }
+
+    /// Optional structured item payload.
+    fn payload(&self) -> Option<&serde_json::Value> {
+        None
+    }
+
     /// Inbox item status.
     fn status(&self) -> &str;
 
@@ -289,12 +304,13 @@ fn render_inbox_items(
                 .map(|value| format!(" lease until {value}"))
                 .unwrap_or_default();
             lines.push(format!(
-                "#{} {} {} from {}: {} (attempts {}){}",
+                "#{} {} {} from {}: {}{} (attempts {}){}",
                 item.id(),
                 item.kind(),
                 item.status(),
                 compact_inbox_field(&format_mail_user(item.sender_user(), mail_domain)),
                 compact_inbox_field(item.subject()),
+                inbox_context_suffix(item).unwrap_or_default(),
                 item.attempts(),
                 lease
             ));
@@ -309,8 +325,11 @@ fn render_inbox_items(
 }
 
 fn render_inbox_item(item: &impl InboxItemView, mail_domain: Option<&str>) -> String {
+    let context = inbox_context_line(item)
+        .map(|line| format!("Context: {line}\n"))
+        .unwrap_or_default();
     format!(
-        "Inbox #{}\nKind: {}\nStatus: {}\nFrom: {}\nSubject: {}\nCreated: {}\nAttempts: {}\nBody: {}\n\n",
+        "Inbox #{}\nKind: {}\nStatus: {}\nFrom: {}\nSubject: {}\nCreated: {}\nAttempts: {}\n{}Body: {}\n\n",
         item.id(),
         item.kind(),
         item.status(),
@@ -318,8 +337,33 @@ fn render_inbox_item(item: &impl InboxItemView, mail_domain: Option<&str>) -> St
         item.subject(),
         item.created_at(),
         item.attempts(),
+        context,
         item.body()
     )
+}
+
+fn inbox_context_suffix(item: &impl InboxItemView) -> Option<String> {
+    inbox_context_line(item).map(|line| format!(" [{line}]"))
+}
+
+fn inbox_context_line(item: &impl InboxItemView) -> Option<String> {
+    match item.source_kind()? {
+        "room_command" => {
+            let request_id = item.source_id().unwrap_or_else(|| item.id());
+            let view_id = item
+                .payload()
+                .and_then(|payload| payload.get("view_id"))
+                .and_then(serde_json::Value::as_str);
+            Some(match view_id {
+                Some(view_id) => format!("room request #{request_id} for {view_id}"),
+                None => format!("room request #{request_id}"),
+            })
+        }
+        "room_reply" => item
+            .source_id()
+            .map(|request_id| format!("room reply to request #{request_id}")),
+        _ => None,
+    }
 }
 
 fn compact_inbox_field(value: &str) -> String {
@@ -335,4 +379,80 @@ pub(crate) fn format_mail_user(user: &str, mail_domain: Option<&str>) -> String 
 
 pub(crate) fn enabled_label(enabled: bool) -> &'static str {
     if enabled { "set" } else { "not set" }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct RenderInboxItem {
+        source_kind: Option<&'static str>,
+        source_id: Option<i64>,
+        payload: serde_json::Value,
+    }
+
+    impl InboxItemView for RenderInboxItem {
+        fn id(&self) -> i64 {
+            17
+        }
+
+        fn kind(&self) -> &str {
+            "mail"
+        }
+
+        fn sender_user(&self) -> &str {
+            "alice"
+        }
+
+        fn subject(&self) -> &str {
+            "Room command #17 for external_room"
+        }
+
+        fn body(&self) -> &str {
+            "/room ask status"
+        }
+
+        fn source_kind(&self) -> Option<&str> {
+            self.source_kind
+        }
+
+        fn source_id(&self) -> Option<i64> {
+            self.source_id
+        }
+
+        fn payload(&self) -> Option<&serde_json::Value> {
+            Some(&self.payload)
+        }
+
+        fn status(&self) -> &str {
+            "unread"
+        }
+
+        fn attempts(&self) -> i32 {
+            0
+        }
+
+        fn lease_until(&self) -> Option<&str> {
+            None
+        }
+
+        fn created_at(&self) -> &str {
+            "2026-06-14 00:00:00 UTC"
+        }
+    }
+
+    #[test]
+    fn room_command_context_renders_in_list_and_read_views() {
+        let item = RenderInboxItem {
+            source_kind: Some("room_command"),
+            source_id: Some(17),
+            payload: serde_json::json!({ "view_id": "external_room" }),
+        };
+
+        let list = render_inbox_items("Inbox", std::slice::from_ref(&item), None);
+        assert!(list.contains("[room request #17 for external_room]"));
+
+        let read = render_inbox_item(&item, None);
+        assert!(read.contains("Context: room request #17 for external_room"));
+    }
 }

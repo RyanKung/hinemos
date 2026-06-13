@@ -421,7 +421,9 @@ impl PgStorage {
             on conflict (source_kind, source_id, recipient_player_id)
             do update set updated_at = inbox_items.updated_at
             returning id, kind, recipient_user, recipient_player_id,
-                      sender_user, sender_player_id, subject, body, status, attempts,
+                      sender_user, sender_player_id, subject, body,
+                      source_kind, source_id, payload,
+                      status, attempts,
                       to_char(lease_until, 'YYYY-MM-DD HH24:MI:SS TZ') as lease_until,
                       to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             "#,
@@ -469,7 +471,9 @@ impl PgStorage {
         let items = sqlx::query_as::<_, StoredInboxItem>(
             r#"
             select id, kind, recipient_user, recipient_player_id,
-                   sender_user, sender_player_id, subject, body, status, attempts,
+                   sender_user, sender_player_id, subject, body,
+                   source_kind, source_id, payload,
+                   status, attempts,
                    to_char(lease_until, 'YYYY-MM-DD HH24:MI:SS TZ') as lease_until,
                    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             from inbox_items
@@ -519,7 +523,9 @@ impl PgStorage {
         let item = sqlx::query_as::<_, StoredInboxItem>(
             r#"
             select id, kind, recipient_user, recipient_player_id,
-                   sender_user, sender_player_id, subject, body, status, attempts,
+                   sender_user, sender_player_id, subject, body,
+                   source_kind, source_id, payload,
+                   status, attempts,
                    to_char(lease_until, 'YYYY-MM-DD HH24:MI:SS TZ') as lease_until,
                    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             from inbox_items
@@ -543,7 +549,9 @@ impl PgStorage {
         let item = sqlx::query_as::<_, StoredInboxItem>(
             r#"
             select id, kind, recipient_user, recipient_player_id,
-                   sender_user, sender_player_id, subject, body, status, attempts,
+                   sender_user, sender_player_id, subject, body,
+                   source_kind, source_id, payload,
+                   status, attempts,
                    to_char(lease_until, 'YYYY-MM-DD HH24:MI:SS TZ') as lease_until,
                    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             from inbox_items
@@ -579,7 +587,9 @@ impl PgStorage {
               and (recipient_user = $2 or recipient_player_id = $3)
               and status in ('unread', 'claimed')
             returning id, kind, recipient_user, recipient_player_id,
-                      sender_user, sender_player_id, subject, body, status, attempts,
+                      sender_user, sender_player_id, subject, body,
+                      source_kind, source_id, payload,
+                      status, attempts,
                       to_char(lease_until, 'YYYY-MM-DD HH24:MI:SS TZ') as lease_until,
                       to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             "#,
@@ -611,7 +621,9 @@ impl PgStorage {
               and (recipient_user = $2 or recipient_player_id = $3)
               and $4 in ('acked', 'archived')
             returning id, kind, recipient_user, recipient_player_id,
-                      sender_user, sender_player_id, subject, body, status, attempts,
+                      sender_user, sender_player_id, subject, body,
+                      source_kind, source_id, payload,
+                      status, attempts,
                       to_char(lease_until, 'YYYY-MM-DD HH24:MI:SS TZ') as lease_until,
                       to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             "#,
@@ -635,7 +647,9 @@ impl PgStorage {
         let item = sqlx::query_as::<_, StoredInboxItem>(
             r#"
             select id, kind, recipient_user, recipient_player_id,
-                   sender_user, sender_player_id, subject, body, status, attempts,
+                   sender_user, sender_player_id, subject, body,
+                   source_kind, source_id, payload,
+                   status, attempts,
                    to_char(lease_until, 'YYYY-MM-DD HH24:MI:SS TZ') as lease_until,
                    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             from inbox_items

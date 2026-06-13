@@ -379,6 +379,18 @@ impl InboxItemView for StoredInboxItem {
         &self.body
     }
 
+    fn source_kind(&self) -> Option<&str> {
+        self.source_kind.as_deref()
+    }
+
+    fn source_id(&self) -> Option<i64> {
+        self.source_id
+    }
+
+    fn payload(&self) -> Option<&serde_json::Value> {
+        Some(&self.payload)
+    }
+
     fn status(&self) -> &str {
         &self.status
     }

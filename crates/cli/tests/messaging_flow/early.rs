@@ -303,6 +303,13 @@ fn assert_external_room_mail_rows(
         request_subject_count, "1",
         "service-room request subject contains the generated request id"
     );
+    let request_context_count = test_database.query_value(&format!(
+        "select count(*) from inbox_items where recipient_user = '{room_user}' and sender_user = '{sender}' and body = '/room ask {message}' and source_kind = 'room_command' and source_id = id and payload->>'view_id' = '{room_view_id}'"
+    ));
+    assert_eq!(
+        request_context_count, "1",
+        "service-room request carries inbox source metadata for threading"
+    );
     let unknown_count = test_database.query_value(&format!(
         "select count(*) from inbox_items where recipient_user = '{room_user}' and sender_user = '{sender}' and body = '/unknown-room-command'"
     ));

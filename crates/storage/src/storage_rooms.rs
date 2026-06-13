@@ -1,4 +1,5 @@
 use hinemos_app::RoomMailboxView;
+use serde_json::json;
 use sqlx::Row;
 
 use super::room_command_subject;
@@ -289,15 +290,31 @@ impl PgStorage {
         sqlx::query(
             r#"
             update inbox_items
-            set subject = $2
+            set subject = $2,
+                source_kind = 'room_command',
+                source_id = $1,
+                payload = $3,
+                updated_at = now()
             where id = $1
             "#,
         )
         .bind(item.id)
         .bind(&subject)
+        .bind(json!({
+            "view_id": mailbox.view_id(),
+            "room_user": room_user,
+            "sender_user": sender_user
+        }))
         .execute(&self.pool)
         .await?;
         item.subject = subject;
+        item.source_kind = Some("room_command".to_owned());
+        item.source_id = Some(item.id);
+        item.payload = json!({
+            "view_id": mailbox.view_id(),
+            "room_user": room_user,
+            "sender_user": sender_user
+        });
         Ok(item)
     }
 }
