@@ -5,6 +5,7 @@ version.workspace = true
 
 [dependencies]
 hinemos-admin-protocol = { version = "0.1.0", path = "../../admin-protocol" }
+hinemos-app = { version = "0.1.0", path = "../../app" }
 hinemos-core = { version = "0.1.0", path = "../../core" }
 hinemos-runtime = { version = "0.1.0", path = "../../runtime" }
 anyhow = "1.0.102"

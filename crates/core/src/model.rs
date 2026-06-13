@@ -7,6 +7,55 @@ use serde::{Deserialize, Serialize};
 use crate::command::Direction;
 use crate::ids::{EntityId, PlayerId, ViewId};
 
+/// Default admission view id used when world metadata does not override it.
+pub const DEFAULT_ADMISSION_VIEW_ID: &str = "arrival_street";
+/// Default agreement board entity id used when world metadata does not override it.
+pub const DEFAULT_ADMISSION_BOARD_ENTITY_ID: &str = "cyber_scroll_board";
+/// Default agreement version used when world metadata does not override it.
+pub const DEFAULT_AGREEMENT_VERSION: &str = "2026-06-03";
+/// Standard quit feedback shown to players.
+pub const FEEDBACK_QUIT: &str = "Goodbye.";
+/// Parcel status indicating a vacant lot.
+pub const PARCEL_STATUS_VACANT: &str = "vacant";
+/// Parcel status indicating a claimed but unbuilt lot.
+pub const PARCEL_STATUS_CLAIMED: &str = "claimed";
+/// Parcel status indicating a built shop.
+pub const PARCEL_STATUS_BUILT: &str = "built";
+/// Admission state indicating the board has not been accepted yet.
+pub const ADMISSION_STATE_PENDING: &str = "pending";
+/// Admission state indicating the board has been accepted.
+pub const ADMISSION_STATE_AGREED: &str = "agreed";
+/// Inbox item status indicating a new unread item.
+pub const INBOX_STATUS_UNREAD: &str = "unread";
+/// Inbox item status indicating a claimed item.
+pub const INBOX_STATUS_CLAIMED: &str = "claimed";
+/// Inbox item status indicating an acknowledged item.
+pub const INBOX_STATUS_ACKED: &str = "acked";
+/// Inbox item status indicating an archived item.
+pub const INBOX_STATUS_ARCHIVED: &str = "archived";
+/// Inbox filter value indicating open or claimed work.
+pub const INBOX_FILTER_OPEN: &str = "open";
+/// Inbox filter value indicating only unread items.
+pub const INBOX_FILTER_UNREAD: &str = "unread";
+/// Inbox filter value indicating only claimed items.
+pub const INBOX_FILTER_CLAIMED: &str = "claimed";
+/// Inbox filter value indicating completed items.
+pub const INBOX_FILTER_DONE: &str = "done";
+/// Inbox filter value indicating all items.
+pub const INBOX_FILTER_ALL: &str = "all";
+/// Payment request status indicating a pending request.
+pub const PAYMENT_REQUEST_STATUS_PENDING: &str = "pending";
+/// Payment request status indicating a paid request.
+pub const PAYMENT_REQUEST_STATUS_PAID: &str = "paid";
+/// Payment request status indicating a cancelled request.
+pub const PAYMENT_REQUEST_STATUS_CANCELLED: &str = "cancelled";
+/// Operator command status indicating a newly queued command.
+pub const OPERATOR_COMMAND_STATUS_PENDING: &str = "pending";
+/// Operator command status indicating a delivered command.
+pub const OPERATOR_COMMAND_STATUS_DELIVERED: &str = "delivered";
+/// Operator command status indicating a handled command.
+pub const OPERATOR_COMMAND_STATUS_HANDLED: &str = "handled";
+
 /// The mutable state of a world instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorldState {
@@ -25,6 +74,43 @@ pub struct WorldDefinition {
     pub views: HashMap<ViewId, View>,
     /// Entities keyed by stable id.
     pub entities: HashMap<EntityId, Entity>,
+}
+
+/// Protocol-neutral world metadata loaded from `meta.ron`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct WorldMetadata {
+    /// View where pending or rescued players should be anchored.
+    #[serde(default = "default_admission_view_id")]
+    pub admission_view_id: String,
+    /// Entity id that exposes the admission agreement.
+    #[serde(default = "default_admission_board_entity_id")]
+    pub admission_board_entity_id: String,
+    /// Current admission agreement version.
+    #[serde(default = "default_agreement_version")]
+    pub agreement_version: String,
+}
+
+impl Default for WorldMetadata {
+    fn default() -> Self {
+        Self {
+            admission_view_id: default_admission_view_id(),
+            admission_board_entity_id: default_admission_board_entity_id(),
+            agreement_version: default_agreement_version(),
+        }
+    }
+}
+
+fn default_admission_view_id() -> String {
+    DEFAULT_ADMISSION_VIEW_ID.to_owned()
+}
+
+fn default_admission_board_entity_id() -> String {
+    DEFAULT_ADMISSION_BOARD_ENTITY_ID.to_owned()
+}
+
+fn default_agreement_version() -> String {
+    DEFAULT_AGREEMENT_VERSION.to_owned()
 }
 
 /// Mutable runtime snapshot for player-specific state.

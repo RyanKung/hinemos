@@ -162,6 +162,11 @@ enum AdminCmd {
         #[arg(long)]
         world: Option<PathBuf>,
     },
+    /// Generate or rotate SMTP/IMAP token for an externally registered service room.
+    RoomToken {
+        /// Service room view id.
+        view_id: String,
+    },
 }
 
 #[tokio::main]
@@ -194,6 +199,7 @@ fn run_admin(admin: AdminCli) -> Result<()> {
         AdminCmd::Kick { connection_id } => AdminRequest::KickConnection { connection_id },
         AdminCmd::ReloadWorld { world } => AdminRequest::ReloadWorld { world_dir: world },
         AdminCmd::ReloadMap { world } => AdminRequest::ReloadWorld { world_dir: world },
+        AdminCmd::RoomToken { view_id } => AdminRequest::RoomToken { view_id },
     };
 
     let response = unix_admin_call(&admin.socket, &request)?;
@@ -234,6 +240,17 @@ fn run_admin(admin: AdminCli) -> Result<()> {
                     user.player_ids.join(",")
                 );
             }
+        }
+        AdminResponse::RoomToken {
+            view_id,
+            username,
+            player_id,
+            token,
+        } => {
+            println!("view={view_id}");
+            println!("username={username}");
+            println!("player={player_id}");
+            println!("token={token}");
         }
         AdminResponse::Error { message } => {
             anyhow::bail!("{message}");
@@ -359,23 +376,7 @@ async fn run_memory(memory: MemoryCli) -> Result<()> {
             limit,
             query,
         } => {
-            let query = (!query.is_empty()).then(|| query.join(" "));
-            let atoms = storage
-                .search_memory_atoms(
-                    &agent,
-                    query.as_deref(),
-                    kind.as_deref(),
-                    subject.as_deref(),
-                    limit,
-                )
-                .await?;
-            let events = storage
-                .search_memory_events(&agent, query.as_deref(), event_type.as_deref(), limit)
-                .await?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({ "events": events, "memories": atoms }))?
-            );
+            run_memory_search(&storage, agent, event_type, kind, subject, limit, query).await?;
         }
         MemoryCmd::Recall {
             agent,
@@ -383,30 +384,7 @@ async fn run_memory(memory: MemoryCli) -> Result<()> {
             self_model,
             limit,
         } => {
-            if let Some(person) = person {
-                let edge = storage.social_edge(&agent, &person).await?;
-                let atoms = storage.recall_person_memory(&agent, &person, limit).await?;
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&json!({ "edge": edge, "memories": atoms }))?
-                );
-            } else if self_model {
-                let model = storage.latest_self_model(&agent).await?;
-                let atoms = storage
-                    .search_memory_atoms(&agent, None, Some("self"), None, limit)
-                    .await?;
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(
-                        &json!({ "self_model": model, "memories": atoms })
-                    )?
-                );
-            } else {
-                let atoms = storage
-                    .search_memory_atoms(&agent, None, None, None, limit)
-                    .await?;
-                println!("{}", serde_json::to_string_pretty(&atoms)?);
-            }
+            run_memory_recall(&storage, agent, person, self_model, limit).await?;
         }
         MemoryCmd::Profile { agent } => {
             let model = storage.latest_self_model(&agent).await?;
@@ -414,6 +392,67 @@ async fn run_memory(memory: MemoryCli) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn run_memory_search(
+    storage: &PgStorage,
+    agent: String,
+    event_type: Option<String>,
+    kind: Option<String>,
+    subject: Option<String>,
+    limit: i64,
+    query: Vec<String>,
+) -> Result<()> {
+    let query = (!query.is_empty()).then(|| query.join(" "));
+    let atoms = storage
+        .search_memory_atoms(
+            &agent,
+            query.as_deref(),
+            kind.as_deref(),
+            subject.as_deref(),
+            limit,
+        )
+        .await?;
+    let events = storage
+        .search_memory_events(&agent, query.as_deref(), event_type.as_deref(), limit)
+        .await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({ "events": events, "memories": atoms }))?
+    );
+    Ok(())
+}
+
+async fn run_memory_recall(
+    storage: &PgStorage,
+    agent: String,
+    person: Option<String>,
+    self_model: bool,
+    limit: i64,
+) -> Result<()> {
+    if let Some(person) = person {
+        let edge = storage.social_edge(&agent, &person).await?;
+        let atoms = storage.recall_person_memory(&agent, &person, limit).await?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({ "edge": edge, "memories": atoms }))?
+        );
+    } else if self_model {
+        let model = storage.latest_self_model(&agent).await?;
+        let atoms = storage
+            .search_memory_atoms(&agent, None, Some("self"), None, limit)
+            .await?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({ "self_model": model, "memories": atoms }))?
+        );
+    } else {
+        let atoms = storage
+            .search_memory_atoms(&agent, None, None, None, limit)
+            .await?;
+        println!("{}", serde_json::to_string_pretty(&atoms)?);
+    }
     Ok(())
 }
 

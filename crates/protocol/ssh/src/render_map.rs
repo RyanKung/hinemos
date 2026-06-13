@@ -2,13 +2,17 @@ use hinemos_core::{Direction, EntityKind, JsonObservation};
 
 use super::visual_width;
 
-pub(super) fn apply_auto_ascii_map(observation: &mut JsonObservation, width: usize) {
+pub(super) fn apply_auto_ascii_map(
+    observation: &mut JsonObservation,
+    width: usize,
+    admission_view_id: &str,
+) {
     if !observation.ascii_art.is_empty() {
         observation.ascii_art = normalize_map_lines(observation.ascii_art.clone(), width);
         return;
     }
     let lines = match observation.view_id.as_str() {
-        "arrival_street" => harbor_square_map(observation, width),
+        view if view == admission_view_id => harbor_square_map(observation, width),
         "west_main_street" => hinemos_blvd_map(
             "WEST HINEMOS BLVD",
             "wilderness",

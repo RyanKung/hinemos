@@ -7,18 +7,18 @@ mod render_map;
 mod render_tests;
 
 use anyhow::Result;
-use hinemos_core::{JsonObservation, SemanticCommand};
-use hinemos_runtime::{Chrome, render_text_events, render_text_observation_with_width};
-use hinemos_storage::{
-    PgStorage, StoredInboxItem, StoredOperatorCommand, StoredParcel, StoredPaymentRequest,
-    StoredServiceRoom, StoredWorldMessage, TEST_CURRENCY,
+use hinemos_core::{
+    JsonObservation, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, SemanticCommand,
+    extension_commands,
 };
+use hinemos_runtime::{Chrome, render_text_events, render_text_observation_with_width};
+use hinemos_storage::{StoredInboxItem, StoredRoomBinding};
 use russh::ChannelId;
 use russh::server::Session;
 
-use crate::auth::AuthIdentity;
 use crate::config::format_mail_user;
 use crate::presence::{PresenceDelivery, PresenceDeliveryMode, PresenceViewUser};
+use hinemos_app::ServiceRoomView;
 use render_map::{apply_auto_ascii_map, overlay_ascii_parcel_label, overlay_ascii_title};
 
 pub(crate) fn send_text_observation(
@@ -26,12 +26,13 @@ pub(crate) fn send_text_observation(
     channel: ChannelId,
     observation: &hinemos_core::JsonObservation,
     terminal_cols: Option<usize>,
+    admission_view_id: &str,
 ) -> Result<()> {
     let width = frame_width(terminal_cols);
     let content_width = width.saturating_sub(4);
     let map_width = map_width_for_content(content_width);
     let mut observation = observation.clone();
-    apply_auto_ascii_map(&mut observation, map_width);
+    apply_auto_ascii_map(&mut observation, map_width, admission_view_id);
     center_ascii_map(&mut observation, content_width);
     let rendered = render_text_observation_with_width(&observation, Some(content_width));
     let framed = frame_text(&rendered, width);
@@ -161,27 +162,33 @@ pub(crate) fn should_render_full_observation(command: &SemanticCommand) -> bool 
     )
 }
 
-pub(crate) fn overlay_parcel_observation(observation: &mut JsonObservation, parcel: &StoredParcel) {
-    let owner = parcel.owner_user.as_deref().unwrap_or("unclaimed");
-    match parcel.status.as_str() {
-        "built" => {
-            if let Some(title) = &parcel.title {
+pub(crate) fn overlay_parcel_observation(
+    observation: &mut JsonObservation,
+    binding: &StoredRoomBinding,
+) {
+    let owner = binding.owner_user.as_deref().unwrap_or("unclaimed");
+    match binding.parcel_status.as_deref().unwrap_or_default() {
+        PARCEL_STATUS_BUILT => {
+            if let Some(title) = binding.parcel_title.as_deref() {
                 overlay_ascii_title(observation, title);
-                observation.title = title.clone();
+                observation.title = title.to_owned();
             }
-            if let Some(description) = &parcel.description {
-                let shop_commands = format_shop_commands(parcel);
+            if let Some(description) = binding.parcel_description.as_deref() {
+                let shop_commands = format_shop_commands(binding);
                 observation.description = format!(
                     "{description}\nOwner: {owner}. Parcel: {}. Style: {}.\nShop commands: {}.\nOperator prompt: {}",
-                    parcel.parcel_id,
-                    parcel.style.as_deref().unwrap_or("unspecified"),
+                    binding.address,
+                    binding.parcel_style.as_deref().unwrap_or("unspecified"),
                     shop_commands.as_deref().unwrap_or("not specified"),
-                    parcel.operator_prompt.as_deref().unwrap_or("not specified")
+                    binding
+                        .parcel_operator_prompt
+                        .as_deref()
+                        .unwrap_or("not specified")
                 );
             }
             observation
                 .available_commands
-                .extend(custom_command_inputs(parcel).map(|input| {
+                .extend(custom_command_inputs(binding).map(|input| {
                     SemanticCommand::Extension {
                         name: input
                             .trim_start_matches('/')
@@ -193,101 +200,54 @@ pub(crate) fn overlay_parcel_observation(observation: &mut JsonObservation, parc
                     }
                 }));
         }
-        "claimed" => {
+        PARCEL_STATUS_CLAIMED => {
             observation.description = format!(
                 "Commercial parcel {} is claimed by {owner} but not built yet.\nOwner can edit here with one JSON build sheet: /build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /build publish. Custom commands are auto-filled if omitted.",
-                parcel.parcel_id
+                binding.address
             );
         }
         _ => {
             observation.description = format!(
                 "Vacant commercial parcel {}. Claim it from the land registry with /land claim {}.",
-                parcel.parcel_id, parcel.parcel_id
+                binding.address, binding.address
             );
         }
     }
 }
 
-pub(crate) fn overlay_street_parcels(observation: &mut JsonObservation, parcels: &[&StoredParcel]) {
-    if parcels.is_empty() {
-        return;
-    }
-
-    let mut lines = vec!["Street parcels:".to_owned()];
-    for parcel in parcels {
-        let label = match parcel.status.as_str() {
-            "built" => parcel
-                .title
-                .as_deref()
-                .unwrap_or(&parcel.parcel_id)
-                .to_owned(),
-            "claimed" => format!(
-                "{} claimed by {}",
-                parcel.parcel_id,
-                parcel.owner_user.as_deref().unwrap_or("unknown")
-            ),
-            _ => format!("{} vacant", parcel.parcel_id),
-        };
-        if parcel.status == "built"
-            && let Some(title) = parcel.title.as_deref()
-        {
-            overlay_ascii_parcel_label(observation, &parcel.parcel_id, title);
-        }
-        lines.push(format!("- {label}. Enter: /enter {}.", parcel.parcel_id));
-    }
-
-    observation.description = format!("{}\n{}", observation.description, lines.join("\n"));
-    observation
-        .available_commands
-        .extend(parcels.iter().map(|parcel| SemanticCommand::Enter {
-            target: parcel.parcel_id.clone(),
-        }));
-}
-
-pub(crate) fn overlay_service_room(observation: &mut JsonObservation, room: &StoredServiceRoom) {
-    if let Some(status) = room
-        .status_text
-        .as_deref()
-        .filter(|status| !status.is_empty())
-    {
+pub(crate) fn overlay_service_room(observation: &mut JsonObservation, room: &impl ServiceRoomView) {
+    if let Some(status) = room.status_text().filter(|status| !status.is_empty()) {
         observation.description = format!("{}\n{status}", observation.description);
     }
     observation
         .available_commands
-        .extend(
-            command_inputs(room.custom_commands.as_deref()).map(|input| {
-                let name = input
-                    .trim_start_matches('/')
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or_default()
-                    .to_owned();
-                SemanticCommand::Extension { name, input }
-            }),
-        );
+        .extend(extension_commands(room.custom_commands()));
 }
 
-pub(crate) fn overlay_service_room_entries(
+pub(crate) fn overlay_room_binding_entries(
     observation: &mut JsonObservation,
-    rooms: &[StoredServiceRoom],
+    bindings: &[StoredRoomBinding],
 ) {
     let mut lines = Vec::new();
-    for room in rooms {
-        let Some(front_entity_id) = room.front_entity_id.as_deref() else {
-            continue;
-        };
-        if !observation
-            .entities
-            .iter()
-            .any(|entity| entity.id == front_entity_id)
+    for binding in bindings {
+        if binding
+            .front_entity_id
+            .as_deref()
+            .is_some_and(|front_entity_id| {
+                !observation
+                    .entities
+                    .iter()
+                    .any(|entity| entity.id == front_entity_id)
+            })
         {
             continue;
         }
-        let address = room.address.as_deref().unwrap_or(&room.view_id);
-        let label = room.label.as_deref().unwrap_or(&room.view_id);
-        lines.push(format!("- {address} {label}. Enter: /enter {address}."));
+        if let Some(ascii_label) = binding.ascii_label.as_deref() {
+            overlay_ascii_parcel_label(observation, &binding.address, ascii_label);
+        }
+        lines.push(binding.entry_text.clone());
         observation.available_commands.push(SemanticCommand::Enter {
-            target: address.to_owned(),
+            target: binding.address.clone(),
         });
     }
     if !lines.is_empty() {
@@ -295,99 +255,35 @@ pub(crate) fn overlay_service_room_entries(
     }
 }
 
-pub(crate) fn service_room_accepts_input(commands: Option<&str>, raw_input: &str) -> bool {
-    let Some(input_command) = raw_input.split_whitespace().next() else {
-        return false;
-    };
-    command_inputs(commands).any(|command| command.split_whitespace().next() == Some(input_command))
+pub(crate) fn render_inbox_new_notice(item: &StoredInboxItem, mail_domain: Option<&str>) -> String {
+    render_inbox_notice_fields(
+        item.id,
+        &item.kind,
+        &item.sender_user,
+        &item.subject,
+        &item.body,
+        mail_domain,
+    )
 }
 
-pub(crate) fn render_parcel_list(parcels: &[StoredParcel]) -> String {
-    let mut lines = vec!["Commercial Parcels".to_owned()];
-    let mut vacant_count = 0_u32;
-    for parcel in parcels {
-        match parcel.status.as_str() {
-            "built" => lines.push(format!(
-                "- {}: {}. Owner: {}. Enter from street: /enter {}.",
-                parcel.parcel_id,
-                parcel.title.as_deref().unwrap_or("built shop"),
-                parcel.owner_user.as_deref().unwrap_or("unknown"),
-                parcel.parcel_id
-            )),
-            "claimed" => lines.push(format!(
-                "- {}: claimed by {}; not built yet.",
-                parcel.parcel_id,
-                parcel.owner_user.as_deref().unwrap_or("unknown")
-            )),
-            _ => {
-                vacant_count += 1;
-                lines.push(format!(
-                    "- {}: vacant. Claim: /land claim {}.",
-                    parcel.parcel_id, parcel.parcel_id
-                ));
-            }
-        }
-    }
-    if vacant_count == 0 {
-        lines.push("No vacant parcels right now. Use /land info <parcel> for details.".to_owned());
-    } else {
-        lines.push(format!(
-            "{vacant_count} vacant parcel(s). Use /land claim <parcel>, /land token <parcel>, /land info <parcel>, or /land transfer <parcel> <user>."
-        ));
-    }
-    lines.push(String::new());
-    lines.join("\n")
-}
-
-pub(crate) fn render_inbox_items(
-    title: &str,
-    items: &[StoredInboxItem],
+pub(crate) fn render_inbox_notice_fields(
+    id: i64,
+    kind: &str,
+    sender_user: &str,
+    subject: &str,
+    body: &str,
     mail_domain: Option<&str>,
 ) -> String {
-    let mut lines = vec![title.to_owned()];
-    if items.is_empty() {
-        lines.push("No inbox items.".to_owned());
-    } else {
-        for item in items {
-            let lease = item
-                .lease_until
-                .as_deref()
-                .map(|value| format!(" lease until {value}"))
-                .unwrap_or_default();
-            lines.push(format!(
-                "#{} {} {} from {}: {} (attempts {}){}",
-                item.id,
-                item.kind,
-                item.status,
-                compact_inbox_field(&format_mail_user(&item.sender_user, mail_domain)),
-                compact_inbox_field(&item.subject),
-                item.attempts,
-                lease
-            ));
-        }
-        lines.push(
-            "Use /mail read <id>, /mail claim <id>, /mail ack <id>, or /mail archive <id>."
-                .to_owned(),
-        );
-    }
-    lines.push(String::new());
-    lines.join("\n")
-}
-
-pub(crate) fn render_inbox_new_notice(item: &StoredInboxItem, mail_domain: Option<&str>) -> String {
-    let sender = compact_inbox_field(&format_mail_user(&item.sender_user, mail_domain));
-    if item.kind == "mail" {
+    let sender = compact_inbox_field(&format_mail_user(sender_user, mail_domain));
+    if kind == "mail" {
         return format!(
             "Mail from {sender}: {}\n{}\n(saved to /mailbox as #{}.)\n",
-            compact_inbox_field(&item.subject),
-            item.body.trim(),
-            item.id
+            compact_inbox_field(subject),
+            body.trim(),
+            id
         );
     }
-    format!(
-        "Inbox: new {} #{} from {}\nUse: /mail read {}\n",
-        item.kind, item.id, sender, item.id
-    )
+    format!("Inbox: new {kind} #{id} from {sender}\nUse: /mail read {id}\n")
 }
 
 pub(crate) fn render_mailbox_new_notice(
@@ -403,71 +299,25 @@ pub(crate) fn render_mailbox_new_notice(
     )
 }
 
-pub(crate) fn render_inbox_item(item: &StoredInboxItem, mail_domain: Option<&str>) -> String {
-    format!(
-        "Inbox #{}\nKind: {}\nStatus: {}\nFrom: {}\nSubject: {}\nCreated: {}\nAttempts: {}\nBody: {}\n\n",
-        item.id,
-        item.kind,
-        item.status,
-        format_mail_user(&item.sender_user, mail_domain),
-        item.subject,
-        item.created_at,
-        item.attempts,
-        item.body
-    )
+pub(crate) fn room_reply_request_id(subject: &str) -> Option<i64> {
+    let subject = subject.trim();
+    let request_id = subject.strip_prefix("Re: #")?.trim();
+    request_id.parse::<i64>().ok()
+}
+
+pub(crate) fn room_reply_live_notice(label: &str, request_id: Option<i64>, body: &str) -> String {
+    match request_id {
+        Some(request_id) => format!("[room {label} reply #{request_id}] {body}"),
+        None => format!("[room {label}] {body}"),
+    }
 }
 
 fn compact_inbox_field(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-pub(crate) fn render_parcel_detail(parcel: &StoredParcel) -> String {
-    format!(
-        "Parcel {}\nView: {}\nDistrict: {} {}\nStatus: {}\nOwner: {}\nRoom mail: {}\nTitle: {}\nDescription: {}\nStyle: {}\nPrompt: {}\nCommands: {}\n\n",
-        parcel.parcel_id,
-        parcel.view_id,
-        parcel.district,
-        parcel.position,
-        parcel.status,
-        parcel.owner_user.as_deref().unwrap_or("-"),
-        parcel.room_user.as_deref().unwrap_or("-"),
-        parcel.title.as_deref().unwrap_or("-"),
-        parcel.description.as_deref().unwrap_or("-"),
-        parcel.style.as_deref().unwrap_or("-"),
-        parcel.operator_prompt.as_deref().unwrap_or("-"),
-        parcel.custom_commands.as_deref().unwrap_or("-")
-    )
-}
-
-pub(crate) fn custom_command_preview(parcel: &StoredParcel, raw_input: &str) -> Option<String> {
-    let command = raw_input.split_whitespace().next()?;
-    let commands = parcel.custom_commands.as_deref()?;
-    for entry in commands.split(['\n', ';']) {
-        let entry = entry.trim();
-        if !entry.starts_with(command) {
-            continue;
-        }
-        let Some(preview) = command_field_value(entry, "preview=") else {
-            continue;
-        };
-        let preview = preview.trim();
-        if !preview.is_empty() {
-            return Some(preview.to_owned());
-        }
-    }
-    None
-}
-
-pub(crate) fn is_custom_command_input(parcel: &StoredParcel, raw_input: &str) -> bool {
-    let Some(input_command) = raw_input.split_whitespace().next() else {
-        return false;
-    };
-    custom_command_inputs(parcel)
-        .any(|command| command.split_whitespace().next() == Some(input_command))
-}
-
-fn custom_command_inputs(parcel: &StoredParcel) -> impl Iterator<Item = String> + '_ {
-    command_inputs(parcel.custom_commands.as_deref())
+fn custom_command_inputs(binding: &StoredRoomBinding) -> impl Iterator<Item = String> + '_ {
+    command_inputs(binding.parcel_custom_commands.as_deref())
 }
 
 pub(crate) fn command_inputs(commands: Option<&str>) -> impl Iterator<Item = String> + '_ {
@@ -481,9 +331,9 @@ pub(crate) fn command_inputs(commands: Option<&str>) -> impl Iterator<Item = Str
         })
 }
 
-fn format_shop_commands(parcel: &StoredParcel) -> Option<String> {
-    let rendered = parcel
-        .custom_commands
+fn format_shop_commands(binding: &StoredRoomBinding) -> Option<String> {
+    let rendered = binding
+        .parcel_custom_commands
         .as_deref()?
         .split(['\n', ';'])
         .filter_map(format_shop_command_entry)
@@ -536,19 +386,6 @@ fn command_field_value(entry: &str, marker: &str) -> Option<String> {
     )
 }
 
-pub(crate) fn build_help() -> &'static str {
-    "Build commands for the current owned parcel:\r\n\
-     /build {\"title\":\"shop title\",\"description\":\"shop description\",\"style\":\"style note\",\"prompt\":\"operator prompt\"}\r\n\
-     Optional JSON field: \"commands\". If omitted, commands are auto-filled.\r\n\
-     Legacy field commands still work for manual correction: /build title <text>, /build description <text>, /build style <text>, /build prompt <text>, /build commands <text>\r\n\
-     /build publish\r\n\
-     After publishing, visitor slash commands inside the shop become inbox items for the owner.\r\n"
-}
-
-pub(crate) const fn default_build_commands() -> &'static str {
-    "/hello preview=hello price=25; /status"
-}
-
 pub(crate) const ANSI_RESET: &str = "\x1b[0m";
 pub(crate) const ANSI_RED: &str = "\x1b[1;31m";
 pub(crate) const ANSI_GREEN: &str = "\x1b[1;32m";
@@ -559,11 +396,6 @@ pub(crate) const ANSI_DIM: &str = "\x1b[2m";
 
 pub(crate) fn styled_block(text: &str, ansi_style: &str) -> String {
     format!("{ansi_style}{text}{ANSI_RESET}")
-}
-
-pub(crate) fn non_empty(value: Option<&str>) -> Option<&str> {
-    let value = value?.trim();
-    if value.is_empty() { None } else { Some(value) }
 }
 
 pub(crate) fn send_prompt(session: &mut Session, channel: ChannelId) -> Result<()> {
@@ -670,43 +502,6 @@ pub(crate) fn send_stdin_closed_guidance(
     Ok(())
 }
 
-pub(crate) fn send_message_list(
-    session: &mut Session,
-    channel: ChannelId,
-    title: &str,
-    messages: &[StoredWorldMessage],
-    empty: &str,
-) -> Result<()> {
-    session.data(channel, format!("\r\n{title}\r\n").into_bytes())?;
-    if messages.is_empty() {
-        session.data(
-            channel,
-            styled_block(&format!("{empty}\r\n"), ANSI_DIM).into_bytes(),
-        )?;
-        return Ok(());
-    }
-
-    for message in messages.iter().rev() {
-        let expiry = message
-            .expires_at
-            .as_ref()
-            .map(|expires_at| format!(" expires={expires_at}"))
-            .unwrap_or_default();
-        session.data(
-            channel,
-            styled_block(
-                &format!(
-                    "- [{}] {} from {}{}: {}\r\n",
-                    message.created_at, message.kind, message.sender_user, expiry, message.body
-                ),
-                ANSI_DIM,
-            )
-            .into_bytes(),
-        )?;
-    }
-    Ok(())
-}
-
 pub(crate) fn render_online_summary(users: &[PresenceViewUser], limit: usize) -> Vec<String> {
     let mut rendered = users
         .iter()
@@ -718,133 +513,6 @@ pub(crate) fn render_online_summary(users: &[PresenceViewUser], limit: usize) ->
         rendered.push(format!("+{remaining} more (use /who)"));
     }
     rendered
-}
-
-pub(crate) fn render_who(view_id: &str, users: &[PresenceViewUser]) -> String {
-    if users.is_empty() {
-        return format!("Online here in {view_id}: nobody else.\r\n");
-    }
-    let names = users
-        .iter()
-        .map(|user| user.user.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("Online here in {view_id} ({}): {names}\r\n", users.len())
-}
-
-pub(crate) fn send_operator_command_list(
-    session: &mut Session,
-    channel: ChannelId,
-    commands: &[StoredOperatorCommand],
-) -> Result<()> {
-    session.data(channel, b"\r\nShop Inbox\r\n".to_vec())?;
-    if commands.is_empty() {
-        session.data(channel, b"No shop commands.\r\n".to_vec())?;
-        return Ok(());
-    }
-
-    for command in commands.iter().rev() {
-        session.data(
-            channel,
-            format!(
-                "- #{} [{}] {} from {} in {}: {}\r\n",
-                command.id,
-                command.created_at,
-                command.status,
-                command.sender_user,
-                command.parcel_id,
-                command.raw_input
-            )
-            .into_bytes(),
-        )?;
-    }
-    Ok(())
-}
-
-pub(crate) fn send_payment_request_list(
-    session: &mut Session,
-    channel: ChannelId,
-    requests: &[StoredPaymentRequest],
-) -> Result<()> {
-    session.data(channel, b"\r\nPayment Requests\r\n".to_vec())?;
-    if requests.is_empty() {
-        session.data(channel, b"No pending payment requests.\r\n".to_vec())?;
-        return Ok(());
-    }
-
-    for request in requests.iter().rev() {
-        session.data(
-            channel,
-            render_payment_popup(request)
-                .replace('\n', "\r\n")
-                .into_bytes(),
-        )?;
-    }
-    Ok(())
-}
-
-pub(crate) fn render_payment_popup(request: &StoredPaymentRequest) -> String {
-    format!(
-        "\n=== Payment Request #{} ===\nShop: {} ({})\nAmount: {} {}\nFor: shop command #{}\nDelivery: locked until payment\nAccept: /pay accept {}\nReject: ignore this request\n==========================\n",
-        request.id,
-        request.parcel_id,
-        request.payee_user,
-        request.amount,
-        request.asset,
-        request.operator_command_id,
-        request.id
-    )
-}
-
-pub(crate) fn render_paid_request(request: &StoredPaymentRequest, sender_balance: i64) -> String {
-    format!(
-        "Paid payment request #{}: {} {} to {}. Balance: {} {}.\r\nUnlocked content: {}\r\n",
-        request.id,
-        request.amount,
-        request.asset,
-        request.payee_user,
-        sender_balance,
-        request.asset,
-        request.delivery
-    )
-}
-
-pub(crate) async fn send_mailbox_summary(
-    session: &mut Session,
-    channel: ChannelId,
-    storage: &PgStorage,
-    identity: &AuthIdentity,
-) -> Result<()> {
-    let items = storage
-        .list_inbox_items(&identity.user, &identity.player_id, Some("open"), 10)
-        .await?;
-    if items.is_empty() {
-        return Ok(());
-    }
-
-    session.data(
-        channel,
-        format!("Inbox: {} open item(s).\r\n", items.len()).into_bytes(),
-    )?;
-    Ok(())
-}
-
-pub(crate) async fn send_balance_summary(
-    session: &mut Session,
-    channel: ChannelId,
-    storage: &PgStorage,
-    identity: &AuthIdentity,
-) -> Result<()> {
-    let balance = storage.player_balance(&identity.player_id).await?;
-    session.data(
-        channel,
-        format!(
-            "Wallet: {} {}. Use /balance, /pay <user> <amount> [memo], /pay requests, or /pay accept <id>.\r\n",
-            balance.amount, TEST_CURRENCY
-        )
-        .into_bytes(),
-    )?;
-    Ok(())
 }
 
 pub(crate) async fn deliver_live_message(recipients: Vec<PresenceDelivery>, message: &str) {
@@ -888,6 +556,7 @@ pub(crate) fn exec_help() -> &'static str {
      Open an SSH shell: ssh -p <port> <user>@<host>\n\
      Open the SSH-authenticated mailbox protocol: ssh -T -p <port> <user>@<host> mailbox\n\
      Autonomous agent mail: log in with an ed25519 SSH key, run /settings mail-token, then use SMTP/IMAP with username <user> and that token. Keep IMAP IDLE open to receive no-prompt EXISTS notifications, then FETCH and STORE +FLAGS (\\Seen).\n\
+     Room service agents: requests arrive with subject `Room command #<id> for <view_id>`; reply with subject `Re: #<id>` so players can associate the answer with the request.\n\
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
      Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
      Wallet commands: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>."

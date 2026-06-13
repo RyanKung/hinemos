@@ -2,14 +2,10 @@
 
 use super::*;
 
-#[path = "handler_business.rs"]
-mod handler_business;
 #[path = "handler_helpers.rs"]
 mod handler_helpers;
 #[path = "handler_io.rs"]
 mod handler_io;
-#[path = "handler_memory.rs"]
-mod handler_memory;
 mod session;
 
 use crate::auth::AuthIdentity;
@@ -19,11 +15,11 @@ use crate::render::*;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use handler_helpers::*;
-use hinemos_core::{Direction, ExitObservation, SettingsAction};
-use hinemos_storage::{
-    StoredAdmission, StoredAgentSelfModel, StoredMemoryAtom, StoredMemoryEvent, StoredParcel,
-    StoredServiceRoom, StoredSocialEdge,
+use hinemos_app::{
+    AppCommandContext, AppIdentity, AppRequest, PendingAdmissionCommandOutcome,
+    RoomBindingKindView, UiEvent, service_room_unavailable_text,
 };
+use hinemos_core::{Direction, JsonObservation, ObservationEvent, PlayerState, SemanticCommand};
 use rand::Rng;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,10 +28,7 @@ pub(crate) enum ConnectionMode {
     Mailbox,
 }
 
-const AGREEMENT_VERSION: &str = "2026-06-03";
-const ADMISSION_VIEW_ID: &str = "arrival_street";
 const PENDING_PRESENCE_VIEW_ID: &str = "__pending_admission";
-const ADMISSION_BOARD_ENTITY_ID: &str = "cyber_scroll_board";
 const MAX_SHELL_INPUT_BYTES: usize = 4096;
 
 pub(crate) struct ConnectionHandler {
@@ -50,6 +43,13 @@ pub(crate) struct ConnectionHandler {
     chrome: Option<Chrome>,
     mode: Option<ConnectionMode>,
     terminal_cols: Option<usize>,
+}
+
+struct CommandLineState {
+    identity: AuthIdentity,
+    player: PlayerState,
+    room_context: RoomViewContext,
+    current_observation: JsonObservation,
 }
 
 impl ConnectionHandler {
@@ -96,37 +96,56 @@ impl ConnectionHandler {
         if let Some(notice) = identity.onboarding_notice() {
             session.data(channel, notice.into_bytes())?;
         }
-        let admission = self
-            .shared
-            .storage
-            .player_admission(&identity.player_id)
-            .await?;
+        let app = self.shared.app_service().await;
+        let admission = app.player_admission(&identity.player_id).await?;
         if admission.is_agreed() {
-            if let Err(error) =
-                send_balance_summary(session, channel, &self.shared.storage, identity).await
-            {
-                send_command_error(session, channel, error, false)?;
+            match app.balance_summary(&identity.player_id).await {
+                Ok(summary) => session.data(channel, summary.into_bytes())?,
+                Err(error) => send_command_error(session, channel, error.into(), false)?,
             }
-            if let Err(error) =
-                send_mailbox_summary(session, channel, &self.shared.storage, identity).await
+            match app
+                .open_inbox_summary(&identity.user, &identity.player_id)
+                .await
             {
-                send_command_error(session, channel, error, false)?;
+                Ok(Some(summary)) => session.data(channel, summary.into_bytes())?,
+                Ok(None) => {}
+                Err(error) => send_command_error(session, channel, error.into(), false)?,
             }
-            if let Err(error) = self.send_memory_context(channel, session, identity).await {
+            if let Err(error) = self
+                .send_app_request(channel, session, identity, AppRequest::MemoryContext)
+                .await
+            {
                 send_command_error(session, channel, error, false)?;
             }
         } else {
             session.data(
                 channel,
-                admission_guidance(&admission)
+                app.admission_guidance(&admission)
                     .replace('\n', "\r\n")
                     .into_bytes(),
             )?;
         }
-        match self.observe_current_json(&identity.player_id).await {
+        let player = self
+            .shared
+            .runtime
+            .player_state(&identity.player_id)
+            .await?;
+        let room_context = self
+            .shared
+            .room_context_for_view(&player.current_view)
+            .await?;
+        match self
+            .observe_current_json_for_view(&identity.player_id, Some(&room_context))
+            .await
+        {
             Ok(observation) => {
                 if let Err(error) = self
-                    .send_text_observation(channel, session, observation)
+                    .send_text_observation_with_context(
+                        channel,
+                        session,
+                        observation,
+                        &room_context,
+                    )
                     .await
                 {
                     send_command_error(session, channel, error, false)?;
@@ -141,19 +160,12 @@ impl ConnectionHandler {
     }
 
     async fn finish_authentication(&mut self, identity: AuthIdentity) -> Result<()> {
-        let admission = self
-            .shared
-            .storage
-            .player_admission(&identity.player_id)
+        let app = self.shared.app_service().await;
+        let _ = app
+            .ensure_player_wallet_if_admitted(&identity.user, &identity.player_id)
             .await?;
-        if admission.is_agreed() {
-            self.shared
-                .storage
-                .ensure_player_wallet(&identity.user, &identity.player_id)
-                .await?;
-        }
-        let saved_player =
-            PlayerStateStore::load_player_state(&self.shared.storage, &identity.player_id).await?;
+        let admission = app.player_admission(&identity.player_id).await?;
+        let saved_player = app.load_player_state(&identity.player_id).await?;
         self.shared
             .runtime
             .set_or_create_player(saved_player, &identity.player_id, LOCAL_PLAYER_ID)
@@ -164,13 +176,14 @@ impl ConnectionHandler {
             .player_state(&identity.player_id)
             .await?;
         if !admission.is_agreed() {
-            player_to_save.current_view = ADMISSION_VIEW_ID.to_owned();
+            let app_config = self.shared.app_config().await;
+            player_to_save.current_view = app_config.admission_view_id;
             self.shared
                 .runtime
                 .set_player_state(player_to_save.clone())
                 .await?;
         }
-        PlayerStateStore::save_player_state(&self.shared.storage, &player_to_save).await?;
+        app.save_player_state(&player_to_save).await?;
         self.shared.presence.lock().await.mark_online(
             self.connection_id,
             identity.player_id.clone(),
@@ -193,150 +206,348 @@ impl ConnectionHandler {
         session: &mut Session,
         prompt: bool,
     ) -> Result<()> {
-        let Some(identity) = &self.identity else {
-            session.data(channel, b"Authentication required.\r\n".to_vec())?;
+        let Some(mut state) = self
+            .prepare_command_line_state(channel, session, prompt)
+            .await?
+        else {
             return Ok(());
         };
 
-        self.shared.presence.lock().await.touch(self.connection_id);
-        self.commands_seen += 1;
-        if let Ok(player) = self.shared.runtime.player_state(&identity.player_id).await {
-            let _ = self
-                .shared
-                .storage
-                .record_view_presence(&identity.user, &identity.player_id, &player.current_view)
-                .await;
-        }
-
-        let Some(chrome) = &self.chrome else {
-            session.data(channel, b"Session is not ready.\r\n".to_vec())?;
-            return Ok(());
-        };
-
-        if !line.trim_start().starts_with('/')
-            && self
-                .pending_admission_blocks_free_text(channel, session, identity, prompt)
-                .await?
-        {
-            return Ok(());
-        }
-
-        if !line.trim_start().starts_with('/')
-            && self
-                .handle_service_room_input(channel, session, line, identity, prompt)
-                .await?
-        {
-            return Ok(());
-        }
-
-        let mut current_observation = match self.observe_current_json(&identity.player_id).await {
-            Ok(observation) => observation,
-            Err(error) => {
-                send_command_error(session, channel, error, prompt)?;
-                return Ok(());
-            }
-        };
-        let admission = self
-            .shared
-            .storage
-            .player_admission(&identity.player_id)
-            .await?;
-        if !admission.is_agreed() {
-            restrict_pending_admission_observation(&mut current_observation, &admission);
-        }
-
-        let command = match runtime_state::parse_command(chrome, Some(&current_observation), line) {
-            Ok(command) => command,
-            Err(error) => {
-                if matches!(error, SlashParseError::UnknownCommand)
-                    && line.trim_start().starts_with('/')
-                {
-                    match self
-                        .handle_memory_command(channel, session, line, identity, prompt)
-                        .await
-                    {
-                        Ok(true) => return Ok(()),
-                        Ok(false) => {}
-                        Err(error) => {
-                            send_command_error(session, channel, error, prompt)?;
-                            return Ok(());
-                        }
-                    }
-                    match self
-                        .handle_operator_input(channel, session, line, identity, prompt)
-                        .await
-                    {
-                        Ok(true) => return Ok(()),
-                        Ok(false) => {}
-                        Err(error) => {
-                            send_command_error(session, channel, error, prompt)?;
-                            return Ok(());
-                        }
-                    }
-                    match self
-                        .handle_service_room_input(channel, session, line, identity, prompt)
-                        .await
-                    {
-                        Ok(true) => return Ok(()),
-                        Ok(false) => {}
-                        Err(error) => {
-                            send_command_error(session, channel, error, prompt)?;
-                            return Ok(());
-                        }
-                    }
-                }
-                let message = if matches!(error, SlashParseError::UnknownCommand)
-                    && !line.trim_start().starts_with('/')
-                {
-                    "World commands start with /. Choose an Available command such as /help or /look."
-                        .to_owned()
-                } else {
-                    slash_parse_feedback(line, &error)
-                };
-                session.data(channel, format!("{message}\r\n").into_bytes())?;
-                if prompt {
-                    send_prompt(session, channel)?;
-                }
-                return Ok(());
-            }
-        };
-
+        let app_identity = AppIdentity::new(
+            state.identity.user.clone(),
+            state.identity.player_id.clone(),
+        );
         if self
-            .handle_pending_admission_command(channel, session, &command, identity, prompt)
+            .handle_pending_free_text(channel, session, &app_identity, line, prompt)
             .await?
         {
             return Ok(());
         }
 
-        let should_quit = matches!(command, SemanticCommand::Quit);
-        let handled_message_view = match self
-            .handle_message_view_command(channel, session, &command, identity, prompt)
-            .await
+        let app = self.shared.app_service().await;
+        app.restrict_pending_admission_observation_for_player(
+            &mut state.current_observation,
+            &state.identity.player_id,
+        )
+        .await?;
+        let room_binding = state.room_context.room_binding.as_ref();
+        if self
+            .handle_room_binding_line(channel, session, &app_identity, room_binding, line, prompt)
+            .await?
         {
-            Ok(handled) => handled,
-            Err(error) => {
-                send_command_error(session, channel, error, prompt)?;
-                return Ok(());
-            }
-        };
-        if handled_message_view {
             return Ok(());
         }
-        if let Err(error) = self.dispatch_live_message(&command, identity).await {
+
+        let Some(command) = self.parse_command_line_or_reply(
+            channel,
+            session,
+            line,
+            &state.current_observation,
+            room_binding,
+            prompt,
+        )?
+        else {
+            return Ok(());
+        };
+        if self
+            .handle_pending_admission_command(channel, session, &app_identity, &command, prompt)
+            .await?
+            || self
+                .handle_app_view_command(
+                    channel,
+                    session,
+                    &app_identity,
+                    &command,
+                    &state.player,
+                    &state.current_observation,
+                    room_binding,
+                    prompt,
+                )
+                .await?
+        {
+            return Ok(());
+        }
+
+        if let Err(error) = self
+            .handle_pre_runtime_command_effects(
+                channel,
+                session,
+                &state.identity,
+                &command,
+                &state.current_observation,
+            )
+            .await
+        {
             send_command_error(session, channel, error, prompt)?;
             return Ok(());
         }
-        match self
-            .handle_service_room_local_command(channel, session, &command, identity, prompt)
+        self.execute_runtime_command(channel, session, &state.identity, command, prompt)
+            .await
+    }
+
+    async fn prepare_command_line_state(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+        prompt: bool,
+    ) -> Result<Option<CommandLineState>> {
+        let Some(identity) = self.identity.clone() else {
+            session.data(channel, b"Authentication required.\r\n".to_vec())?;
+            return Ok(None);
+        };
+
+        self.shared.presence.lock().await.touch(self.connection_id);
+        for message in self
+            .shared
+            .drain_connection_messages(self.connection_id)
             .await
         {
-            Ok(true) => return Ok(()),
-            Ok(false) => {}
+            session.data(channel, format!("{message}\r\n").into_bytes())?;
+        }
+        self.commands_seen += 1;
+        let player = self
+            .shared
+            .runtime
+            .player_state(&identity.player_id)
+            .await?;
+        if let Err(error) = self
+            .shared
+            .record_view_presence_throttled(
+                &identity.user,
+                &identity.player_id,
+                &player.current_view,
+            )
+            .await
+        {
+            send_command_error(session, channel, error, false)?;
+        }
+        if self.chrome.is_none() {
+            session.data(channel, b"Session is not ready.\r\n".to_vec())?;
+            return Ok(None);
+        }
+
+        let room_context = self
+            .shared
+            .room_context_for_view(&player.current_view)
+            .await?;
+        let current_observation = match self
+            .observe_current_json_for_view(&identity.player_id, Some(&room_context))
+            .await
+        {
+            Ok(observation) => observation,
             Err(error) => {
                 send_command_error(session, channel, error, prompt)?;
-                return Ok(());
+                return Ok(None);
+            }
+        };
+        if observation_contains_room_escape(&current_observation) {
+            self.send_text_observation_with_context(
+                channel,
+                session,
+                current_observation,
+                &room_context,
+            )
+            .await?;
+            send_prompt_if_requested(session, channel, prompt)?;
+            return Ok(None);
+        }
+
+        Ok(Some(CommandLineState {
+            identity,
+            player,
+            room_context,
+            current_observation,
+        }))
+    }
+
+    async fn handle_pending_free_text(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        app_identity: &AppIdentity,
+        line: &str,
+        prompt: bool,
+    ) -> Result<bool> {
+        let app = self.shared.app_service().await;
+        if !line.trim_start().starts_with('/')
+            && let Some(events) = app.pending_admission_free_text(app_identity).await?
+        {
+            self.send_ui_events(channel, session, events).await?;
+            send_prompt_if_requested(session, channel, prompt)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    async fn handle_room_binding_line(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        app_identity: &AppIdentity,
+        room_binding: Option<&StoredRoomBinding>,
+        line: &str,
+        prompt: bool,
+    ) -> Result<bool> {
+        let Some(binding) = room_binding else {
+            return Ok(false);
+        };
+        let app = self.shared.app_service().await;
+        if let Some(events) = app
+            .handle_room_line_for_binding(app_identity, binding, line)
+            .await?
+        {
+            self.send_ui_events(channel, session, events).await?;
+            send_prompt_if_requested(session, channel, prompt)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn parse_command_line_or_reply(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        line: &str,
+        current_observation: &JsonObservation,
+        room_binding: Option<&StoredRoomBinding>,
+        prompt: bool,
+    ) -> Result<Option<SemanticCommand>> {
+        let Some(chrome) = &self.chrome else {
+            session.data(channel, b"Session is not ready.\r\n".to_vec())?;
+            return Ok(None);
+        };
+        match runtime_state::parse_command(chrome, Some(current_observation), line) {
+            Ok(command) => Ok(Some(command)),
+            Err(error) => {
+                let message = parse_command_feedback(line, room_binding, &error);
+                session.data(channel, format!("{message}\r\n").into_bytes())?;
+                send_prompt_if_requested(session, channel, prompt)?;
+                Ok(None)
             }
         }
+    }
+
+    async fn handle_pending_admission_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        app_identity: &AppIdentity,
+        command: &SemanticCommand,
+        prompt: bool,
+    ) -> Result<bool> {
+        let app = self.shared.app_service().await;
+        match app
+            .handle_pending_admission_command(app_identity, command)
+            .await?
+        {
+            PendingAdmissionCommandOutcome::NotPending => Ok(false),
+            PendingAdmissionCommandOutcome::Allow(events) => {
+                self.send_ui_events(channel, session, events).await?;
+                Ok(true)
+            }
+            PendingAdmissionCommandOutcome::Block(events) => {
+                self.send_ui_events(channel, session, events).await?;
+                send_prompt_if_requested(session, channel, prompt)?;
+                Ok(true)
+            }
+        }
+    }
+
+    async fn handle_app_view_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        app_identity: &AppIdentity,
+        command: &SemanticCommand,
+        player: &PlayerState,
+        current_observation: &JsonObservation,
+        room_binding: Option<&StoredRoomBinding>,
+        prompt: bool,
+    ) -> Result<bool> {
+        let app = self.shared.app_service().await;
+        let users = self
+            .shared
+            .presence
+            .lock()
+            .await
+            .view_users(self.connection_id, &current_observation.view_id)
+            .into_iter()
+            .map(|user| user.user)
+            .collect::<Vec<_>>();
+        let visible_entity_ids = current_observation
+            .entities
+            .iter()
+            .map(|entity| entity.id.clone())
+            .collect::<Vec<_>>();
+        let token = generate_mail_auth_token();
+        match app
+            .handle_view_command(
+                app_identity,
+                command,
+                &current_observation.view_id,
+                &current_observation.title,
+                &player.inventory,
+                &users,
+                &visible_entity_ids,
+                room_binding,
+                self.shared.mail_domain.as_deref(),
+                AppCommandContext {
+                    current_view: &player.current_view,
+                    mail_domain: self.shared.mail_domain.as_deref(),
+                    generated_token: &token,
+                },
+            )
+            .await
+        {
+            Ok(Some(events)) => {
+                self.send_ui_events(channel, session, events).await?;
+                send_prompt_if_requested(session, channel, prompt)?;
+                Ok(true)
+            }
+            Ok(None) => Ok(false),
+            Err(error) => {
+                send_command_error(session, channel, error.into(), prompt)?;
+                Ok(true)
+            }
+        }
+    }
+
+    async fn handle_pre_runtime_command_effects(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        identity: &AuthIdentity,
+        command: &SemanticCommand,
+        current_observation: &JsonObservation,
+    ) -> Result<()> {
+        if let SemanticCommand::Say { text } = command {
+            let app = self.shared.app_service().await;
+            let app_identity = AppIdentity::new(identity.user.clone(), identity.player_id.clone());
+            let say_events = app
+                .handle(
+                    &app_identity,
+                    AppRequest::Say {
+                        current_view: &current_observation.view_id,
+                        text,
+                    },
+                )
+                .await?;
+            self.send_ui_events(channel, session, say_events).await?;
+        } else {
+            self.dispatch_live_message(command, identity).await?;
+        }
+        Ok(())
+    }
+
+    async fn execute_runtime_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        identity: &AuthIdentity,
+        command: SemanticCommand,
+        prompt: bool,
+    ) -> Result<()> {
+        let should_quit = matches!(command, SemanticCommand::Quit);
         let (observation, player_state) = match self
             .shared
             .runtime
@@ -349,33 +560,22 @@ impl ConnectionHandler {
                     channel,
                     format!("{}\r\n", world_error_feedback(&error.to_string())).into_bytes(),
                 )?;
-                if prompt {
-                    send_prompt(session, channel)?;
-                }
+                send_prompt_if_requested(session, channel, prompt)?;
                 return Ok(());
             }
         };
-        if let Err(error) =
-            PlayerStateStore::save_player_state(&self.shared.storage, &player_state).await
-        {
-            send_command_error(session, channel, error.into(), prompt)?;
-            return Ok(());
-        }
-        self.shared
-            .presence
-            .lock()
-            .await
-            .update_view(self.connection_id, player_state.current_view.clone());
-
         if let Err(error) = self
-            .send_command_observation(channel, session, &command, observation)
-            .await
-        {
-            send_command_error(session, channel, error, prompt)?;
-            return Ok(());
-        }
-        if let Err(error) = self
-            .send_admission_next_step_after_read(channel, session, &command, identity)
+            .send_ui_events(
+                channel,
+                session,
+                vec![
+                    UiEvent::PersistPlayerState(player_state),
+                    UiEvent::CommandObservation {
+                        command: command.clone(),
+                        observation,
+                    },
+                ],
+            )
             .await
         {
             send_command_error(session, channel, error, prompt)?;
@@ -384,473 +584,184 @@ impl ConnectionHandler {
         if should_quit {
             session.exit_status_request(channel, 0)?;
             session.close(channel)?;
-        } else if prompt {
-            send_prompt(session, channel)?;
+        } else {
+            send_prompt_if_requested(session, channel, prompt)?;
         }
 
         Ok(())
     }
 
-    async fn send_admission_next_step_after_read(
+    async fn observe_current_json_for_view(
         &self,
-        channel: ChannelId,
-        session: &mut Session,
-        command: &SemanticCommand,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        if !matches!(
-            command,
-            SemanticCommand::Read { target } if target.id == ADMISSION_BOARD_ENTITY_ID
-        ) {
-            return Ok(());
-        }
-        let admission = self
-            .shared
-            .storage
-            .player_admission(&identity.player_id)
-            .await?;
-        if admission.is_agreed() || !admission.has_read_version(AGREEMENT_VERSION) {
-            return Ok(());
-        }
-        session.data(
-            channel,
-            b"\r\nNext step: type /agree to enter.\r\n".to_vec(),
-        )?;
-        Ok(())
-    }
-
-    async fn pending_admission_blocks_free_text(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        identity: &AuthIdentity,
-        prompt: bool,
-    ) -> Result<bool> {
-        let admission = self
-            .shared
-            .storage
-            .player_admission(&identity.player_id)
-            .await?;
-        if admission.is_agreed() {
-            return Ok(false);
-        }
-        send_pending_admission_rejection(session, channel, &admission, prompt)?;
-        Ok(true)
-    }
-
-    async fn handle_pending_admission_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        command: &SemanticCommand,
-        identity: &AuthIdentity,
-        prompt: bool,
-    ) -> Result<bool> {
-        let admission = self
-            .shared
-            .storage
-            .player_admission(&identity.player_id)
-            .await?;
-        if admission.is_agreed() {
-            return Ok(false);
-        }
-
-        match command {
-            SemanticCommand::Look | SemanticCommand::Help | SemanticCommand::Quit => Ok(false),
-            SemanticCommand::Read { target } if target.id == ADMISSION_BOARD_ENTITY_ID => {
-                self.shared
-                    .storage
-                    .mark_agreement_read(&identity.player_id, AGREEMENT_VERSION)
-                    .await?;
-                Ok(false)
-            }
-            SemanticCommand::Agree { .. } => {
-                self.handle_agree_command(channel, session, identity)
-                    .await?;
-                if prompt {
-                    send_prompt(session, channel)?;
+        player_id: &str,
+        room_context: Option<&RoomViewContext>,
+    ) -> Result<JsonObservation> {
+        match self.shared.runtime.observe_json(player_id).await {
+            Ok(observation) => Ok(observation),
+            Err(_error) => {
+                let context = room_context
+                    .expect("room context should be loaded before observing a player view");
+                match context {
+                    RoomViewContext {
+                        room_binding: Some(room),
+                        ..
+                    } if room.is_service_room() => {
+                        let app = self.shared.app_service().await;
+                        return Ok(app.service_room_observation_for(player_id, room));
+                    }
+                    RoomViewContext {
+                        room_binding: None,
+                        service_room: Some(service_room),
+                        ..
+                    } => {
+                        let app_config = self.shared.app_config().await;
+                        let target = service_room
+                            .front_view_id
+                            .as_deref()
+                            .unwrap_or(&app_config.admission_view_id)
+                            .to_owned();
+                        self.relocate_player_id_to_view(
+                            player_id,
+                            &target,
+                            Some(Direction::South),
+                            Some("This room is closed. You step back to the street."),
+                        )
+                        .await
+                    }
+                    _ => {
+                        let app_config = self.shared.app_config().await;
+                        self.relocate_player_id_to_view(
+                            player_id,
+                            &app_config.admission_view_id,
+                            Some(Direction::South),
+                            Some("This room is closed. You step back to the street."),
+                        )
+                        .await
+                    }
                 }
-                Ok(true)
-            }
-            _ => {
-                send_pending_admission_rejection(session, channel, &admission, prompt)?;
-                Ok(true)
             }
         }
     }
 
-    async fn handle_agree_command(
+    async fn relocate_player_id_to_view(
         &self,
-        channel: ChannelId,
-        session: &mut Session,
-        identity: &AuthIdentity,
-    ) -> Result<()> {
-        let admission = self
-            .shared
-            .storage
-            .player_admission(&identity.player_id)
-            .await?;
-        if admission.is_agreed() {
-            session.data(
-                channel,
-                b"Admission already agreed. Welcome back.\r\n".to_vec(),
-            )?;
-            return Ok(());
-        }
-        if !admission.has_read_version(AGREEMENT_VERSION) {
-            session.data(
-                channel,
-                admission_guidance(&admission)
-                    .replace('\n', "\r\n")
-                    .into_bytes(),
-            )?;
-            return Ok(());
-        }
-        self.shared
-            .storage
-            .admit_player(&identity.player_id, AGREEMENT_VERSION)
-            .await?;
-        let balance = self
-            .shared
-            .storage
-            .ensure_player_wallet(&identity.user, &identity.player_id)
-            .await?;
-        let mut player = self
-            .shared
-            .runtime
-            .player_state(&identity.player_id)
-            .await?;
-        player.current_view = ADMISSION_VIEW_ID.to_owned();
+        player_id: &str,
+        target_view_id: &str,
+        direction: Option<Direction>,
+        message: Option<&str>,
+    ) -> Result<JsonObservation> {
+        let room_context = self.shared.room_context_for_view(target_view_id).await?;
+        self.relocate_player_id_to_view_with_context(
+            player_id,
+            target_view_id,
+            direction,
+            message,
+            &room_context,
+        )
+        .await
+    }
+
+    async fn relocate_player_id_to_view_with_context(
+        &self,
+        player_id: &str,
+        target_view_id: &str,
+        direction: Option<Direction>,
+        message: Option<&str>,
+        room_context: &RoomViewContext,
+    ) -> Result<JsonObservation> {
+        let mut player = self.shared.runtime.player_state(player_id).await?;
+        let from = player.current_view.clone();
+        player.current_view = target_view_id.to_owned();
         self.shared.runtime.set_player_state(player.clone()).await?;
-        PlayerStateStore::save_player_state(&self.shared.storage, &player).await?;
+        let app = self.shared.app_service().await;
+        app.save_player_state(&player).await?;
         self.shared
             .presence
             .lock()
             .await
             .update_view(self.connection_id, player.current_view.clone());
-
-        session.data(
-            channel,
-            format!(
-                "Agreement accepted: version {AGREEMENT_VERSION}. Initial grant issued: {} {}. Welcome to Hinemos.\r\n",
-                balance.amount, balance.asset
-            )
-            .into_bytes(),
-        )?;
-        let observation = self.observe_current_json(&identity.player_id).await?;
-        self.send_text_observation(channel, session, observation)
+        let mut observation = self
+            .observe_player_at_view_with_context(&player.id, room_context)
             .await?;
-        Ok(())
+        if let Some(direction) = direction {
+            observation.events.push(ObservationEvent::Move {
+                from,
+                to: target_view_id.to_owned(),
+                direction,
+            });
+        }
+        if let Some(text) = message {
+            observation.events.push(ObservationEvent::Message {
+                text: text.to_owned(),
+            });
+        }
+        Ok(observation)
     }
 
-    async fn handle_message_view_command(
+    async fn observe_player_at_view_with_context(
         &self,
-        channel: ChannelId,
-        session: &mut Session,
-        command: &SemanticCommand,
-        identity: &AuthIdentity,
-        prompt: bool,
-    ) -> Result<bool> {
-        match command {
-            SemanticCommand::Mailbox => {
-                let items = self
-                    .shared
-                    .storage
-                    .list_inbox_items(&identity.user, &identity.player_id, Some("open"), 20)
-                    .await?;
-                session.data(
-                    channel,
-                    render_inbox_items("Mailbox", &items, self.shared.mail_domain.as_deref())
-                        .replace('\n', "\r\n")
-                        .into_bytes(),
-                )?;
-            }
-            SemanticCommand::History => {
-                let player = self
-                    .shared
-                    .runtime
-                    .player_state(&identity.player_id)
-                    .await?;
-                let observation = self.observe_current_json(&identity.player_id).await?;
-                let messages = self
-                    .shared
-                    .storage
-                    .recent_view_messages(&player.current_view, 20)
-                    .await?;
-                send_message_list(
-                    session,
-                    channel,
-                    "Room History",
-                    &messages,
-                    "No room history.",
-                )?;
-                session.data(
-                    channel,
-                    format!("You are still in: {}.\r\n", observation.title).into_bytes(),
-                )?;
-            }
-            SemanticCommand::Inventory => {
-                let player = self
-                    .shared
-                    .runtime
-                    .player_state(&identity.player_id)
-                    .await?;
-                if player.inventory.is_empty() {
-                    session.data(channel, b"Inventory: empty.\r\n".to_vec())?;
-                } else {
-                    session.data(
-                        channel,
-                        format!("Inventory: {}.\r\n", player.inventory.join(", ")).into_bytes(),
-                    )?;
-                }
-            }
-            SemanticCommand::Who => {
-                let player = self
-                    .shared
-                    .runtime
-                    .player_state(&identity.player_id)
-                    .await?;
-                let users = self
-                    .shared
-                    .presence
-                    .lock()
-                    .await
-                    .view_users(self.connection_id, &player.current_view);
-                session.data(
-                    channel,
-                    render_who(&player.current_view, &users).into_bytes(),
-                )?;
-            }
-            SemanticCommand::News => {
-                let messages = self.shared.storage.recent_news_messages(20).await?;
-                send_message_list(session, channel, "News", &messages, "No news.")?;
-            }
-            SemanticCommand::Balance => {
-                let balance = self
-                    .shared
-                    .storage
-                    .player_balance(&identity.player_id)
-                    .await?;
-                session.data(
-                    channel,
-                    format!(
-                        "Balance: {} {} ({})\r\n",
-                        balance.amount, balance.asset, balance.account_id
-                    )
-                    .into_bytes(),
-                )?;
-            }
-            SemanticCommand::Settings { action } => {
-                self.handle_settings_command(channel, session, action, identity)
-                    .await?;
-            }
-            SemanticCommand::Pay { action } => {
-                self.handle_pay_command(channel, session, action, identity)
-                    .await?;
-            }
-            SemanticCommand::Inbox { action } => {
-                self.handle_inbox_command(channel, session, action, identity)
-                    .await?;
-            }
-            SemanticCommand::Enter { target } => {
-                self.handle_enter_command(channel, session, target, identity)
-                    .await?;
-            }
-            SemanticCommand::Land { action } => {
-                self.handle_land_command(channel, session, action, identity)
-                    .await?;
-            }
-            SemanticCommand::Build { action } => {
-                self.handle_build_command(channel, session, action, identity)
-                    .await?;
-            }
-            SemanticCommand::Shop { action } => {
-                self.handle_shop_command(channel, session, action, identity)
-                    .await?;
-            }
-            _ => return Ok(false),
-        }
-
-        if prompt {
-            send_prompt(session, channel)?;
-        }
-        Ok(true)
-    }
-
-    async fn handle_service_room_input(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        input: &str,
-        identity: &AuthIdentity,
-        prompt: bool,
-    ) -> Result<bool> {
-        let player = self
-            .shared
-            .runtime
-            .player_state(&identity.player_id)
-            .await?;
-        let Some(room) = self
-            .shared
-            .storage
-            .service_room_by_view(&player.current_view)
-            .await?
-        else {
-            return Ok(false);
-        };
-        if input.trim_start().starts_with('/')
-            && !service_room_accepts_input(room.custom_commands.as_deref(), input)
-        {
-            return Ok(false);
-        }
-        self.shared
-            .storage
-            .save_service_room_input(&room, &identity.user, &identity.player_id, input)
-            .await?;
-        session.data(
-            channel,
-            format!("Sent to room service {}.\r\n", room.room_user).into_bytes(),
-        )?;
-        if prompt {
-            send_prompt(session, channel)?;
-        }
-        Ok(true)
-    }
-
-    async fn handle_service_room_local_command(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        command: &SemanticCommand,
-        identity: &AuthIdentity,
-        prompt: bool,
-    ) -> Result<bool> {
-        let mut player = self
-            .shared
-            .runtime
-            .player_state(&identity.player_id)
-            .await?;
-        let Some(room) = self
-            .shared
-            .storage
-            .service_room_by_view(&player.current_view)
-            .await?
-        else {
-            return Ok(false);
-        };
-
-        match command {
-            SemanticCommand::Look | SemanticCommand::Map => {
-                let observation = self.service_room_observation(&identity.player_id, &room);
-                self.send_text_observation(channel, session, observation)
-                    .await?;
-            }
-            SemanticCommand::Move {
-                direction: Direction::South,
-            } => {
-                let Some(front_view_id) = room.front_view_id.clone() else {
-                    return Ok(false);
-                };
-                player.current_view = front_view_id;
-                self.shared.runtime.set_player_state(player.clone()).await?;
-                PlayerStateStore::save_player_state(&self.shared.storage, &player).await?;
-                self.shared
-                    .presence
-                    .lock()
-                    .await
-                    .update_view(self.connection_id, player.current_view.clone());
-                let observation = self.observe_current_json(&identity.player_id).await?;
-                self.send_text_observation(channel, session, observation)
-                    .await?;
-            }
-            _ => return Ok(false),
-        }
-
-        if prompt {
-            send_prompt(session, channel)?;
-        }
-        Ok(true)
-    }
-
-    async fn observe_current_json(&self, player_id: &str) -> Result<JsonObservation> {
+        player_id: &str,
+        room_context: &RoomViewContext,
+    ) -> Result<JsonObservation> {
         match self.shared.runtime.observe_json(player_id).await {
             Ok(observation) => Ok(observation),
             Err(error) => {
-                let player = self.shared.runtime.player_state(player_id).await?;
-                if let Some(room) = self
-                    .shared
-                    .storage
-                    .service_room_by_view(&player.current_view)
-                    .await?
+                if let RoomViewContext {
+                    room_binding: Some(room),
+                    ..
+                } = room_context
+                    && room.is_service_room()
                 {
-                    Ok(self.service_room_observation(player_id, &room))
-                } else {
-                    Err(error.into())
+                    let app = self.shared.app_service().await;
+                    return Ok(app.service_room_observation_for(player_id, room));
                 }
+                if let RoomViewContext {
+                    service_room: Some(service_room),
+                    ..
+                } = room_context
+                {
+                    let app = self.shared.app_service().await;
+                    return Ok(app.service_room_observation_for(player_id, service_room));
+                }
+                Err(error.into())
             }
         }
     }
+}
 
-    fn service_room_observation(
-        &self,
-        player_id: &str,
-        room: &StoredServiceRoom,
-    ) -> JsonObservation {
-        let title = room.label.clone().unwrap_or_else(|| room.view_id.clone());
-        let return_label = room.address.as_deref().unwrap_or("street");
-        let mut available_commands = vec![
-            SemanticCommand::Look,
-            SemanticCommand::Map,
-            SemanticCommand::Inventory,
-            SemanticCommand::History,
-            SemanticCommand::Help,
-            SemanticCommand::Settings {
-                action: SettingsAction::Show,
-            },
-            SemanticCommand::Who,
-            SemanticCommand::Say {
-                text: String::new(),
-            },
-            SemanticCommand::Move {
-                direction: Direction::South,
-            },
-        ];
-        available_commands.extend(
-            command_inputs(room.custom_commands.as_deref()).map(|input| {
-                let name = input
-                    .trim_start_matches('/')
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or_default()
-                    .to_owned();
-                SemanticCommand::Extension { name, input }
-            }),
-        );
+fn observation_contains_room_escape(observation: &JsonObservation) -> bool {
+    observation.events.iter().any(|event| {
+        matches!(
+            event,
+            ObservationEvent::Message { text }
+                if text == "This room is closed. You step back to the street."
+        )
+    })
+}
 
-        JsonObservation {
-            player_id: player_id.to_owned(),
-            view_id: room.view_id.clone(),
-            title: title.clone(),
-            ascii_art: vec![
-                "============================================================".to_owned(),
-                format!("                  {}", title.to_ascii_uppercase()),
-                "============================================================".to_owned(),
-                "                           <Me>".to_owned(),
-                "                            |".to_owned(),
-                format!("                    south to {return_label}"),
-            ],
-            description:
-                "This externally hosted room is connected through the room mailbox protocol."
-                    .to_owned(),
-            exits: vec![ExitObservation {
-                direction: Direction::South,
-                target_known: room.front_view_id.is_some(),
-                label: room.address.clone(),
-            }],
-            entities: Vec::new(),
-            online_users: Vec::new(),
-            available_commands,
-            events: Vec::new(),
-        }
+fn parse_command_feedback(
+    line: &str,
+    room_binding: Option<&StoredRoomBinding>,
+    error: &SlashParseError,
+) -> String {
+    if matches!(error, SlashParseError::UnknownCommand)
+        && room_binding.is_some_and(|binding| binding.is_service_room())
+        && line.trim_start().starts_with('/')
+    {
+        service_room_unavailable_text().to_owned()
+    } else if matches!(error, SlashParseError::UnknownCommand)
+        && !line.trim_start().starts_with('/')
+    {
+        "World commands start with /. Choose an Available command such as /help or /look."
+            .to_owned()
+    } else {
+        slash_parse_feedback(line, error)
     }
+}
+
+fn send_prompt_if_requested(session: &mut Session, channel: ChannelId, prompt: bool) -> Result<()> {
+    if prompt {
+        send_prompt(session, channel)?;
+    }
+    Ok(())
 }

@@ -85,107 +85,134 @@ impl HinemosBank {
     fn reply_body(&mut self, item: &IncomingMail) -> String {
         let body = item.body.trim();
         if body == "/bank balance" {
-            let account = self.account_mut(&item.sender_user);
-            return format!(
-                "Cash: {} MARK. Deposit: {} MARK. Loan debt: {} MARK.",
-                account.cash,
-                account.deposit,
-                account.loans.iter().map(|loan| loan.remaining).sum::<i64>()
-            );
+            return self.balance_reply(item);
         }
-
-        if let Some(amount) = body.strip_prefix("/bank deposit ") {
-            let Ok(amount) = parse_amount(amount) else {
-                return "Deposit amount must be a positive whole MARK amount.".to_owned();
-            };
-            let account = self.account_mut(&item.sender_user);
-            if account.cash < amount {
-                return format!("You only have {} MARK cash available.", account.cash);
-            }
-            account.cash -= amount;
-            account.deposit += amount;
-            return format!("Deposited {amount} MARK.");
+        if let Some(reply) = self.deposit_reply(item, body) {
+            return reply;
         }
-
-        if let Some(amount) = body.strip_prefix("/bank withdraw ") {
-            let Ok(amount) = parse_amount(amount) else {
-                return "Withdrawal amount must be a positive whole MARK amount.".to_owned();
-            };
-            let account = self.account_mut(&item.sender_user);
-            if account.deposit < amount {
-                return format!("You only have {} MARK deposited.", account.deposit);
-            }
-            account.deposit -= amount;
-            account.cash += amount;
-            return format!("Withdrew {amount} MARK.");
+        if let Some(reply) = self.withdraw_reply(item, body) {
+            return reply;
         }
-
-        if let Some(amount) = body.strip_prefix("/bank borrow ") {
-            let Ok(amount) = parse_amount(amount) else {
-                return "Borrow amount must be a positive whole MARK amount.".to_owned();
-            };
-            if amount > 500 {
-                return "The bank limit is 500 MARK per loan.".to_owned();
-            }
-            self.next_loan_id += 1;
-            let loan_id = self.next_loan_id;
-            let account = self.account_mut(&item.sender_user);
-            account.cash += amount;
-            account.loans.push(Loan {
-                id: loan_id,
-                principal: amount,
-                remaining: amount,
-            });
-            return format!("Loan #{loan_id} opened for {amount} MARK.");
+        if let Some(reply) = self.borrow_reply(item, body) {
+            return reply;
         }
-
         if body == "/bank loans" {
-            let account = self.account_mut(&item.sender_user);
-            if account.loans.is_empty() {
-                return "No open loans.".to_owned();
-            }
-            return account
-                .loans
-                .iter()
-                .map(|loan| {
-                    format!(
-                        "#{}: principal {} MARK, remaining {} MARK",
-                        loan.id, loan.principal, loan.remaining
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
+            return self.loans_reply(item);
         }
-
-        if let Some(rest) = body.strip_prefix("/bank repay ") {
-            let mut parts = rest.split_whitespace();
-            let Some(loan_id) = parts.next().and_then(|value| value.parse::<i64>().ok()) else {
-                return "Repay needs a loan id and amount.".to_owned();
-            };
-            let Some(amount) = parts.next().and_then(|value| parse_amount(value).ok()) else {
-                return "Repay amount must be a positive whole MARK amount.".to_owned();
-            };
-            let account = self.account_mut(&item.sender_user);
-            let Some(index) = account.loans.iter().position(|loan| loan.id == loan_id) else {
-                return format!("No open loan #{loan_id}.");
-            };
-            if account.cash < amount {
-                return format!("You only have {} MARK cash available.", account.cash);
-            }
-            let paid = amount.min(account.loans[index].remaining);
-            account.cash -= paid;
-            account.loans[index].remaining -= paid;
-            if account.loans[index].remaining == 0 {
-                account.loans.remove(index);
-                return format!("Repaid {paid} MARK. Loan #{loan_id} is closed.");
-            }
-            return format!(
-                "Repaid {paid} MARK. Loan #{loan_id} remaining: {} MARK.",
-                account.loans[index].remaining
-            );
+        if let Some(reply) = self.repay_reply(item, body) {
+            return reply;
         }
 
         format!("The teller notes your message: {body}")
+    }
+
+    fn balance_reply(&mut self, item: &IncomingMail) -> String {
+        let account = self.account_mut(&item.sender_user);
+        format!(
+            "Cash: {} MARK. Deposit: {} MARK. Loan debt: {} MARK.",
+            account.cash,
+            account.deposit,
+            account.loans.iter().map(|loan| loan.remaining).sum::<i64>()
+        )
+    }
+
+    fn deposit_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
+        let amount = body.strip_prefix("/bank deposit ")?;
+        let Ok(amount) = parse_amount(amount) else {
+            return Some("Deposit amount must be a positive whole MARK amount.".to_owned());
+        };
+        let account = self.account_mut(&item.sender_user);
+        if account.cash < amount {
+            return Some(format!("You only have {} MARK cash available.", account.cash));
+        }
+        account.cash -= amount;
+        account.deposit += amount;
+        Some(format!("Deposited {amount} MARK."))
+    }
+
+    fn withdraw_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
+        let amount = body.strip_prefix("/bank withdraw ")?;
+        let Ok(amount) = parse_amount(amount) else {
+            return Some("Withdrawal amount must be a positive whole MARK amount.".to_owned());
+        };
+        let account = self.account_mut(&item.sender_user);
+        if account.deposit < amount {
+            return Some(format!("You only have {} MARK deposited.", account.deposit));
+        }
+        account.deposit -= amount;
+        account.cash += amount;
+        Some(format!("Withdrew {amount} MARK."))
+    }
+
+    fn borrow_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
+        let amount = body.strip_prefix("/bank borrow ")?;
+        let Ok(amount) = parse_amount(amount) else {
+            return Some("Borrow amount must be a positive whole MARK amount.".to_owned());
+        };
+        if amount > 500 {
+            return Some("The bank limit is 500 MARK per loan.".to_owned());
+        }
+        self.next_loan_id += 1;
+        let loan_id = self.next_loan_id;
+        let account = self.account_mut(&item.sender_user);
+        account.cash += amount;
+        account.loans.push(Loan {
+            id: loan_id,
+            principal: amount,
+            remaining: amount,
+        });
+        Some(format!("Loan #{loan_id} opened for {amount} MARK."))
+    }
+
+    fn loans_reply(&mut self, item: &IncomingMail) -> String {
+        let account = self.account_mut(&item.sender_user);
+        if account.loans.is_empty() {
+            return "No open loans.".to_owned();
+        }
+        account
+            .loans
+            .iter()
+            .map(|loan| {
+                format!(
+                    "#{}: principal {} MARK, remaining {} MARK",
+                    loan.id, loan.principal, loan.remaining
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    fn repay_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
+        let rest = body.strip_prefix("/bank repay ")?;
+        let mut parts = rest.split_whitespace();
+        let Some(loan_id) = parts.next().and_then(|value| value.parse::<i64>().ok()) else {
+            return Some("Repay needs a loan id and amount.".to_owned());
+        };
+        let Some(amount) = parts.next().and_then(|value| parse_amount(value).ok()) else {
+            return Some("Repay amount must be a positive whole MARK amount.".to_owned());
+        };
+        Some(self.apply_repayment(item, loan_id, amount))
+    }
+
+    fn apply_repayment(&mut self, item: &IncomingMail, loan_id: i64, amount: i64) -> String {
+        let account = self.account_mut(&item.sender_user);
+        let Some(index) = account.loans.iter().position(|loan| loan.id == loan_id) else {
+            return format!("No open loan #{loan_id}.");
+        };
+        if account.cash < amount {
+            return format!("You only have {} MARK cash available.", account.cash);
+        }
+        let paid = amount.min(account.loans[index].remaining);
+        account.cash -= paid;
+        account.loans[index].remaining -= paid;
+        if account.loans[index].remaining == 0 {
+            account.loans.remove(index);
+            return format!("Repaid {paid} MARK. Loan #{loan_id} is closed.");
+        }
+        format!(
+            "Repaid {paid} MARK. Loan #{loan_id} remaining: {} MARK.",
+            account.loans[index].remaining
+        )
     }
 
     fn account_mut(&mut self, user: &str) -> &mut Account {

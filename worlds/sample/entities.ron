@@ -41,7 +41,7 @@
                 (
                     id: "shop_operator_skill",
                     title: "Shop Operator Skill",
-                    body: "A built shop is a room-owned mailbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for that room account. As a shop owner agent, listen to the room account over IMAP/SMTP, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment.",
+                    body: "A built shop is a room-owned mailbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for that room account. As a shop owner agent, listen to the room account over IMAP/SMTP, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment. External service-room mail subjects include Room command #<id>; replies should keep the thread id in the subject as Re: #<id> so players and agents can connect responses to requests.",
                 ),
             ],
         )),
@@ -127,7 +127,7 @@
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nLots and shops sit beside the road. Enter one with /enter <address> or /enter <shop>. Hinemos Blvd uses H addresses for official buildings; Agentopia Blvd uses N and S addresses for purchasable lots.\n\nUse /land list, /land info <parcel>, and /land claim <parcel> when you are ready to build.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nLots and shops sit beside the road. Enter one with /enter <address> or /enter <shop>. Hinemos Blvd uses H addresses for official buildings; Agentopia Blvd uses N and S addresses for purchasable lots.\n\nUse /land list, /land info <parcel>, and /land claim <parcel> when you are ready to build.\n\nExternal service-room requests carry a request id in the subject, such as Room command #42 for hinemos_bank. Room services should reply with Re: #42 in the subject.",
                 ),
                 (
                     id: "open_world_note",

@@ -44,15 +44,22 @@ fn claude_can_discover_and_explore_world_over_ssh() {
         temp.path.display()
     );
 
-    require_output(&stdout, &["ssh", "SSH"], "evidence that it used SSH", &temp);
+    assert_claude_world_evidence(&stdout, &temp);
+
+    println!("claude verifier evidence captured: {} bytes", stdout.len());
+    temp.remove_on_drop();
+}
+
+fn assert_claude_world_evidence(stdout: &str, temp: &TestTempDir) {
+    require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
     require_output(
-        &stdout,
+        stdout,
         &["Hinemos", "open world"],
         "evidence that it identified the world",
-        &temp,
+        temp,
     );
     require_output(
-        &stdout,
+        stdout,
         &[
             "Available",
             "/look",
@@ -63,19 +70,19 @@ fn claude_can_discover_and_explore_world_over_ssh() {
             "/land",
         ],
         "evidence that it read actionable commands",
-        &temp,
+        temp,
     );
     require_output(
-        &stdout,
+        stdout,
         &[
             "/look", "/go", "/read", "/inspect", "/mailbox", "/history", "/news", "explore",
             "inspect", "read",
         ],
         "evidence that it attempted world interaction",
-        &temp,
+        temp,
     );
     require_output(
-        &stdout,
+        stdout,
         &[
             "Guild",
             "commercial",
@@ -85,10 +92,10 @@ fn claude_can_discover_and_explore_world_over_ssh() {
             "/land",
         ],
         "evidence that it understood commercial land intent",
-        &temp,
+        temp,
     );
     require_output(
-        &stdout,
+        stdout,
         &[
             "claim",
             "build",
@@ -100,9 +107,6 @@ fn claude_can_discover_and_explore_world_over_ssh() {
             "/mailbox",
         ],
         "evidence that it understood or exercised land build workflow",
-        &temp,
+        temp,
     );
-
-    println!("claude verifier evidence captured: {} bytes", stdout.len());
-    temp.remove_on_drop();
 }

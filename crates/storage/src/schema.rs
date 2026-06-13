@@ -6,6 +6,22 @@ use crate::StorageError;
 use crate::types::seed_commercial_parcels;
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
+    migrate_player_profiles(pool).await?;
+    migrate_identity_tables(pool).await?;
+    migrate_user_accounts(pool).await?;
+    migrate_world_messages(pool).await?;
+    migrate_inbox_items(pool).await?;
+    migrate_ledger(pool).await?;
+    migrate_commercial_parcels(pool).await?;
+    migrate_service_rooms(pool).await?;
+    migrate_shop_payments(pool).await?;
+    migrate_memory_events(pool).await?;
+    migrate_memory_atoms(pool).await?;
+    migrate_social_memory(pool).await?;
+    Ok(())
+}
+
+async fn migrate_player_profiles(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists player_profiles (
@@ -63,6 +79,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_identity_tables(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists ssh_identities (
@@ -136,6 +156,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_user_accounts(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists user_accounts (
@@ -193,6 +217,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_world_messages(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists world_messages (
@@ -216,6 +244,42 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    repair_world_message_expiry_constraint(pool).await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists world_messages_mailbox_idx
+            on world_messages (target_user, target_player_id, created_at desc)
+            where kind = 'mail'
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists world_messages_live_ttl_idx
+            on world_messages (kind, expires_at, created_at desc)
+            where kind = 'say'
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists world_messages_news_idx
+            on world_messages (created_at desc)
+            where kind = 'broadcast'
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn repair_world_message_expiry_constraint(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
             r#"
             do $$
@@ -263,36 +327,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
-    sqlx::query(
-        r#"
-            create index if not exists world_messages_mailbox_idx
-            on world_messages (target_user, target_player_id, created_at desc)
-            where kind = 'mail'
-            "#,
-    )
-    .execute(pool)
-    .await?;
+    Ok(())
+}
 
-    sqlx::query(
-        r#"
-            create index if not exists world_messages_live_ttl_idx
-            on world_messages (kind, expires_at, created_at desc)
-            where kind = 'say'
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            create index if not exists world_messages_news_idx
-            on world_messages (created_at desc)
-            where kind = 'broadcast'
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
+async fn migrate_inbox_items(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists inbox_items (
@@ -329,6 +367,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_ledger(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists world_accounts (
@@ -389,6 +431,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists commercial_parcels (
@@ -424,6 +470,20 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
         .execute(pool)
         .await?;
 
+    sqlx::query("alter table commercial_parcels add column if not exists front_view_id text")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        r#"
+            update commercial_parcels
+            set front_view_id = format('street_%s_%s', district, lpad((((position - 1) / 2) + 1)::text, 2, '0'))
+            where front_view_id is null
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
     sqlx::query(
         r#"
             create unique index if not exists commercial_parcels_room_user_idx
@@ -446,6 +506,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
 
     seed_commercial_parcels(pool).await?;
 
+    Ok(())
+}
+
+async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists service_rooms (
@@ -485,6 +549,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
         .await?;
     }
 
+    Ok(())
+}
+
+async fn migrate_shop_payments(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists operator_commands (
@@ -549,6 +617,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_memory_events(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists memory_events (
@@ -588,6 +660,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_memory_atoms(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists memory_atoms (
@@ -635,6 +711,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_social_memory(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists social_edges (

@@ -96,7 +96,7 @@ impl Chrome {
     pub const FEEDBACK_TALK: &'static str = "You exchange a few words.";
 
     /// Feedback line when ending the session.
-    pub const FEEDBACK_QUIT: &'static str = "Goodbye.";
+    pub const FEEDBACK_QUIT: &'static str = hinemos_core::FEEDBACK_QUIT;
 
     /// Feedback line after picking up an item.
     pub const FEEDBACK_TAKE: &'static str = "Taken.";
@@ -172,17 +172,10 @@ impl Chrome {
             .next()
             .ok_or(SlashParseError::UnknownCommand)?
             .to_ascii_lowercase();
+        if let Some(command) = parse_simple_command(cmd.as_str()) {
+            return Ok(command);
+        }
         match cmd.as_str() {
-            "look" | "l" => Ok(SemanticCommand::Look),
-            "map" | "m" => Ok(SemanticCommand::Map),
-            "inventory" | "inv" | "i" => Ok(SemanticCommand::Inventory),
-            "help" | "h" => Ok(SemanticCommand::Help),
-            "quit" | "exit" | "q" => Ok(SemanticCommand::Quit),
-            "mailbox" | "inbox" => Ok(SemanticCommand::Mailbox),
-            "history" => Ok(SemanticCommand::History),
-            "who" => Ok(SemanticCommand::Who),
-            "news" => Ok(SemanticCommand::News),
-            "balance" | "bal" => Ok(SemanticCommand::Balance),
             "go" | "move" => {
                 let direction_token = tokens.next().ok_or(SlashParseError::MissingArgument)?;
                 let direction =
@@ -342,6 +335,22 @@ impl Chrome {
         }
 
         Err(SlashParseError::UnknownCommand)
+    }
+}
+
+fn parse_simple_command(command: &str) -> Option<SemanticCommand> {
+    match command {
+        "look" | "l" => Some(SemanticCommand::Look),
+        "map" | "m" => Some(SemanticCommand::Map),
+        "inventory" | "inv" | "i" => Some(SemanticCommand::Inventory),
+        "help" | "h" => Some(SemanticCommand::Help),
+        "quit" | "exit" | "q" => Some(SemanticCommand::Quit),
+        "mailbox" | "inbox" => Some(SemanticCommand::Mailbox),
+        "history" => Some(SemanticCommand::History),
+        "who" => Some(SemanticCommand::Who),
+        "news" => Some(SemanticCommand::News),
+        "balance" | "bal" => Some(SemanticCommand::Balance),
+        _ => None,
     }
 }
 

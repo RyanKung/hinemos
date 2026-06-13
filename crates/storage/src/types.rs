@@ -1,6 +1,9 @@
 //! Storage row types and low-level helpers.
 
-use hinemos_core::PlayerState;
+use hinemos_core::{
+    ADMISSION_STATE_AGREED, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT,
+    PlayerState,
+};
 use serde_json::Value;
 use sqlx::Row;
 use sqlx::postgres::PgPool;
@@ -73,7 +76,7 @@ impl StoredAdmission {
     /// Returns true when the profile has been admitted into the main world.
     #[must_use]
     pub fn is_agreed(&self) -> bool {
-        self.admission_state == "agreed"
+        self.admission_state == ADMISSION_STATE_AGREED
     }
 
     /// Returns true when the current agreement version was read.
@@ -168,6 +171,8 @@ pub struct StoredParcel {
     pub parcel_id: String,
     /// Static RON view id overlaid by this parcel.
     pub view_id: String,
+    /// Street view id where the parcel entrance is visible.
+    pub front_view_id: String,
     /// Parcel district: north or south.
     pub district: String,
     /// One-based door number in the district.
@@ -192,6 +197,26 @@ pub struct StoredParcel {
     pub operator_prompt: Option<String>,
     /// Owner-authored custom command help.
     pub custom_commands: Option<String>,
+}
+
+impl StoredParcel {
+    /// Returns true when the parcel has been built.
+    #[must_use]
+    pub fn is_built(&self) -> bool {
+        self.status == PARCEL_STATUS_BUILT
+    }
+
+    /// Returns true when the parcel has been claimed but not built yet.
+    #[must_use]
+    pub fn is_claimed(&self) -> bool {
+        self.status == PARCEL_STATUS_CLAIMED
+    }
+
+    /// Returns true when the parcel is vacant.
+    #[must_use]
+    pub fn is_vacant(&self) -> bool {
+        self.status == PARCEL_STATUS_VACANT
+    }
 }
 
 /// Externally hosted room service registration.
@@ -219,6 +244,173 @@ pub struct StoredServiceRoom {
     pub custom_commands: Option<String>,
     /// Whether this registration is active.
     pub enabled: bool,
+}
+
+/// Source table behind a unified room binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoredRoomBindingKind {
+    /// A commercial parcel backed by `commercial_parcels`.
+    CommercialParcel,
+    /// An externally hosted service room backed by `service_rooms`.
+    ServiceRoom,
+}
+
+/// Command forwarding policy for a room binding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StoredRoomCommandPolicy {
+    /// Forward all unhandled input to the room mailbox.
+    ForwardAll,
+    /// Forward only listed extension commands.
+    ForwardListed(Vec<String>),
+}
+
+/// Unified view/mailbox/entry binding for parcel rooms and service rooms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredRoomBinding {
+    /// Binding source.
+    pub kind: StoredRoomBindingKind,
+    /// Room view id entered by the player.
+    pub view_id: String,
+    /// Street/front view where the entrance is visible.
+    pub front_view_id: String,
+    /// Optional entity that must be visible in the front view for this entrance.
+    pub front_entity_id: Option<String>,
+    /// Short player-entered address.
+    pub address: String,
+    /// Player-facing label.
+    pub label: String,
+    /// Player-facing status text for externally hosted rooms.
+    pub status_text: Option<String>,
+    /// Data-authored command help for externally hosted rooms.
+    pub custom_commands: Option<String>,
+    /// Player-facing entrance line shown in front-view observations.
+    pub entry_text: String,
+    /// Optional label used to replace the authored ASCII placeholder.
+    pub ascii_label: Option<String>,
+    /// Parcel owner username when this binding comes from a commercial parcel.
+    pub owner_user: Option<String>,
+    /// Parcel status when this binding comes from a commercial parcel.
+    pub parcel_status: Option<String>,
+    /// Parcel title when this binding comes from a commercial parcel.
+    pub parcel_title: Option<String>,
+    /// Parcel description when this binding comes from a commercial parcel.
+    pub parcel_description: Option<String>,
+    /// Parcel style note when this binding comes from a commercial parcel.
+    pub parcel_style: Option<String>,
+    /// Parcel operator prompt when this binding comes from a commercial parcel.
+    pub parcel_operator_prompt: Option<String>,
+    /// Parcel custom command help when this binding comes from a commercial parcel.
+    pub parcel_custom_commands: Option<String>,
+    /// Explicit enter aliases.
+    pub enter_aliases: Vec<String>,
+    /// Mailbox username for room-owned workflows.
+    pub room_user: Option<String>,
+    /// Mailbox player id for room-owned workflows.
+    pub room_player_id: Option<String>,
+    /// Owning player id for commercial parcel rooms.
+    pub owner_player_id: Option<String>,
+    /// Input forwarding policy.
+    pub command_policy: StoredRoomCommandPolicy,
+}
+
+impl StoredRoomBinding {
+    /// Builds a binding for a commercial parcel.
+    #[must_use]
+    pub fn from_parcel(parcel: StoredParcel) -> Self {
+        let address = parcel.parcel_id.clone();
+        let parcel_title = parcel.title.clone();
+        let label = parcel_title
+            .clone()
+            .unwrap_or_else(|| parcel.parcel_id.clone());
+        let entry_label = match parcel.status.as_str() {
+            PARCEL_STATUS_BUILT => parcel_title
+                .as_deref()
+                .unwrap_or(&parcel.parcel_id)
+                .to_owned(),
+            PARCEL_STATUS_CLAIMED => format!(
+                "{} claimed by {}",
+                parcel.parcel_id,
+                parcel.owner_user.as_deref().unwrap_or("unknown")
+            ),
+            _ => format!("{} {}", parcel.parcel_id, PARCEL_STATUS_VACANT),
+        };
+        let ascii_label = parcel.is_built().then(|| label.clone());
+        let enter_aliases = parcel_title.clone().into_iter().collect();
+        Self {
+            kind: StoredRoomBindingKind::CommercialParcel,
+            view_id: parcel.view_id,
+            front_view_id: parcel.front_view_id,
+            front_entity_id: None,
+            address,
+            label,
+            status_text: None,
+            custom_commands: None,
+            entry_text: format!("- {entry_label}. Enter: /enter {}.", parcel.parcel_id),
+            ascii_label,
+            owner_user: parcel.owner_user,
+            parcel_status: Some(parcel.status),
+            parcel_title,
+            parcel_description: parcel.description,
+            parcel_style: parcel.style,
+            parcel_operator_prompt: parcel.operator_prompt,
+            parcel_custom_commands: parcel.custom_commands,
+            enter_aliases,
+            room_user: parcel.room_user,
+            room_player_id: parcel.room_player_id,
+            owner_player_id: parcel.owner_player_id,
+            command_policy: StoredRoomCommandPolicy::ForwardAll,
+        }
+    }
+
+    /// Builds a binding for an externally hosted service room.
+    #[must_use]
+    pub fn from_service_room(room: StoredServiceRoom) -> Option<Self> {
+        let front_view_id = room.front_view_id?;
+        let address = room.address.unwrap_or_else(|| room.view_id.clone());
+        let label = room.label.clone().unwrap_or_else(|| room.view_id.clone());
+        let enter_aliases = room
+            .enter_aliases
+            .as_deref()
+            .unwrap_or_default()
+            .split([',', ';', '\n', ' '])
+            .map(str::trim)
+            .filter(|alias| !alias.is_empty())
+            .map(str::to_owned)
+            .collect();
+        let listed_commands = room
+            .custom_commands
+            .as_deref()
+            .unwrap_or_default()
+            .split(['\n', ';'])
+            .map(str::trim)
+            .filter(|command| !command.is_empty())
+            .map(str::to_owned)
+            .collect();
+        Some(Self {
+            kind: StoredRoomBindingKind::ServiceRoom,
+            view_id: room.view_id,
+            front_view_id,
+            front_entity_id: room.front_entity_id,
+            entry_text: format!("- {address} {label}. Enter: /enter {address}."),
+            address,
+            label,
+            status_text: room.status_text,
+            custom_commands: room.custom_commands,
+            ascii_label: None,
+            owner_user: None,
+            parcel_status: None,
+            parcel_title: None,
+            parcel_description: None,
+            parcel_style: None,
+            parcel_operator_prompt: None,
+            parcel_custom_commands: None,
+            enter_aliases,
+            room_user: Some(room.room_user),
+            room_player_id: Some(room.room_player_id),
+            owner_player_id: None,
+            command_policy: StoredRoomCommandPolicy::ForwardListed(listed_commands),
+        })
+    }
 }
 
 /// Raw visitor command forwarded to a shop operator.
@@ -477,6 +669,9 @@ pub enum StorageError {
     /// Commercial parcel does not exist.
     #[error("parcel not found: {0}")]
     ParcelNotFound(String),
+    /// Room binding has no room mailbox principal.
+    #[error("room mailbox missing for view: {0}")]
+    RoomMailboxMissing(String),
     /// Commercial parcel is already owned.
     #[error("parcel is already owned: {0}")]
     ParcelAlreadyOwned(String),
@@ -527,15 +722,19 @@ pub(crate) async fn seed_commercial_parcels(pool: &PgPool) -> Result<(), Storage
         for position in 1..=10 {
             let parcel_id = format!("{prefix}{position}");
             let view_id = format!("parcel_{parcel_id}");
+            let front_view_id = parcel_front_view_id(district, position);
             sqlx::query(
                 r#"
-                insert into commercial_parcels (parcel_id, view_id, district, position)
-                values ($1, $2, $3, $4)
-                on conflict do nothing
+                insert into commercial_parcels (parcel_id, view_id, front_view_id, district, position)
+                values ($1, $2, $3, $4, $5)
+                on conflict (parcel_id) do update
+                set front_view_id = excluded.front_view_id
+                where commercial_parcels.front_view_id is null
                 "#,
             )
             .bind(parcel_id)
             .bind(view_id)
+            .bind(front_view_id)
             .bind(district)
             .bind(position)
             .execute(pool)
@@ -543,6 +742,11 @@ pub(crate) async fn seed_commercial_parcels(pool: &PgPool) -> Result<(), Storage
         }
     }
     Ok(())
+}
+
+fn parcel_front_view_id(district: &str, position: i32) -> String {
+    let segment = ((position - 1) / 2) + 1;
+    format!("street_{district}_{segment:02}")
 }
 
 async fn migrate_legacy_parcel_ids(pool: &PgPool) -> Result<(), StorageError> {
@@ -580,7 +784,7 @@ pub(crate) async fn fetch_parcel_by_id(
 ) -> Result<StoredParcel, StorageError> {
     let parcel = sqlx::query_as::<_, StoredParcel>(
         r#"
-        select parcel_id, view_id, district, position, owner_user, owner_player_id,
+        select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                room_user, room_player_id,
                status, title, description, style, operator_prompt, custom_commands
         from commercial_parcels

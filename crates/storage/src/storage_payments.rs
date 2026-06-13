@@ -6,8 +6,9 @@ use crate::types::{
     player_account_id,
 };
 use crate::{
-    NewInboxItem, NewMemoryAtom, NewMemoryEvent, PgStorage, StorageError, StoredOperatorCommand,
-    StoredPaymentRequest,
+    NewInboxItem, NewMemoryAtom, NewMemoryEvent, OPERATOR_COMMAND_STATUS_HANDLED,
+    PAYMENT_REQUEST_STATUS_PAID, PAYMENT_REQUEST_STATUS_PENDING, PgStorage, StorageError,
+    StoredOperatorCommand, StoredPaymentRequest,
 };
 
 impl PgStorage {
@@ -22,6 +23,21 @@ impl PgStorage {
         if amount <= 0 {
             return Err(StorageError::InvalidAmount(amount));
         }
+        let request = self
+            .insert_payment_request(operator_command_id, owner_player_id, amount, delivery)
+            .await?;
+        self.create_payment_request_inbox_item(&request).await?;
+        self.record_payment_request_created_memory(&request).await?;
+        Ok(request)
+    }
+
+    async fn insert_payment_request(
+        &self,
+        operator_command_id: i64,
+        owner_player_id: &str,
+        amount: i64,
+        delivery: &str,
+    ) -> Result<StoredPaymentRequest, StorageError> {
         let mut tx = self.pool.begin().await?;
         let command = sqlx::query_as::<_, StoredOperatorCommand>(
             r#"
@@ -70,14 +86,22 @@ impl PgStorage {
         sqlx::query(
             r#"
             update operator_commands
-            set status = 'handled'
+            set status = $2
             where id = $1
             "#,
         )
         .bind(command.id)
+        .bind(OPERATOR_COMMAND_STATUS_HANDLED)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        Ok(request)
+    }
+
+    async fn create_payment_request_inbox_item(
+        &self,
+        request: &StoredPaymentRequest,
+    ) -> Result<(), StorageError> {
         let subject = format!("Payment request #{}", request.id);
         let body = format!(
             "{} requests {} {} for shop command #{} in {}. Accept with /pay accept {}.",
@@ -107,7 +131,22 @@ impl PgStorage {
             }),
         })
         .await?;
+        Ok(())
+    }
 
+    async fn record_payment_request_created_memory(
+        &self,
+        request: &StoredPaymentRequest,
+    ) -> Result<(), StorageError> {
+        self.record_created_request_payee_memory(request).await?;
+        self.record_received_request_payer_memory(request).await?;
+        Ok(())
+    }
+
+    async fn record_created_request_payee_memory(
+        &self,
+        request: &StoredPaymentRequest,
+    ) -> Result<(), StorageError> {
         let payee_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: request.payee_player_id.clone(),
@@ -158,7 +197,13 @@ impl PgStorage {
             Some("payment_counterparty"),
         )
         .await?;
+        Ok(())
+    }
 
+    async fn record_received_request_payer_memory(
+        &self,
+        request: &StoredPaymentRequest,
+    ) -> Result<(), StorageError> {
         let payer_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: request.payer_player_id.clone(),
@@ -209,8 +254,7 @@ impl PgStorage {
             Some("payment_counterparty"),
         )
         .await?;
-
-        Ok(request)
+        Ok(())
     }
 
     /// Loads pending payment requests for a player.
@@ -227,13 +271,14 @@ impl PgStorage {
                    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             from payment_requests
             where payer_player_id = $1
-              and status = 'pending'
+              and status = $3
             order by id desc
             limit $2
             "#,
         )
         .bind(payer_player_id)
         .bind(limit)
+        .bind(PAYMENT_REQUEST_STATUS_PENDING)
         .fetch_all(&self.pool)
         .await?;
         Ok(requests)
@@ -241,6 +286,20 @@ impl PgStorage {
 
     /// Accepts a pending payment request, transfers MARK, and returns the paid request.
     pub async fn accept_payment_request(
+        &self,
+        payer_user: &str,
+        payer_player_id: &str,
+        request_id: i64,
+    ) -> Result<(StoredPaymentRequest, i64), StorageError> {
+        let (paid, sender_balance) = self
+            .execute_payment_request_acceptance(payer_user, payer_player_id, request_id)
+            .await?;
+        self.record_payment_request_paid_memory(payer_user, payer_player_id, &paid)
+            .await?;
+        Ok((paid, sender_balance))
+    }
+
+    async fn execute_payment_request_acceptance(
         &self,
         payer_user: &str,
         payer_player_id: &str,
@@ -266,7 +325,7 @@ impl PgStorage {
         if request.payer_player_id != payer_player_id {
             return Err(StorageError::PaymentRequestForbidden(request_id));
         }
-        if request.status != "pending" {
+        if request.status != PAYMENT_REQUEST_STATUS_PENDING {
             return Err(StorageError::PaymentRequestNotPending(request_id));
         }
 
@@ -305,7 +364,7 @@ impl PgStorage {
         let paid = sqlx::query_as::<_, StoredPaymentRequest>(
             r#"
             update payment_requests
-            set status = 'paid',
+            set status = $3,
                 ledger_id = $2,
                 paid_at = now()
             where id = $1
@@ -317,11 +376,33 @@ impl PgStorage {
         )
         .bind(request_id)
         .bind(ledger_id)
+        .bind(PAYMENT_REQUEST_STATUS_PAID)
         .fetch_one(&mut *tx)
         .await?;
         let sender_balance = fetch_balance_tx(&mut tx, &sender_account_id).await?.amount;
         tx.commit().await?;
+        Ok((paid, sender_balance))
+    }
 
+    async fn record_payment_request_paid_memory(
+        &self,
+        payer_user: &str,
+        payer_player_id: &str,
+        paid: &StoredPaymentRequest,
+    ) -> Result<(), StorageError> {
+        self.record_paid_request_payer_memory(payer_user, payer_player_id, paid)
+            .await?;
+        self.record_collected_request_payee_memory(payer_user, paid)
+            .await?;
+        Ok(())
+    }
+
+    async fn record_paid_request_payer_memory(
+        &self,
+        payer_user: &str,
+        payer_player_id: &str,
+        paid: &StoredPaymentRequest,
+    ) -> Result<(), StorageError> {
         let payer_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: payer_player_id.to_owned(),
@@ -394,7 +475,14 @@ impl PgStorage {
             emotional_valence: 0.0,
         })
         .await?;
+        Ok(())
+    }
 
+    async fn record_collected_request_payee_memory(
+        &self,
+        payer_user: &str,
+        paid: &StoredPaymentRequest,
+    ) -> Result<(), StorageError> {
         let payee_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: paid.payee_player_id.clone(),
@@ -466,7 +554,6 @@ impl PgStorage {
             emotional_valence: 0.0,
         })
         .await?;
-
-        Ok((paid, sender_balance))
+        Ok(())
     }
 }

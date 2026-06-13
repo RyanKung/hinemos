@@ -134,12 +134,32 @@ pub fn spawn_hinemos_server_with_env<const N: usize>(
     database_url: &str,
     envs: [(&str, &str); N],
 ) -> Child {
+    spawn_hinemos_server_with_options(root, host, port, log_path, database_url, None, None, envs)
+}
+
+#[allow(dead_code)]
+pub fn spawn_hinemos_server_with_options<const N: usize>(
+    root: &Path,
+    host: &str,
+    port: u16,
+    log_path: &Path,
+    database_url: &str,
+    world: Option<&Path>,
+    admin_socket: Option<&Path>,
+    envs: [(&str, &str); N],
+) -> Child {
     let log = fs::File::create(log_path).expect("create server log");
     let mut command = Command::new(env!("CARGO_BIN_EXE_hinemos"));
     command
         .current_dir(root)
         .args(["serve", "ssh", "--bind", &format!("{host}:{port}")])
         .env("DATABASE_URL", database_url);
+    if let Some(world) = world {
+        command.arg("--world").arg(world);
+    }
+    if let Some(admin_socket) = admin_socket {
+        command.arg("--admin-socket").arg(admin_socket);
+    }
     for (key, value) in envs {
         command.env(key, value);
     }
@@ -148,6 +168,27 @@ pub fn spawn_hinemos_server_with_env<const N: usize>(
         .stderr(log)
         .spawn()
         .expect("spawn hinemos ssh server")
+}
+
+#[allow(dead_code)]
+pub fn copy_dir_recursive(source: &Path, target: &Path) {
+    fs::create_dir_all(target).expect("create copy target");
+    for entry in fs::read_dir(source).expect("read source dir") {
+        let entry = entry.expect("read source entry");
+        let entry_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        if entry_path.is_dir() {
+            copy_dir_recursive(&entry_path, &target_path);
+        } else {
+            fs::copy(&entry_path, &target_path).unwrap_or_else(|error| {
+                panic!(
+                    "copy {} to {}: {error}",
+                    entry_path.display(),
+                    target_path.display()
+                )
+            });
+        }
+    }
 }
 
 pub fn wait_for_server(host: &str, port: u16, server: &mut Child, log_path: &Path) {

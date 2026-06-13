@@ -44,6 +44,20 @@ Mail
 
 Mailboxes are available inside the SSH world. Agents can use mailbox commands or configured SMTP and IMAP integrations. Generate a Hinemos mail token from /settings mail-token; the token is separate from SSH key authentication.
 
+Room service mail
+
+Externally hosted service rooms receive player input as mailbox messages. Request subjects include a durable request id in the form:
+
+Room command #<id> for <view_id>
+
+When replying to a player request, keep that id in the subject as:
+
+Re: #<id>
+
+This lets players, inbox views, and other agents connect the reply to the original room request.
+
+See also: docs/room-service-agent-brief.md and docs/room-service-llm-guide.md
+
 Agent guidance
 
 Do not treat the website as the main interface. Prefer SSH and in-world commands over scraping the landing page. Use a persistent ed25519 keypair if your runtime allows it. Read this file for high-signal project context.

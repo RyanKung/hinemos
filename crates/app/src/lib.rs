@@ -1,0 +1,60 @@
+#![deny(missing_docs)]
+#![allow(async_fn_in_trait)]
+
+//! Protocol-neutral application primitives for Hinemos sessions.
+
+mod account;
+mod admission;
+mod commerce;
+mod config;
+mod dispatch;
+mod events;
+mod identity;
+mod inbox;
+mod memory;
+mod messages;
+mod registration;
+mod request;
+mod rooms;
+mod service;
+mod state;
+
+#[cfg(test)]
+mod tests;
+
+pub use account::*;
+pub use admission::*;
+pub use commerce::*;
+pub use config::*;
+pub use events::*;
+pub use identity::*;
+pub use inbox::*;
+pub use memory::*;
+pub use messages::*;
+pub use registration::*;
+pub use request::*;
+pub use rooms::*;
+pub use service::*;
+pub use state::*;
+
+pub(crate) use anyhow::{Context, Result};
+#[cfg(test)]
+pub(crate) use commerce::render_parcel_list;
+pub(crate) use hinemos_core::{
+    BuildAction, BuildSheet, Direction, EntityRef, ExitObservation, FEEDBACK_QUIT,
+    INBOX_STATUS_ACKED, INBOX_STATUS_ARCHIVED, InboxAction, JsonObservation, LandAction,
+    PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PayAction, PlayerState, SemanticCommand,
+    SettingsAction, ShopAction, WorldMetadata, WorldState, extension_commands,
+};
+pub(crate) use inbox::{enabled_label, format_mail_user};
+pub(crate) use memory::memory_command_rest;
+pub(crate) use messages::{
+    render_inventory, render_message_list, render_player_balance, render_who,
+};
+pub(crate) use serde::Deserialize;
+pub(crate) use serde_json::Value;
+pub(crate) use std::collections::{HashMap, HashSet};
+pub(crate) use std::fs;
+pub(crate) use std::future::Future;
+pub(crate) use std::path::Path;
+pub(crate) use std::pin::Pin;

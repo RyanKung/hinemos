@@ -31,35 +31,13 @@ fn external_agent_learns_from_unscripted_world_contact() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let greeter_thread = {
-        let greeter = greeter.clone();
-        let greeting = greeting.clone();
-        let learner = learner.clone();
-        thread::spawn(move || {
-            let mut session = SshSession::spawn(host, port, &greeter);
-            session.wait_for_stdout("Available:", Duration::from_secs(10));
-            for _ in 0..15 {
-                session.write_line(&format!(
-                    "/say {greeting} I am another agent in this place. What do you notice here? The board explains how agents speak."
-                ));
-                session.write_line(&format!(
-                    "/mail {learner} {greeting} I am trying to reach you from inside the world. Please answer me in-world."
-                ));
-                session.write_line(&format!(
-                    "/broadcast {greeting} A nearby agent is trying to make contact."
-                ));
-                thread::sleep(Duration::from_secs(2));
-            }
-            let say_notice = format!("[say from {learner}]");
-            let mail_sender = format!(" from {learner}");
-            session.wait_for_any_stdout(
-                &[&say_notice, "Inbox: new mail #", &mail_sender],
-                Duration::from_secs(90),
-            );
-            session.write_line("/quit");
-            session.wait_success(Duration::from_secs(10))
-        })
-    };
+    let greeter_thread = spawn_greeter_agent(
+        host,
+        port,
+        greeter.clone(),
+        learner.clone(),
+        greeting.clone(),
+    );
 
     let prompt = format!(
         "Connect to {host} on SSH port {port} with username {learner}. You have no prior documentation for the service. Interact naturally with whatever you find and report what happened."
@@ -109,31 +87,74 @@ fn external_agent_learns_from_unscripted_world_contact() {
         greeter_output,
         temp.path.display()
     );
-    require_output(
-        &stdout,
-        &[&greeting],
-        "evidence that the external agent noticed the other agent's greeting",
-        &temp,
-    );
-    require_output(
-        &stdout,
-        &["You say:", &format!("mail {greeter}")],
-        "evidence that the external agent answered the other agent in-world",
-        &temp,
-    );
-    require_output(
-        &stdout,
-        &["Guild Guide"],
-        "evidence that the external agent read the crossroads bulletin board",
-        &temp,
-    );
-    require_output(
-        &stdout,
-        &["/look", "/history", "/read", "/inspect", "/go"],
-        "evidence that the external agent continued learning from available commands",
-        &temp,
-    );
+    require_agent_learning_evidence(&stdout, &greeting, &greeter, &temp);
 
     println!("agent learning evidence captured: {} bytes", stdout.len());
     temp.remove_on_drop();
+}
+
+fn spawn_greeter_agent(
+    host: &str,
+    port: u16,
+    greeter: String,
+    learner: String,
+    greeting: String,
+) -> thread::JoinHandle<String> {
+    let host = host.to_owned();
+    thread::spawn(move || {
+        let mut session = SshSession::spawn(&host, port, &greeter);
+        session.wait_for_stdout("Available:", Duration::from_secs(10));
+        for _ in 0..15 {
+            session.write_line(&format!(
+                "/say {greeting} I am another agent in this place. What do you notice here? The board explains how agents speak."
+            ));
+            session.write_line(&format!(
+                "/mail {learner} {greeting} I am trying to reach you from inside the world. Please answer me in-world."
+            ));
+            session.write_line(&format!(
+                "/broadcast {greeting} A nearby agent is trying to make contact."
+            ));
+            thread::sleep(Duration::from_secs(2));
+        }
+        let say_notice = format!("[say from {learner}]");
+        let mail_sender = format!(" from {learner}");
+        session.wait_for_any_stdout(
+            &[&say_notice, "Inbox: new mail #", &mail_sender],
+            Duration::from_secs(90),
+        );
+        session.write_line("/quit");
+        session.wait_success(Duration::from_secs(10))
+    })
+}
+
+fn require_agent_learning_evidence(
+    stdout: &str,
+    greeting: &str,
+    greeter: &str,
+    temp: &TestTempDir,
+) {
+    require_output(
+        stdout,
+        &[greeting],
+        "evidence that the external agent noticed the other agent's greeting",
+        temp,
+    );
+    require_output(
+        stdout,
+        &["You say:", &format!("mail {greeter}")],
+        "evidence that the external agent answered the other agent in-world",
+        temp,
+    );
+    require_output(
+        stdout,
+        &["Guild Guide"],
+        "evidence that the external agent read the crossroads bulletin board",
+        temp,
+    );
+    require_output(
+        stdout,
+        &["/look", "/history", "/read", "/inspect", "/go"],
+        "evidence that the external agent continued learning from available commands",
+        temp,
+    );
 }

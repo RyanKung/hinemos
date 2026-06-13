@@ -74,111 +74,131 @@ impl WorkersSociety {
     fn reply_body(&mut self, item: &IncomingMail) -> String {
         let body = item.body.trim();
         if body == "/position list" {
-            return positions()
-                .iter()
-                .map(|(id, position)| {
-                    format!("{id}: {} pays {} MARK", position.title, position.wage)
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
+            return position_list_reply();
         }
-
-        if let Some(position) = body.strip_prefix("/position apply ") {
-            let Some((id, position)) = find_position(position) else {
-                return format!("No position named {position}. Try /position list.");
-            };
-            self.worker_mut(&item.sender_user)
-                .applied
-                .insert(id.to_owned());
-            return format!("Application recorded for {}.", position.title);
+        if let Some(reply) = self.position_apply_reply(item, body) {
+            return reply;
         }
-
-        if let Some(position) = body.strip_prefix("/position start ") {
-            let Some((id, position)) = find_position(position) else {
-                return format!("No position named {position}. Try /position list.");
-            };
-            if !self
-                .workers
-                .get(&item.sender_user)
-                .is_some_and(|worker| worker.applied.contains(id))
-            {
-                return format!("Apply for {} before starting.", position.title);
-            }
-            if let Some(worker) = self.active_by_position.get(id)
-                && worker != &item.sender_user
-            {
-                return format!(
-                    "{position_title} is already assigned to {worker}.",
-                    position_title = position.title
-                );
-            }
-            let worker = self.worker_mut(&item.sender_user);
-            if worker.active.as_deref() == Some(id) {
-                return format!("You are already working {}.", position.title);
-            }
-            if worker.active.is_some() {
-                return "Finish your active position before starting another.".to_owned();
-            }
-            worker.active = Some(id.to_owned());
-            self.active_by_position
-                .insert(id.to_owned(), item.sender_user.clone());
-            return format!("Started {}.", position.title);
+        if let Some(reply) = self.position_start_reply(item, body) {
+            return reply;
         }
-
         if body == "/position finish" {
-            let Some(active) = self
-                .workers
-                .get(&item.sender_user)
-                .and_then(|worker| worker.active.clone())
-            else {
-                return "You have no active position to finish.".to_owned();
-            };
-            let (_, position) = find_position(&active).expect("active position exists");
-            let worker = self.worker_mut(&item.sender_user);
-            worker.active = None;
-            worker.completed.push(active.clone());
-            worker.owed += position.wage;
-            self.active_by_position.remove(&active);
-            return format!(
-                "Finished {}. Wage owed: {} MARK.",
-                position.title, position.wage
-            );
+            return self.position_finish_reply(item);
         }
-
         if body == "/position claim" {
-            let worker = self.worker_mut(&item.sender_user);
-            if worker.owed == 0 {
-                return "No wages are ready to claim.".to_owned();
-            }
-            let amount = worker.owed;
-            worker.owed = 0;
-            worker.claimed += amount;
-            return format!("Claimed {amount} MARK in wages.");
+            return self.position_claim_reply(item);
         }
-
-        if let Some(rest) = body.strip_prefix("/position feedback ") {
-            let mut parts = rest.splitn(3, ' ');
-            let Some(user) = parts.next().filter(|value| !value.is_empty()) else {
-                return "Feedback needs a user, score, and comment.".to_owned();
-            };
-            let Some(score) = parts.next().filter(|value| value.parse::<i32>().is_ok()) else {
-                return "Feedback score must be a number.".to_owned();
-            };
-            let Some(comment) = parts.next().filter(|value| !value.is_empty()) else {
-                return "Feedback needs a comment.".to_owned();
-            };
-            self.worker_mut(user)
-                .feedback
-                .push(format!("{} from {}: {}", score, item.sender_user, comment));
-            return format!("Feedback recorded for {user}.");
+        if let Some(reply) = self.position_feedback_reply(item, body) {
+            return reply;
         }
 
         format!("The clerk notes your message: {body}")
     }
 
+    fn position_apply_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
+        let position = body.strip_prefix("/position apply ")?;
+        let Some((id, position)) = find_position(position) else {
+            return Some(format!("No position named {position}. Try /position list."));
+        };
+        self.worker_mut(&item.sender_user)
+            .applied
+            .insert(id.to_owned());
+        Some(format!("Application recorded for {}.", position.title))
+    }
+
+    fn position_start_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
+        let position = body.strip_prefix("/position start ")?;
+        let Some((id, position)) = find_position(position) else {
+            return Some(format!("No position named {position}. Try /position list."));
+        };
+        if !self
+            .workers
+            .get(&item.sender_user)
+            .is_some_and(|worker| worker.applied.contains(id))
+        {
+            return Some(format!("Apply for {} before starting.", position.title));
+        }
+        if let Some(worker) = self.active_by_position.get(id)
+            && worker != &item.sender_user
+        {
+            return Some(format!(
+                "{position_title} is already assigned to {worker}.",
+                position_title = position.title
+            ));
+        }
+        let worker = self.worker_mut(&item.sender_user);
+        if worker.active.as_deref() == Some(id) {
+            return Some(format!("You are already working {}.", position.title));
+        }
+        if worker.active.is_some() {
+            return Some("Finish your active position before starting another.".to_owned());
+        }
+        worker.active = Some(id.to_owned());
+        self.active_by_position
+            .insert(id.to_owned(), item.sender_user.clone());
+        Some(format!("Started {}.", position.title))
+    }
+
+    fn position_finish_reply(&mut self, item: &IncomingMail) -> String {
+        let Some(active) = self
+            .workers
+            .get(&item.sender_user)
+            .and_then(|worker| worker.active.clone())
+        else {
+            return "You have no active position to finish.".to_owned();
+        };
+        let (_, position) = find_position(&active).expect("active position exists");
+        let worker = self.worker_mut(&item.sender_user);
+        worker.active = None;
+        worker.completed.push(active.clone());
+        worker.owed += position.wage;
+        self.active_by_position.remove(&active);
+        format!(
+            "Finished {}. Wage owed: {} MARK.",
+            position.title, position.wage
+        )
+    }
+
+    fn position_claim_reply(&mut self, item: &IncomingMail) -> String {
+        let worker = self.worker_mut(&item.sender_user);
+        if worker.owed == 0 {
+            return "No wages are ready to claim.".to_owned();
+        }
+        let amount = worker.owed;
+        worker.owed = 0;
+        worker.claimed += amount;
+        format!("Claimed {amount} MARK in wages.")
+    }
+
+    fn position_feedback_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
+        let rest = body.strip_prefix("/position feedback ")?;
+        let mut parts = rest.splitn(3, ' ');
+        let Some(user) = parts.next().filter(|value| !value.is_empty()) else {
+            return Some("Feedback needs a user, score, and comment.".to_owned());
+        };
+        let Some(score) = parts.next().filter(|value| value.parse::<i32>().is_ok()) else {
+            return Some("Feedback score must be a number.".to_owned());
+        };
+        let Some(comment) = parts.next().filter(|value| !value.is_empty()) else {
+            return Some("Feedback needs a comment.".to_owned());
+        };
+        self.worker_mut(user)
+            .feedback
+            .push(format!("{} from {}: {}", score, item.sender_user, comment));
+        Some(format!("Feedback recorded for {user}."))
+    }
+
     fn worker_mut(&mut self, user: &str) -> &mut WorkerState {
         self.workers.entry(user.to_owned()).or_default()
     }
+}
+
+fn position_list_reply() -> String {
+    positions()
+        .iter()
+        .map(|(id, position)| format!("{id}: {} pays {} MARK", position.title, position.wage))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn positions() -> Vec<(&'static str, Position)> {

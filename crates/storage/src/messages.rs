@@ -3,7 +3,10 @@
 use serde_json::json;
 
 use crate::{
-    NewMemoryAtom, NewMemoryEvent, PgStorage, StorageError, StoredInboxItem, StoredWorldMessage,
+    INBOX_FILTER_ALL, INBOX_FILTER_CLAIMED, INBOX_FILTER_DONE, INBOX_FILTER_OPEN,
+    INBOX_FILTER_UNREAD, INBOX_STATUS_ACKED, INBOX_STATUS_ARCHIVED, INBOX_STATUS_CLAIMED,
+    INBOX_STATUS_UNREAD, NewMemoryAtom, NewMemoryEvent, PgStorage, StorageError, StoredInboxItem,
+    StoredWorldMessage,
 };
 
 impl PgStorage {
@@ -55,6 +58,45 @@ impl PgStorage {
         subject: &str,
         body: &str,
     ) -> Result<StoredInboxItem, StorageError> {
+        self.insert_mail_world_message(
+            sender_user,
+            sender_player_id,
+            recipient_user,
+            recipient_player_id,
+            body,
+        )
+        .await?;
+        let inbox_item = self
+            .create_mail_inbox_item(
+                sender_user,
+                sender_player_id,
+                recipient_user,
+                recipient_player_id,
+                subject,
+                body,
+            )
+            .await?;
+        self.record_mail_memory(
+            sender_user,
+            sender_player_id,
+            recipient_user,
+            recipient_player_id,
+            subject,
+            body,
+            inbox_item.id,
+        )
+        .await?;
+        Ok(inbox_item)
+    }
+
+    async fn insert_mail_world_message(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        recipient_user: &str,
+        recipient_player_id: &str,
+        body: &str,
+    ) -> Result<(), StorageError> {
         sqlx::query(
             r#"
             insert into world_messages (
@@ -70,22 +112,43 @@ impl PgStorage {
         .bind(body)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
 
-        let inbox_item = self
-            .create_inbox_item(NewInboxItem {
-                kind: "mail",
-                recipient_user,
-                recipient_player_id,
-                sender_user,
-                sender_player_id,
-                subject,
-                body,
-                source_kind: None,
-                source_id: None,
-                payload: json!({ "target": recipient_user }),
-            })
-            .await?;
+    async fn create_mail_inbox_item(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        recipient_user: &str,
+        recipient_player_id: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<StoredInboxItem, StorageError> {
+        self.create_inbox_item(NewInboxItem {
+            kind: "mail",
+            recipient_user,
+            recipient_player_id,
+            sender_user,
+            sender_player_id,
+            subject,
+            body,
+            source_kind: None,
+            source_id: None,
+            payload: json!({ "target": recipient_user }),
+        })
+        .await
+    }
 
+    async fn record_mail_memory(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        recipient_user: &str,
+        recipient_player_id: &str,
+        subject: &str,
+        body: &str,
+        inbox_item_id: i64,
+    ) -> Result<(), StorageError> {
         let sent_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: sender_player_id.to_owned(),
@@ -95,7 +158,7 @@ impl PgStorage {
                 content: format!("Sent mail to {recipient_user}: {body}"),
                 world_refs: json!({
                     "kind": "mail",
-                    "inbox_item_id": inbox_item.id,
+                    "inbox_item_id": inbox_item_id,
                     "subject": subject,
                     "target_user": recipient_user
                 }),
@@ -112,7 +175,7 @@ impl PgStorage {
                 content: format!("Received mail from {sender_user}: {body}"),
                 world_refs: json!({
                     "kind": "mail",
-                    "inbox_item_id": inbox_item.id,
+                    "inbox_item_id": inbox_item_id,
                     "subject": subject,
                     "sender_user": sender_user
                 }),
@@ -171,8 +234,7 @@ impl PgStorage {
             Some("mail_contact"),
         )
         .await?;
-
-        Ok(inbox_item)
+        Ok(())
     }
 
     /// Persists a same-view say message with a 24 hour expiry.
@@ -392,8 +454,15 @@ impl PgStorage {
         status: Option<&str>,
         limit: i64,
     ) -> Result<Vec<StoredInboxItem>, StorageError> {
-        let status = status.unwrap_or("open");
-        if !matches!(status, "open" | "unread" | "claimed" | "done" | "all") {
+        let status = status.unwrap_or(INBOX_FILTER_OPEN);
+        if !matches!(
+            status,
+            INBOX_FILTER_OPEN
+                | INBOX_FILTER_UNREAD
+                | INBOX_FILTER_CLAIMED
+                | INBOX_FILTER_DONE
+                | INBOX_FILTER_ALL
+        ) {
             return Err(StorageError::InvalidInboxFilter(status.to_owned()));
         }
         let items = sqlx::query_as::<_, StoredInboxItem>(
@@ -405,11 +474,11 @@ impl PgStorage {
             from inbox_items
             where (recipient_user = $1 or recipient_player_id = $2)
               and (
-                    ($3 = 'open' and status in ('unread', 'claimed'))
-                 or ($3 = 'unread' and status = 'unread')
-                 or ($3 = 'claimed' and status = 'claimed')
-                 or ($3 = 'done' and status in ('acked', 'archived'))
-                 or ($3 = 'all')
+                    ($3 = $5 and status in ($6, $7))
+                 or ($3 = $8 and status = $6)
+                 or ($3 = $9 and status = $7)
+                 or ($3 = $10 and status in ($11, $12))
+                 or ($3 = $13)
               )
             order by id desc
             limit $4
@@ -419,6 +488,15 @@ impl PgStorage {
         .bind(player_id)
         .bind(status)
         .bind(limit)
+        .bind(INBOX_FILTER_OPEN)
+        .bind(INBOX_STATUS_UNREAD)
+        .bind(INBOX_STATUS_CLAIMED)
+        .bind(INBOX_FILTER_UNREAD)
+        .bind(INBOX_FILTER_CLAIMED)
+        .bind(INBOX_FILTER_DONE)
+        .bind(INBOX_STATUS_ACKED)
+        .bind(INBOX_STATUS_ARCHIVED)
+        .bind(INBOX_FILTER_ALL)
         .fetch_all(&self.pool)
         .await?;
         Ok(items)

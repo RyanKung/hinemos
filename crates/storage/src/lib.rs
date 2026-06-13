@@ -2,11 +2,13 @@
 
 //! Postgres-backed persistence for accounts and player state.
 
+mod app_traits;
 mod messages;
 mod schema;
 mod storage_ext;
 mod storage_memory;
 mod storage_payments;
+mod storage_shop;
 mod types;
 
 use std::future::Future;
@@ -19,6 +21,15 @@ use rand_core::OsRng;
 use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
+pub use hinemos_core::{
+    ADMISSION_STATE_AGREED, ADMISSION_STATE_PENDING, INBOX_FILTER_ALL, INBOX_FILTER_CLAIMED,
+    INBOX_FILTER_DONE, INBOX_FILTER_OPEN, INBOX_FILTER_UNREAD, INBOX_STATUS_ACKED,
+    INBOX_STATUS_ARCHIVED, INBOX_STATUS_CLAIMED, INBOX_STATUS_UNREAD,
+    OPERATOR_COMMAND_STATUS_DELIVERED, OPERATOR_COMMAND_STATUS_HANDLED,
+    OPERATOR_COMMAND_STATUS_PENDING, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED,
+    PARCEL_STATUS_VACANT, PAYMENT_REQUEST_STATUS_CANCELLED, PAYMENT_REQUEST_STATUS_PAID,
+    PAYMENT_REQUEST_STATUS_PENDING,
+};
 use messages::NewInboxItem;
 pub(crate) use types::PlayerStateRow;
 use types::player_id_from_password_username;
@@ -26,8 +37,9 @@ pub use types::{
     NewMemoryAtom, NewMemoryEvent, StorageError, StoredAccountSettings, StoredAdmission,
     StoredAgentSelfModel, StoredBalance, StoredIdentity, StoredInboxItem, StoredMailAuthToken,
     StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
-    StoredPasswordIdentity, StoredPaymentRequest, StoredServiceRoom, StoredSocialEdge,
-    StoredTransfer, StoredWorldMessage,
+    StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind,
+    StoredRoomCommandPolicy, StoredServiceRoom, StoredSocialEdge, StoredTransfer,
+    StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
@@ -105,6 +117,15 @@ fn room_mail_user(parcel_id: &str) -> String {
 
 fn room_mail_player_id(parcel_id: &str) -> String {
     format!("room:{parcel_id}")
+}
+
+fn room_command_subject(request_id: i64, view_id: &str) -> String {
+    format!("Room command #{request_id} for {view_id}")
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn room_reply_subject(request_id: i64) -> String {
+    format!("Re: #{request_id}")
 }
 
 impl PgStorage {
@@ -789,5 +810,21 @@ impl PgStorage {
             )));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{room_command_subject, room_mail_player_id, room_mail_user, room_reply_subject};
+
+    #[test]
+    fn room_mail_helpers_keep_request_and_reply_subjects_aligned() {
+        let view_id = "north_kiosk";
+        let request_subject = room_command_subject(42, view_id);
+
+        assert_eq!(request_subject, "Room command #42 for north_kiosk");
+        assert_eq!(room_reply_subject(42), "Re: #42");
+        assert_eq!(room_mail_user("N1"), "room-N1");
+        assert_eq!(room_mail_player_id("N1"), "room:N1");
     }
 }

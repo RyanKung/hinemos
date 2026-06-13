@@ -163,87 +163,9 @@ fn wrap_text(text: &str, terminal_cols: usize) -> String {
 
 fn render_available_summary(observation: &JsonObservation) -> String {
     let mut parts = Vec::new();
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Look))
-    {
-        parts.push("/look".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Map))
-    {
-        parts.push("/map".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Inventory))
-    {
-        parts.push("/inventory".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::History))
-    {
-        parts.push("/history".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Help))
-    {
-        parts.push("/help".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Settings { .. }))
-    {
-        parts.push("/settings".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Who))
-    {
-        parts.push("/who".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Say { .. }))
-    {
-        parts.push("/say <text>".to_owned());
-    }
-
-    let moves = observation
-        .available_commands
-        .iter()
-        .filter_map(|command| match command {
-            SemanticCommand::Move { direction } => Some(format!("/go {}", direction.as_str())),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if !moves.is_empty() {
-        parts.push(format!("move: {}", moves.join(", ")));
-    }
-
-    let enter_commands = observation
-        .available_commands
-        .iter()
-        .filter_map(|command| match command {
-            SemanticCommand::Enter { target } => Some(format!("/enter {target}")),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if !enter_commands.is_empty() {
-        parts.push(format!("enter: {}", enter_commands.join(", ")));
-    }
-
+    push_common_commands(observation, &mut parts);
+    push_move_commands(observation, &mut parts);
+    push_enter_commands(observation, &mut parts);
     push_target_commands(
         "inspect",
         observation,
@@ -280,8 +202,76 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         },
         &mut parts,
     );
+    push_agreement_commands(observation, &mut parts);
+    push_extension_commands(observation, &mut parts);
 
-    let agreement_commands = observation
+    render_available_parts(parts)
+}
+
+fn push_common_commands(observation: &JsonObservation, parts: &mut Vec<String>) {
+    let commands: [(&str, fn(&SemanticCommand) -> bool); 8] = [
+        ("/look", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::Look)
+        }),
+        ("/map", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::Map)
+        }),
+        ("/inventory", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::Inventory)
+        }),
+        ("/history", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::History)
+        }),
+        ("/help", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::Help)
+        }),
+        ("/settings", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::Settings { .. })
+        }),
+        ("/who", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::Who)
+        }),
+        ("/say <text>", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::Say { .. })
+        }),
+    ];
+    for (label, matches_command) in commands {
+        if observation.available_commands.iter().any(matches_command) {
+            parts.push(label.to_owned());
+        }
+    }
+}
+
+fn push_move_commands(observation: &JsonObservation, parts: &mut Vec<String>) {
+    let moves = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| match command {
+            SemanticCommand::Move { direction } => Some(format!("/go {}", direction.as_str())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !moves.is_empty() {
+        parts.push(format!("move: {}", moves.join(", ")));
+    }
+}
+
+fn push_enter_commands(observation: &JsonObservation, parts: &mut Vec<String>) {
+    let enter_commands = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| match command {
+            SemanticCommand::Enter { target } => Some(format!("/enter {target}")),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !enter_commands.is_empty() {
+        parts.push(format!("enter: {}", enter_commands.join(", ")));
+    }
+}
+
+fn push_agreement_commands(observation: &JsonObservation, parts: &mut Vec<String>) {
+    let commands = observation
         .available_commands
         .iter()
         .filter_map(|command| match command {
@@ -290,11 +280,13 @@ fn render_available_summary(observation: &JsonObservation) -> String {
             _ => None,
         })
         .collect::<Vec<_>>();
-    if !agreement_commands.is_empty() {
-        parts.push(format!("admission: {}", agreement_commands.join(", ")));
+    if !commands.is_empty() {
+        parts.push(format!("admission: {}", commands.join(", ")));
     }
+}
 
-    let extension_commands = observation
+fn push_extension_commands(observation: &JsonObservation, parts: &mut Vec<String>) {
+    let commands = observation
         .available_commands
         .iter()
         .filter_map(|command| match command {
@@ -302,10 +294,12 @@ fn render_available_summary(observation: &JsonObservation) -> String {
             _ => None,
         })
         .collect::<Vec<_>>();
-    if !extension_commands.is_empty() {
-        parts.push(format!("local: {}", extension_commands.join(", ")));
+    if !commands.is_empty() {
+        parts.push(format!("local: {}", commands.join(", ")));
     }
+}
 
+fn render_available_parts(parts: Vec<String>) -> String {
     let mut output = format!("{}:\n", Chrome::LABEL_AVAILABLE);
     for part in parts {
         output.push_str("- ");

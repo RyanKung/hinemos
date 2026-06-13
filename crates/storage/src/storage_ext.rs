@@ -1,15 +1,16 @@
+use hinemos_app::RoomMailboxView;
 use hinemos_core::PlayerState;
 use serde_json::json;
 use sqlx::Row;
 
-use super::{INITIAL_MARK_GRANT, room_mail_player_id, room_mail_user};
+use super::{INITIAL_MARK_GRANT, room_command_subject, room_mail_player_id, room_mail_user};
 use crate::types::{
     credit_balance, debit_balance, ensure_balance_row, ensure_player_account, fetch_balance_pool,
     fetch_balance_tx, fetch_parcel_by_id, player_account_id, resolve_payment_target,
 };
 use crate::{
-    NewInboxItem, NewMemoryAtom, NewMemoryEvent, PlayerStateRow, StorageError, StoredBalance,
-    StoredInboxItem, StoredOperatorCommand, StoredParcel, StoredServiceRoom, StoredTransfer,
+    NewMemoryAtom, NewMemoryEvent, PlayerStateRow, StorageError, StoredBalance, StoredInboxItem,
+    StoredMailAuthToken, StoredParcel, StoredRoomBinding, StoredServiceRoom, StoredTransfer,
 };
 use crate::{PgStorage, ServiceRoomUpsert, TEST_CURRENCY};
 
@@ -67,6 +68,9 @@ impl PgStorage {
             set username = excluded.username,
                 view_id = excluded.view_id,
                 last_seen_at = now()
+            where view_presence.view_id is distinct from excluded.view_id
+               or view_presence.username is distinct from excluded.username
+               or view_presence.last_seen_at < now() - interval '5 seconds'
             "#,
         )
         .bind(player_id)
@@ -96,6 +100,27 @@ impl PgStorage {
             return Err(StorageError::InvalidAmount(amount));
         }
 
+        let (transfer, target_player_id) = self
+            .execute_mark_transfer(sender_user, sender_player_id, target, amount, memo)
+            .await?;
+        self.record_mark_transfer_memory(
+            sender_user,
+            sender_player_id,
+            &target_player_id,
+            &transfer,
+        )
+        .await?;
+        Ok(transfer)
+    }
+
+    async fn execute_mark_transfer(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        target: &str,
+        amount: i64,
+        memo: &str,
+    ) -> Result<(StoredTransfer, String), StorageError> {
         let mut tx = self.pool.begin().await?;
         let sender_account_id = player_account_id(sender_player_id);
         ensure_player_account(&mut tx, &sender_account_id, sender_user, sender_player_id).await?;
@@ -149,6 +174,29 @@ impl PgStorage {
             sender_balance,
         };
 
+        Ok((transfer, target_player_id))
+    }
+
+    async fn record_mark_transfer_memory(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        target_player_id: &str,
+        transfer: &StoredTransfer,
+    ) -> Result<(), StorageError> {
+        self.record_sent_mark_transfer_memory(sender_user, sender_player_id, transfer)
+            .await?;
+        self.record_received_mark_transfer_memory(sender_user, target_player_id, transfer)
+            .await?;
+        Ok(())
+    }
+
+    async fn record_sent_mark_transfer_memory(
+        &self,
+        sender_user: &str,
+        sender_player_id: &str,
+        transfer: &StoredTransfer,
+    ) -> Result<(), StorageError> {
         let sent_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: sender_player_id.to_owned(),
@@ -197,10 +245,18 @@ impl PgStorage {
             Some("payment_counterparty"),
         )
         .await?;
+        Ok(())
+    }
 
+    async fn record_received_mark_transfer_memory(
+        &self,
+        sender_user: &str,
+        target_player_id: &str,
+        transfer: &StoredTransfer,
+    ) -> Result<(), StorageError> {
         let received_event = self
             .append_memory_event(NewMemoryEvent {
-                agent_id: target_player_id.clone(),
+                agent_id: target_player_id.to_owned(),
                 source: "trade".to_owned(),
                 event_type: "mark_transfer_received".to_owned(),
                 actors: json!([sender_user, transfer.target_user]),
@@ -218,7 +274,7 @@ impl PgStorage {
             .await?;
         let received_atom = self
             .upsert_memory_atom(NewMemoryAtom {
-                agent_id: target_player_id.clone(),
+                agent_id: target_player_id.to_owned(),
                 kind: "social".to_owned(),
                 subject: sender_user.to_owned(),
                 predicate: "received_payment".to_owned(),
@@ -240,27 +296,47 @@ impl PgStorage {
             })
             .await?;
         self.touch_social_edge(
-            &target_player_id,
+            target_player_id,
             sender_user,
             received_atom.id,
             Some("payment_counterparty"),
         )
         .await?;
-
-        Ok(transfer)
+        Ok(())
     }
 
     /// Lists all commercial parcels.
     pub async fn list_commercial_parcels(&self) -> Result<Vec<StoredParcel>, StorageError> {
         let parcels = sqlx::query_as::<_, StoredParcel>(
             r#"
-            select parcel_id, view_id, district, position, owner_user, owner_player_id,
+            select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                    room_user, room_player_id,
                    status, title, description, style, operator_prompt, custom_commands
             from commercial_parcels
             order by district, position
             "#,
         )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(parcels)
+    }
+
+    /// Lists commercial parcels whose entrances are visible from a front view.
+    pub async fn commercial_parcels_by_front_view(
+        &self,
+        front_view_id: &str,
+    ) -> Result<Vec<StoredParcel>, StorageError> {
+        let parcels = sqlx::query_as::<_, StoredParcel>(
+            r#"
+            select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
+                   room_user, room_player_id,
+                   status, title, description, style, operator_prompt, custom_commands
+            from commercial_parcels
+            where front_view_id = $1
+            order by district, position
+            "#,
+        )
+        .bind(front_view_id)
         .fetch_all(&self.pool)
         .await?;
         Ok(parcels)
@@ -278,7 +354,7 @@ impl PgStorage {
     ) -> Result<Option<StoredParcel>, StorageError> {
         let parcel = sqlx::query_as::<_, StoredParcel>(
             r#"
-            select parcel_id, view_id, district, position, owner_user, owner_player_id,
+            select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                    room_user, room_player_id,
                    status, title, description, style, operator_prompt, custom_commands
             from commercial_parcels
@@ -311,6 +387,25 @@ impl PgStorage {
         Ok(room)
     }
 
+    /// Loads an external room service by view id, including disabled registrations.
+    pub async fn service_room_by_view_any(
+        &self,
+        view_id: &str,
+    ) -> Result<Option<StoredServiceRoom>, StorageError> {
+        let room = sqlx::query_as::<_, StoredServiceRoom>(
+            r#"
+            select view_id, front_view_id, front_entity_id, address, label, enter_aliases,
+                   room_user, room_player_id, status_text, custom_commands, enabled
+            from service_rooms
+            where view_id = $1
+            "#,
+        )
+        .bind(view_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(room)
+    }
+
     /// Lists enabled external room services with entrances in a street view.
     pub async fn service_rooms_by_front_view(
         &self,
@@ -327,6 +422,67 @@ impl PgStorage {
             "#,
         )
         .bind(front_view_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rooms)
+    }
+
+    /// Lists unified parcel and service-room bindings visible from a front view.
+    pub async fn room_bindings_by_front_view(
+        &self,
+        front_view_id: &str,
+    ) -> Result<Vec<StoredRoomBinding>, StorageError> {
+        let mut bindings = self
+            .commercial_parcels_by_front_view(front_view_id)
+            .await?
+            .into_iter()
+            .map(StoredRoomBinding::from_parcel)
+            .collect::<Vec<_>>();
+        bindings.extend(
+            self.service_rooms_by_front_view(front_view_id)
+                .await?
+                .into_iter()
+                .filter_map(StoredRoomBinding::from_service_room),
+        );
+        bindings.sort_by(|left, right| {
+            left.address
+                .cmp(&right.address)
+                .then_with(|| left.label.cmp(&right.label))
+                .then_with(|| left.view_id.cmp(&right.view_id))
+        });
+        Ok(bindings)
+    }
+
+    /// Loads a unified room binding by room view id.
+    pub async fn room_binding_by_view(
+        &self,
+        view_id: &str,
+    ) -> Result<Option<StoredRoomBinding>, StorageError> {
+        if let Some(parcel) = self.commercial_parcel_by_view(view_id).await? {
+            return Ok(Some(StoredRoomBinding::from_parcel(parcel)));
+        }
+        Ok(self
+            .service_room_by_view(view_id)
+            .await?
+            .and_then(StoredRoomBinding::from_service_room))
+    }
+
+    /// Lists enabled external room services that send mail as the given room user.
+    pub async fn service_rooms_by_room_user(
+        &self,
+        room_user: &str,
+    ) -> Result<Vec<StoredServiceRoom>, StorageError> {
+        let rooms = sqlx::query_as::<_, StoredServiceRoom>(
+            r#"
+            select view_id, front_view_id, front_entity_id, address, label, enter_aliases,
+                   room_user, room_player_id, status_text, custom_commands, enabled
+            from service_rooms
+            where room_user = $1
+              and enabled
+            order by view_id
+            "#,
+        )
+        .bind(room_user)
         .fetch_all(&self.pool)
         .await?;
         Ok(rooms)
@@ -376,24 +532,132 @@ impl PgStorage {
         Ok(room)
     }
 
-    /// Sends player input to an externally hosted room service mailbox.
-    pub async fn save_service_room_input(
+    /// Disables external service rooms that are not present in the latest registration set.
+    pub async fn disable_service_rooms_except<'a, I>(
         &self,
-        room: &StoredServiceRoom,
+        view_ids: I,
+    ) -> Result<u64, StorageError>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let view_ids = view_ids.into_iter().collect::<Vec<_>>();
+        let result = sqlx::query(
+            r#"
+            update service_rooms
+            set enabled = false,
+                updated_at = now()
+            where not (view_id = any($1))
+              and enabled
+            "#,
+        )
+        .bind(&view_ids)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Loads the current SSH identity player id for a username if that user has logged in.
+    pub async fn ssh_identity_player_id_for_user(
+        &self,
+        username: &str,
+    ) -> Result<Option<String>, StorageError> {
+        let row = sqlx::query(
+            r#"
+            select player_id
+            from ssh_identities
+            where username = $1
+            order by last_seen_at desc
+            limit 1
+            "#,
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| row.get("player_id")))
+    }
+
+    /// Sets or rotates the SMTP/IMAP auth token for an externally registered service room.
+    pub async fn set_service_room_mail_auth_token(
+        &self,
+        view_id: &str,
+        token: &str,
+    ) -> Result<StoredMailAuthToken, StorageError> {
+        let Some(room) = self.service_room_by_view_any(view_id).await? else {
+            return Err(StorageError::InvalidAccountSetting(format!(
+                "service room not found: {view_id}"
+            )));
+        };
+        self.set_room_mailbox_auth_token(&room, token).await
+    }
+
+    /// Sets or rotates the SMTP/IMAP auth token for a unified room mailbox.
+    pub async fn set_room_mailbox_auth_token<M>(
+        &self,
+        mailbox: &M,
+        token: &str,
+    ) -> Result<StoredMailAuthToken, StorageError>
+    where
+        M: RoomMailboxView + Sync,
+    {
+        let Some(room_user) = mailbox.room_user() else {
+            return Err(StorageError::RoomMailboxMissing(
+                mailbox.view_id().to_owned(),
+            ));
+        };
+        let Some(room_player_id) = mailbox.room_player_id() else {
+            return Err(StorageError::RoomMailboxMissing(
+                mailbox.view_id().to_owned(),
+            ));
+        };
+        self.set_mail_auth_token(room_user, room_player_id, token)
+            .await
+    }
+
+    /// Sends player input to a unified room mailbox principal.
+    pub async fn save_room_mailbox_input<M>(
+        &self,
+        mailbox: &M,
         sender_user: &str,
         sender_player_id: &str,
         raw_input: &str,
-    ) -> Result<StoredInboxItem, StorageError> {
-        let subject = format!("Room command for {}", room.view_id);
-        self.save_mail_message_to_principal(
-            sender_user,
-            sender_player_id,
-            &room.room_user,
-            &room.room_player_id,
-            &subject,
-            raw_input,
+    ) -> Result<StoredInboxItem, StorageError>
+    where
+        M: RoomMailboxView + Sync,
+    {
+        let Some(room_user) = mailbox.room_user() else {
+            return Err(StorageError::RoomMailboxMissing(
+                mailbox.view_id().to_owned(),
+            ));
+        };
+        let Some(room_player_id) = mailbox.room_player_id() else {
+            return Err(StorageError::RoomMailboxMissing(
+                mailbox.view_id().to_owned(),
+            ));
+        };
+        let mut item = self
+            .save_mail_message_to_principal(
+                sender_user,
+                sender_player_id,
+                room_user,
+                room_player_id,
+                &format!("Room command for {}", mailbox.view_id()),
+                raw_input,
+            )
+            .await?;
+        let subject = room_command_subject(item.id, mailbox.view_id());
+        sqlx::query(
+            r#"
+            update inbox_items
+            set subject = $2
+            where id = $1
+            "#,
         )
-        .await
+        .bind(item.id)
+        .bind(&subject)
+        .execute(&self.pool)
+        .await?;
+        item.subject = subject;
+        Ok(item)
     }
 
     /// Claims a free commercial parcel.
@@ -414,7 +678,7 @@ impl PgStorage {
                 updated_at = now()
             where parcel_id = $1
               and owner_player_id is null
-            returning parcel_id, view_id, district, position, owner_user, owner_player_id,
+            returning parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                       room_user, room_player_id,
                       status, title, description, style, operator_prompt, custom_commands
             "#,
@@ -456,7 +720,7 @@ impl PgStorage {
                 updated_at = now()
             where parcel_id = $1
               and owner_player_id = $2
-            returning parcel_id, view_id, district, position, owner_user, owner_player_id,
+            returning parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                       room_user, room_player_id,
                       status, title, description, style, operator_prompt, custom_commands
             "#,
@@ -491,7 +755,7 @@ impl PgStorage {
         let query = format!(
             "update commercial_parcels set {column} = $3, updated_at = now() \
              where view_id = $1 and owner_player_id = $2 \
-             returning parcel_id, view_id, district, position, owner_user, owner_player_id, \
+             returning parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id, \
                        room_user, room_player_id, \
                        status, title, description, style, operator_prompt, custom_commands"
         );
@@ -520,7 +784,7 @@ impl PgStorage {
               and owner_player_id = $2
               and coalesce(title, '') <> ''
               and coalesce(description, '') <> ''
-            returning parcel_id, view_id, district, position, owner_user, owner_player_id,
+            returning parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                       room_user, room_player_id,
                       status, title, description, style, operator_prompt, custom_commands
             "#,
@@ -531,211 +795,6 @@ impl PgStorage {
         .await?;
 
         updated.ok_or_else(|| StorageError::BuildNotPublishable(view_id.to_owned()))
-    }
-
-    /// Stores a raw visitor command for a shop operator.
-    pub async fn save_operator_command(
-        &self,
-        parcel: &StoredParcel,
-        sender_user: &str,
-        sender_player_id: &str,
-        raw_input: &str,
-        delivered: bool,
-    ) -> Result<StoredOperatorCommand, StorageError> {
-        let owner_user = parcel
-            .owner_user
-            .as_deref()
-            .ok_or_else(|| StorageError::ParcelNotBuilt(parcel.parcel_id.clone()))?;
-        let owner_player_id = parcel
-            .owner_player_id
-            .as_deref()
-            .ok_or_else(|| StorageError::ParcelNotBuilt(parcel.parcel_id.clone()))?;
-        let room_user = parcel
-            .room_user
-            .as_deref()
-            .ok_or_else(|| StorageError::ParcelNotBuilt(parcel.parcel_id.clone()))?;
-        let room_player_id = parcel
-            .room_player_id
-            .as_deref()
-            .ok_or_else(|| StorageError::ParcelNotBuilt(parcel.parcel_id.clone()))?;
-        let status = if delivered { "delivered" } else { "pending" };
-        let command = sqlx::query_as::<_, StoredOperatorCommand>(
-            r#"
-            insert into operator_commands (
-                view_id, parcel_id, sender_user, sender_player_id,
-                owner_user, owner_player_id, raw_input, status, delivered_at
-            )
-            values ($1, $2, $3, $4, $5, $6, $7, $8,
-                    case when $8 = 'delivered' then now() else null end)
-            returning id, view_id, parcel_id, sender_user, sender_player_id,
-                      owner_user, owner_player_id, raw_input, status,
-                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            "#,
-        )
-        .bind(&parcel.view_id)
-        .bind(&parcel.parcel_id)
-        .bind(sender_user)
-        .bind(sender_player_id)
-        .bind(owner_user)
-        .bind(owner_player_id)
-        .bind(raw_input)
-        .bind(status)
-        .fetch_one(&self.pool)
-        .await?;
-        let subject = format!("Shop command for {}", parcel.parcel_id);
-        self.create_inbox_item(NewInboxItem {
-            kind: "shop_command",
-            recipient_user: room_user,
-            recipient_player_id: room_player_id,
-            sender_user,
-            sender_player_id,
-            subject: &subject,
-            body: raw_input,
-            source_kind: Some("operator_command"),
-            source_id: Some(command.id),
-            payload: json!({
-                "parcelId": parcel.parcel_id,
-                "viewId": parcel.view_id,
-                "commandId": command.id,
-                "rawInput": raw_input
-            }),
-        })
-        .await?;
-        self.save_mail_message_to_principal(
-            sender_user,
-            sender_player_id,
-            room_user,
-            room_player_id,
-            &subject,
-            raw_input,
-        )
-        .await?;
-
-        let visitor_event = self
-            .append_memory_event(NewMemoryEvent {
-                agent_id: sender_player_id.to_owned(),
-                source: "shop".to_owned(),
-                event_type: "shop_command_sent".to_owned(),
-                actors: json!([sender_user, owner_user]),
-                content: format!(
-                    "Sent shop command #{} to {} at {}: {}",
-                    command.id, owner_user, parcel.parcel_id, raw_input
-                ),
-                world_refs: json!({
-                    "kind": "shop_command",
-                    "command_id": command.id,
-                    "parcel_id": parcel.parcel_id,
-                    "view_id": parcel.view_id,
-                    "owner_user": owner_user
-                }),
-                salience: 0.65,
-            })
-            .await?;
-        let visitor_atom = self
-            .upsert_memory_atom(NewMemoryAtom {
-                agent_id: sender_player_id.to_owned(),
-                kind: "social".to_owned(),
-                subject: owner_user.to_owned(),
-                predicate: "shop_interaction".to_owned(),
-                object: json!({
-                    "direction": "sent",
-                    "command_id": command.id,
-                    "parcel_id": parcel.parcel_id,
-                    "raw_input": raw_input
-                }),
-                summary: format!(
-                    "Asked {}'s shop at {}: {}",
-                    owner_user, parcel.parcel_id, raw_input
-                ),
-                evidence_event_ids: vec![visitor_event.id],
-                confidence: 0.85,
-                importance: 0.65,
-                emotional_valence: 0.0,
-            })
-            .await?;
-        self.touch_social_edge(
-            sender_player_id,
-            owner_user,
-            visitor_atom.id,
-            Some("shop_counterparty"),
-        )
-        .await?;
-
-        let owner_event = self
-            .append_memory_event(NewMemoryEvent {
-                agent_id: owner_player_id.to_owned(),
-                source: "shop".to_owned(),
-                event_type: "shop_command_received".to_owned(),
-                actors: json!([sender_user, owner_user]),
-                content: format!(
-                    "Received shop command #{} from {} at {}: {}",
-                    command.id, sender_user, parcel.parcel_id, raw_input
-                ),
-                world_refs: json!({
-                    "kind": "shop_command",
-                    "command_id": command.id,
-                    "parcel_id": parcel.parcel_id,
-                    "view_id": parcel.view_id,
-                    "sender_user": sender_user
-                }),
-                salience: 0.75,
-            })
-            .await?;
-        let owner_atom = self
-            .upsert_memory_atom(NewMemoryAtom {
-                agent_id: owner_player_id.to_owned(),
-                kind: "social".to_owned(),
-                subject: sender_user.to_owned(),
-                predicate: "shop_interaction".to_owned(),
-                object: json!({
-                    "direction": "received",
-                    "command_id": command.id,
-                    "parcel_id": parcel.parcel_id,
-                    "raw_input": raw_input
-                }),
-                summary: format!(
-                    "{} asked my shop at {}: {}",
-                    sender_user, parcel.parcel_id, raw_input
-                ),
-                evidence_event_ids: vec![owner_event.id],
-                confidence: 0.9,
-                importance: 0.75,
-                emotional_valence: 0.0,
-            })
-            .await?;
-        self.touch_social_edge(
-            owner_player_id,
-            sender_user,
-            owner_atom.id,
-            Some("shop_counterparty"),
-        )
-        .await?;
-
-        Ok(command)
-    }
-
-    /// Loads recent raw visitor commands for shops owned by a player.
-    pub async fn recent_operator_commands(
-        &self,
-        owner_player_id: &str,
-        limit: i64,
-    ) -> Result<Vec<StoredOperatorCommand>, StorageError> {
-        let commands = sqlx::query_as::<_, StoredOperatorCommand>(
-            r#"
-            select id, view_id, parcel_id, sender_user, sender_player_id,
-                   owner_user, owner_player_id, raw_input, status,
-                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            from operator_commands
-            where owner_player_id = $1
-            order by id desc
-            limit $2
-            "#,
-        )
-        .bind(owner_player_id)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(commands)
     }
 
     /// Loads a player state if one has been saved.
