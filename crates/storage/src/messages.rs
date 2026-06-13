@@ -1,13 +1,32 @@
 //! World message persistence.
 
+use serde_json::Value;
 use serde_json::json;
 
 use crate::{
     INBOX_FILTER_ALL, INBOX_FILTER_CLAIMED, INBOX_FILTER_DONE, INBOX_FILTER_OPEN,
     INBOX_FILTER_UNREAD, INBOX_STATUS_ACKED, INBOX_STATUS_ARCHIVED, INBOX_STATUS_CLAIMED,
     INBOX_STATUS_UNREAD, NewMemoryAtom, NewMemoryEvent, PgStorage, StorageError, StoredInboxItem,
-    StoredWorldMessage,
+    StoredWorldMessage, room_reply_request_id,
 };
+
+struct MailInboxRecord<'a> {
+    sender_user: &'a str,
+    sender_player_id: &'a str,
+    recipient_user: &'a str,
+    recipient_player_id: &'a str,
+    subject: &'a str,
+    body: &'a str,
+    source_kind: Option<&'a str>,
+    source_id: Option<i64>,
+    payload: Value,
+}
+
+struct MailInboxSource {
+    source_kind: Option<&'static str>,
+    source_id: Option<i64>,
+    payload: Value,
+}
 
 struct MailMemoryRecord<'a> {
     sender_user: &'a str,
@@ -76,15 +95,21 @@ impl PgStorage {
             body,
         )
         .await?;
+        let source = self
+            .mail_inbox_source(sender_user, recipient_user, subject)
+            .await?;
         let inbox_item = self
-            .create_mail_inbox_item(
+            .create_mail_inbox_item(MailInboxRecord {
                 sender_user,
                 sender_player_id,
                 recipient_user,
                 recipient_player_id,
                 subject,
                 body,
-            )
+                source_kind: source.source_kind,
+                source_id: source.source_id,
+                payload: source.payload,
+            })
             .await?;
         self.record_mail_memory(MailMemoryRecord {
             sender_user,
@@ -127,26 +152,46 @@ impl PgStorage {
 
     async fn create_mail_inbox_item(
         &self,
-        sender_user: &str,
-        sender_player_id: &str,
-        recipient_user: &str,
-        recipient_player_id: &str,
-        subject: &str,
-        body: &str,
+        record: MailInboxRecord<'_>,
     ) -> Result<StoredInboxItem, StorageError> {
         self.create_inbox_item(NewInboxItem {
             kind: "mail",
-            recipient_user,
-            recipient_player_id,
-            sender_user,
-            sender_player_id,
-            subject,
-            body,
-            source_kind: None,
-            source_id: None,
-            payload: json!({ "target": recipient_user }),
+            recipient_user: record.recipient_user,
+            recipient_player_id: record.recipient_player_id,
+            sender_user: record.sender_user,
+            sender_player_id: record.sender_player_id,
+            subject: record.subject,
+            body: record.body,
+            source_kind: record.source_kind,
+            source_id: record.source_id,
+            payload: record.payload,
         })
         .await
+    }
+
+    async fn mail_inbox_source(
+        &self,
+        sender_user: &str,
+        recipient_user: &str,
+        subject: &str,
+    ) -> Result<MailInboxSource, StorageError> {
+        let Some(request_id) = room_reply_request_id(subject) else {
+            return Ok(mail_inbox_source_none(recipient_user));
+        };
+        let sender_rooms = self.service_rooms_by_room_user(sender_user).await?;
+        let Some(room) = sender_rooms.first() else {
+            return Ok(mail_inbox_source_none(recipient_user));
+        };
+        Ok(MailInboxSource {
+            source_kind: Some("room_reply"),
+            source_id: None,
+            payload: json!({
+                "target": recipient_user,
+                "reply_to_request_id": request_id,
+                "view_id": room.view_id.clone(),
+                "room_user": sender_user
+            }),
+        })
     }
 
     async fn record_mail_memory(&self, record: MailMemoryRecord<'_>) -> Result<(), StorageError> {
@@ -664,6 +709,14 @@ impl PgStorage {
         .await?
         .ok_or(StorageError::InboxItemNotFound(item_id))?;
         Ok(item)
+    }
+}
+
+fn mail_inbox_source_none(recipient_user: &str) -> MailInboxSource {
+    MailInboxSource {
+        source_kind: None,
+        source_id: None,
+        payload: json!({ "target": recipient_user }),
     }
 }
 

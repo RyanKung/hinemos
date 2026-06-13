@@ -361,6 +361,11 @@ fn inbox_context_line(item: &impl InboxItemView) -> Option<String> {
         }
         "room_reply" => item
             .source_id()
+            .or_else(|| {
+                item.payload()
+                    .and_then(|payload| payload.get("reply_to_request_id"))
+                    .and_then(serde_json::Value::as_i64)
+            })
             .map(|request_id| format!("room reply to request #{request_id}")),
         _ => None,
     }
@@ -454,5 +459,17 @@ mod tests {
 
         let read = render_inbox_item(&item, None);
         assert!(read.contains("Context: room request #17 for external_room"));
+    }
+
+    #[test]
+    fn room_reply_context_renders_from_payload_request_id() {
+        let item = RenderInboxItem {
+            source_kind: Some("room_reply"),
+            source_id: None,
+            payload: serde_json::json!({ "reply_to_request_id": 42 }),
+        };
+
+        let read = render_inbox_item(&item, None);
+        assert!(read.contains("Context: room reply to request #42"));
     }
 }
