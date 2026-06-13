@@ -4,8 +4,8 @@ use hinemos_app::{
     MemoryAtomView, MemoryEventView, MemoryStore, MessageStore, ParcelStore, ParcelView,
     PaymentRequestView, PaymentStore, PlayerStateStore as AppPlayerStateStore,
     RoomBindingEntryView, RoomBindingKindView, RoomCommandPolicyView, RoomMailboxView,
-    RoomRegistrationStore, RoomStore, SelfModelView, ServiceRoomView, ShopStore, SocialEdgeView,
-    TransferView, ViewPresenceStore, WorldMessageView,
+    RoomRegistrationStore, RoomStore, SelfModelView, ServiceRoomRegistrationUpsert,
+    ServiceRoomView, ShopStore, SocialEdgeView, TransferView, ViewPresenceStore, WorldMessageView,
 };
 use serde_json::Value;
 use std::future::Future;
@@ -59,35 +59,24 @@ impl RoomRegistrationStore for PgStorage {
         PgStorage::disable_service_rooms_except(self, view_ids).await
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn upsert_service_room(
         &self,
-        view_id: &str,
-        front_view_id: Option<&str>,
-        front_entity_id: Option<&str>,
-        address: Option<&str>,
-        label: Option<&str>,
-        enter_aliases: Option<&str>,
-        room_user: &str,
-        room_player_id: &str,
-        status_text: Option<&str>,
-        custom_commands: Option<&str>,
-        enabled: bool,
+        registration: ServiceRoomRegistrationUpsert<'_>,
     ) -> Result<(), Self::Error> {
         PgStorage::upsert_service_room(
             self,
             ServiceRoomUpsert {
-                view_id,
-                front_view_id,
-                front_entity_id,
-                address,
-                label,
-                enter_aliases,
-                room_user,
-                room_player_id,
-                status_text,
-                custom_commands,
-                enabled,
+                view_id: registration.view_id,
+                front_view_id: registration.front_view_id,
+                front_entity_id: registration.front_entity_id,
+                address: registration.address,
+                label: registration.label,
+                enter_aliases: registration.enter_aliases,
+                room_user: registration.room_user,
+                room_player_id: registration.room_player_id,
+                status_text: registration.status_text,
+                custom_commands: registration.custom_commands,
+                enabled: registration.enabled,
             },
         )
         .await?;

@@ -53,7 +53,6 @@ impl EntityRef {
 }
 
 /// Parses slash-prefixed custom command strings into canonical extension commands.
-#[must_use]
 pub fn extension_commands(commands: Option<&str>) -> impl Iterator<Item = SemanticCommand> + '_ {
     commands
         .unwrap_or_default()

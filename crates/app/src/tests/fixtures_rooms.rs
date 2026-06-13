@@ -415,22 +415,12 @@ impl RoomRegistrationStore for TestRegistrationStore {
 
     async fn upsert_service_room(
         &self,
-        view_id: &str,
-        _front_view_id: Option<&str>,
-        _front_entity_id: Option<&str>,
-        _address: Option<&str>,
-        _label: Option<&str>,
-        _enter_aliases: Option<&str>,
-        _room_user: &str,
-        _room_player_id: &str,
-        _status_text: Option<&str>,
-        _custom_commands: Option<&str>,
-        enabled: bool,
+        registration: ServiceRoomRegistrationUpsert<'_>,
     ) -> Result<(), Self::Error> {
         self.upsert_calls
             .lock()
             .unwrap()
-            .push((view_id.to_owned(), enabled));
+            .push((registration.view_id.to_owned(), registration.enabled));
         Ok(())
     }
 

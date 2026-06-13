@@ -209,7 +209,10 @@ fn render_available_summary(observation: &JsonObservation) -> String {
 }
 
 fn push_common_commands(observation: &JsonObservation, parts: &mut Vec<String>) {
-    let commands: [(&str, fn(&SemanticCommand) -> bool); 8] = [
+    type CommandPredicate = fn(&SemanticCommand) -> bool;
+    type CommonCommand = (&'static str, CommandPredicate);
+
+    let commands: [CommonCommand; 8] = [
         ("/look", |command: &SemanticCommand| {
             matches!(command, SemanticCommand::Look)
         }),

@@ -211,6 +211,17 @@ pub trait InboxStore {
     ) -> Result<Self::InboxItem, Self::Error>;
 }
 
+/// Boxed async result for an optional mail auth token.
+pub type MailAuthTokenLookup<'a, T, E> =
+    Pin<Box<dyn Future<Output = Result<Option<T>, E>> + Send + 'a>>;
+
+/// Boxed async result for one inbox item.
+pub type InboxItemLookup<'a, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
+
+/// Boxed async result for a list of inbox items.
+pub type InboxItemListLookup<'a, T, E> =
+    Pin<Box<dyn Future<Output = Result<Vec<T>, E>> + Send + 'a>>;
+
 /// Storage boundary for the SMTP/IMAP sidecar.
 pub trait MailDaemonStore {
     /// Store error type.
@@ -225,7 +236,7 @@ pub trait MailDaemonStore {
         &'a self,
         username: &'a str,
         token: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<Self::MailAuthToken>, Self::Error>> + Send + 'a>>;
+    ) -> MailAuthTokenLookup<'a, Self::MailAuthToken, Self::Error>;
 
     /// Saves a mail message with an explicit subject line.
     fn save_mail_message_with_subject<'a>(
@@ -235,7 +246,7 @@ pub trait MailDaemonStore {
         target: &'a str,
         subject: &'a str,
         body: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::InboxItem, Self::Error>> + Send + 'a>>;
+    ) -> InboxItemLookup<'a, Self::InboxItem, Self::Error>;
 
     /// Lists inbox items.
     fn list_inbox_items<'a>(
@@ -244,7 +255,7 @@ pub trait MailDaemonStore {
         player_id: &'a str,
         status: Option<&'a str>,
         limit: i64,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<Self::InboxItem>, Self::Error>> + Send + 'a>>;
+    ) -> InboxItemListLookup<'a, Self::InboxItem, Self::Error>;
 
     /// Finishes an inbox item with the given status.
     fn finish_inbox_item<'a>(
@@ -253,7 +264,7 @@ pub trait MailDaemonStore {
         player_id: &'a str,
         item_id: i64,
         status: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::InboxItem, Self::Error>> + Send + 'a>>;
+    ) -> InboxItemLookup<'a, Self::InboxItem, Self::Error>;
 }
 
 /// Result from an inbox state mutation.

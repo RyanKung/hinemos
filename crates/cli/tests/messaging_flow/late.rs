@@ -130,16 +130,16 @@ fn rooms_reload_with_missing_front_view_escapes_players_to_street() {
     let admin_socket =
         std::env::temp_dir().join(format!("hinemos-admin-{}.sock", std::process::id()));
 
-    let mut server = spawn_hinemos_server_with_options(
-        &root,
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
         host,
         port,
-        &server_log,
-        &test_database.url,
-        Some(&world_dir),
-        Some(&admin_socket),
-        [],
-    );
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world_dir),
+        admin_socket: Some(&admin_socket),
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
 
     let user_key = admitted_key(&temp, host, port, &user);
@@ -214,16 +214,16 @@ fn invalid_or_disabled_room_registration_escapes_players_to_front_view() {
     let server_log = temp.path.join("hinemos-server.log");
     let admin_socket = temp.path.join("admin.sock");
 
-    let mut server = spawn_hinemos_server_with_options(
-        &root,
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
         host,
         port,
-        &server_log,
-        &test_database.url,
-        Some(&world_dir),
-        Some(&admin_socket),
-        [],
-    );
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world_dir),
+        admin_socket: Some(&admin_socket),
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
 
     assert_service_room_enabled(&test_database, &missing_front_view_id, "f");
@@ -325,16 +325,16 @@ fn reloaded_disabled_room_escapes_players_on_help() {
     let server_log = temp.path.join("hinemos-server.log");
     let admin_socket = temp.path.join("admin.sock");
 
-    let mut server = spawn_hinemos_server_with_options(
-        &root,
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
         host,
         port,
-        &server_log,
-        &test_database.url,
-        Some(&world_dir),
-        Some(&admin_socket),
-        [],
-    );
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world_dir),
+        admin_socket: Some(&admin_socket),
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
 
     let user_key = admitted_key(&temp, host, port, &user);

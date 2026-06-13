@@ -42,7 +42,6 @@ impl<S> AppService<S> {
     }
 
     /// Loads the world-level app metadata from `meta.ron` or `world.toml` when present.
-    #[must_use]
     pub fn load_world_app_config(world_dir: &Path) -> Result<WorldAppConfig> {
         load_world_app_config_from_dir(world_dir)
     }

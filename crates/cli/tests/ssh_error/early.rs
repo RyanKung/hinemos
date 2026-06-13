@@ -163,16 +163,16 @@ fn room_token_request_returns_authenticatable_service_room_token() {
     let server_log = temp.path.join("hinemos-server.log");
     let admin_socket = temp.path.join("admin.sock");
 
-    let mut server = spawn_hinemos_server_with_options(
-        &root,
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
         host,
         port,
-        &server_log,
-        &test_database.url,
-        Some(&world_dir),
-        Some(&admin_socket),
-        [],
-    );
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world_dir),
+        admin_socket: Some(&admin_socket),
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
 
     let response = unix_admin_call(
@@ -240,16 +240,16 @@ fn reload_world_updates_admission_config_from_meta() {
     let server_log = temp.path.join("hinemos-server.log");
     let admin_socket = temp.path.join("admin.sock");
 
-    let mut server = spawn_hinemos_server_with_options(
-        &root,
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
         host,
         port,
-        &server_log,
-        &test_database.url,
-        Some(&world_dir),
-        Some(&admin_socket),
-        [],
-    );
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world_dir),
+        admin_socket: Some(&admin_socket),
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
 
     admit_user_with_version(&temp, host, port, &first_user, "2031-01-01");
@@ -351,16 +351,16 @@ fn startup_loads_admission_config_from_meta() {
     let server_log = temp.path.join("hinemos-server.log");
     let admin_socket = temp.path.join("admin.sock");
 
-    let mut server = spawn_hinemos_server_with_options(
-        &root,
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
         host,
         port,
-        &server_log,
-        &test_database.url,
-        Some(&world_dir),
-        Some(&admin_socket),
-        [],
-    );
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world_dir),
+        admin_socket: Some(&admin_socket),
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
 
     let user_key = temp.path.join(format!("{user}_ed25519"));

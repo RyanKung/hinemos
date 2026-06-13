@@ -10,20 +10,9 @@ pub trait RoomRegistrationStore {
     -> Result<u64, Self::Error>;
 
     /// Upserts a single service-room registration.
-    #[allow(clippy::too_many_arguments)]
     async fn upsert_service_room(
         &self,
-        view_id: &str,
-        front_view_id: Option<&str>,
-        front_entity_id: Option<&str>,
-        address: Option<&str>,
-        label: Option<&str>,
-        enter_aliases: Option<&str>,
-        room_user: &str,
-        room_player_id: &str,
-        status_text: Option<&str>,
-        custom_commands: Option<&str>,
-        enabled: bool,
+        registration: ServiceRoomRegistrationUpsert<'_>,
     ) -> Result<(), Self::Error>;
 
     /// Resolves a room player's id by room user name if it exists.
@@ -66,6 +55,33 @@ pub struct ServiceRoomRegistration {
     pub custom_commands: Option<String>,
     /// Whether the room is enabled.
     #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+/// Storage-ready service-room registration fields.
+#[derive(Debug, Clone, Copy)]
+pub struct ServiceRoomRegistrationUpsert<'a> {
+    /// Runtime view id for the room.
+    pub view_id: &'a str,
+    /// Optional view where the room entrance appears.
+    pub front_view_id: Option<&'a str>,
+    /// Optional entity required to enter the room from the front view.
+    pub front_entity_id: Option<&'a str>,
+    /// Player-facing address.
+    pub address: Option<&'a str>,
+    /// Player-facing label.
+    pub label: Option<&'a str>,
+    /// Comma-separated aliases accepted by /enter.
+    pub enter_aliases: Option<&'a str>,
+    /// Room service user name.
+    pub room_user: &'a str,
+    /// Room service player id.
+    pub room_player_id: &'a str,
+    /// Optional status text shown inside the room.
+    pub status_text: Option<&'a str>,
+    /// Optional custom slash commands accepted inside the room.
+    pub custom_commands: Option<&'a str>,
+    /// Whether the registration is enabled after validation.
     pub enabled: bool,
 }
 
@@ -257,19 +273,19 @@ impl<S> AppService<S> {
                 .await?;
         Self::warn_on_room_player_mismatch(storage, &registration).await?;
         storage
-            .upsert_service_room(
-                &registration.view_id,
-                registration.front_view_id.as_deref(),
-                registration.front_entity_id.as_deref(),
-                registration.address.as_deref(),
-                registration.label.as_deref(),
-                registration.enter_aliases.as_deref(),
-                &registration.room_user,
-                &registration.room_player_id,
-                registration.status_text.as_deref(),
-                registration.custom_commands.as_deref(),
+            .upsert_service_room(ServiceRoomRegistrationUpsert {
+                view_id: &registration.view_id,
+                front_view_id: registration.front_view_id.as_deref(),
+                front_entity_id: registration.front_entity_id.as_deref(),
+                address: registration.address.as_deref(),
+                label: registration.label.as_deref(),
+                enter_aliases: registration.enter_aliases.as_deref(),
+                room_user: &registration.room_user,
+                room_player_id: &registration.room_player_id,
+                status_text: registration.status_text.as_deref(),
+                custom_commands: registration.custom_commands.as_deref(),
                 enabled,
-            )
+            })
             .await?;
         if let Some(shared) = shared {
             shared

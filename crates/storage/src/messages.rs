@@ -9,6 +9,16 @@ use crate::{
     StoredWorldMessage,
 };
 
+struct MailMemoryRecord<'a> {
+    sender_user: &'a str,
+    sender_player_id: &'a str,
+    recipient_user: &'a str,
+    recipient_player_id: &'a str,
+    subject: &'a str,
+    body: &'a str,
+    inbox_item_id: i64,
+}
+
 impl PgStorage {
     /// Persists a mailbox message. Mail has no expiry.
     pub async fn save_mail_message(
@@ -76,15 +86,15 @@ impl PgStorage {
                 body,
             )
             .await?;
-        self.record_mail_memory(
+        self.record_mail_memory(MailMemoryRecord {
             sender_user,
             sender_player_id,
             recipient_user,
             recipient_player_id,
             subject,
             body,
-            inbox_item.id,
-        )
+            inbox_item_id: inbox_item.id,
+        })
         .await?;
         Ok(inbox_item)
     }
@@ -139,28 +149,19 @@ impl PgStorage {
         .await
     }
 
-    async fn record_mail_memory(
-        &self,
-        sender_user: &str,
-        sender_player_id: &str,
-        recipient_user: &str,
-        recipient_player_id: &str,
-        subject: &str,
-        body: &str,
-        inbox_item_id: i64,
-    ) -> Result<(), StorageError> {
+    async fn record_mail_memory(&self, record: MailMemoryRecord<'_>) -> Result<(), StorageError> {
         let sent_event = self
             .append_memory_event(NewMemoryEvent {
-                agent_id: sender_player_id.to_owned(),
+                agent_id: record.sender_player_id.to_owned(),
                 source: "mail".to_owned(),
                 event_type: "mail_sent".to_owned(),
-                actors: json!([sender_user, recipient_user]),
-                content: format!("Sent mail to {recipient_user}: {body}"),
+                actors: json!([record.sender_user, record.recipient_user]),
+                content: format!("Sent mail to {}: {}", record.recipient_user, record.body),
                 world_refs: json!({
                     "kind": "mail",
-                    "inbox_item_id": inbox_item_id,
-                    "subject": subject,
-                    "target_user": recipient_user
+                    "inbox_item_id": record.inbox_item_id,
+                    "subject": record.subject,
+                    "target_user": record.recipient_user
                 }),
                 salience: 0.6,
             })
@@ -168,16 +169,16 @@ impl PgStorage {
 
         let received_event = self
             .append_memory_event(NewMemoryEvent {
-                agent_id: recipient_player_id.to_owned(),
+                agent_id: record.recipient_player_id.to_owned(),
                 source: "mail".to_owned(),
                 event_type: "mail_received".to_owned(),
-                actors: json!([sender_user, recipient_user]),
-                content: format!("Received mail from {sender_user}: {body}"),
+                actors: json!([record.sender_user, record.recipient_user]),
+                content: format!("Received mail from {}: {}", record.sender_user, record.body),
                 world_refs: json!({
                     "kind": "mail",
-                    "inbox_item_id": inbox_item_id,
-                    "subject": subject,
-                    "sender_user": sender_user
+                    "inbox_item_id": record.inbox_item_id,
+                    "subject": record.subject,
+                    "sender_user": record.sender_user
                 }),
                 salience: 0.7,
             })
@@ -185,16 +186,16 @@ impl PgStorage {
 
         let sent_atom = self
             .upsert_memory_atom(NewMemoryAtom {
-                agent_id: sender_player_id.to_owned(),
+                agent_id: record.sender_player_id.to_owned(),
                 kind: "social".to_owned(),
-                subject: recipient_user.to_owned(),
+                subject: record.recipient_user.to_owned(),
                 predicate: "messaged".to_owned(),
                 object: json!({
                     "direction": "sent",
-                    "subject": subject,
-                    "last_body": body
+                    "subject": record.subject,
+                    "last_body": record.body
                 }),
-                summary: format!("Sent mail to {recipient_user}: {body}"),
+                summary: format!("Sent mail to {}: {}", record.recipient_user, record.body),
                 evidence_event_ids: vec![sent_event.id],
                 confidence: 0.7,
                 importance: 0.6,
@@ -202,8 +203,8 @@ impl PgStorage {
             })
             .await?;
         self.touch_social_edge(
-            sender_player_id,
-            recipient_player_id,
+            record.sender_player_id,
+            record.recipient_player_id,
             sent_atom.id,
             Some("mail_contact"),
         )
@@ -211,16 +212,16 @@ impl PgStorage {
 
         let received_atom = self
             .upsert_memory_atom(NewMemoryAtom {
-                agent_id: recipient_player_id.to_owned(),
+                agent_id: record.recipient_player_id.to_owned(),
                 kind: "social".to_owned(),
-                subject: sender_user.to_owned(),
+                subject: record.sender_user.to_owned(),
                 predicate: "messaged".to_owned(),
                 object: json!({
                     "direction": "received",
-                    "subject": subject,
-                    "last_body": body
+                    "subject": record.subject,
+                    "last_body": record.body
                 }),
-                summary: format!("Received mail from {sender_user}: {body}"),
+                summary: format!("Received mail from {}: {}", record.sender_user, record.body),
                 evidence_event_ids: vec![received_event.id],
                 confidence: 0.75,
                 importance: 0.7,
@@ -228,8 +229,8 @@ impl PgStorage {
             })
             .await?;
         self.touch_social_edge(
-            recipient_player_id,
-            sender_player_id,
+            record.recipient_player_id,
+            record.sender_player_id,
             received_atom.id,
             Some("mail_contact"),
         )

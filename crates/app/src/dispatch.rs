@@ -1,5 +1,26 @@
 use crate::*;
 
+/// Context needed to route a command in the current rendered view.
+#[derive(Debug, Clone, Copy)]
+pub struct AppViewCommandContext<'a, B> {
+    /// Current rendered view id.
+    pub current_view: &'a str,
+    /// Current rendered view title.
+    pub current_title: &'a str,
+    /// Current player inventory.
+    pub inventory: &'a [String],
+    /// Usernames currently visible in this view.
+    pub online_users: &'a [String],
+    /// Entity ids visible in the current observation.
+    pub visible_entity_ids: &'a [String],
+    /// Optional active room binding for this view.
+    pub room_binding: Option<&'a B>,
+    /// Optional configured mail domain.
+    pub mail_domain: Option<&'a str>,
+    /// Context for business commands.
+    pub business: AppCommandContext<'a>,
+}
+
 impl<S, E> AppService<S>
 where
     S: ShopStore<Error = E>,
@@ -599,27 +620,27 @@ where
         &self,
         identity: &AppIdentity,
         command: &SemanticCommand,
-        current_view: &str,
-        current_title: &str,
-        inventory: &[String],
-        online_users: &[String],
-        visible_entity_ids: &[String],
-        room_binding: Option<&<S as RoomStore>::RoomBinding>,
-        mail_domain: Option<&str>,
-        business_context: AppCommandContext<'_>,
+        context: AppViewCommandContext<'_, <S as RoomStore>::RoomBinding>,
     ) -> Result<Option<Vec<UiEvent>>, E> {
         match command {
             SemanticCommand::Mailbox => {
                 let request = AppRequest::InboxList {
                     title: "Mailbox",
                     filter: "open",
-                    mail_domain,
+                    mail_domain: context.mail_domain,
                 };
                 return Ok(Some(self.handle(identity, request).await?));
             }
             SemanticCommand::Enter { target } => {
-                let bindings = self.store.room_bindings_by_front_view(current_view).await?;
-                return Ok(self.visible_room_enter_events(target, visible_entity_ids, &bindings));
+                let bindings = self
+                    .store
+                    .room_bindings_by_front_view(context.current_view)
+                    .await?;
+                return Ok(self.visible_room_enter_events(
+                    target,
+                    context.visible_entity_ids,
+                    &bindings,
+                ));
             }
             SemanticCommand::Inventory
             | SemanticCommand::History
@@ -630,21 +651,22 @@ where
                     .handle_world_view_command(
                         command,
                         &identity.player_id,
-                        current_view,
-                        current_title,
-                        inventory,
-                        online_users,
+                        context.current_view,
+                        context.current_title,
+                        context.inventory,
+                        context.online_users,
                     )
                     .await;
             }
-            _ if room_binding
-                .is_some_and(|binding| RoomBindingKindView::is_service_room(binding)) =>
+            _ if context
+                .room_binding
+                .is_some_and(RoomBindingKindView::is_service_room) =>
             {
-                if let Some(binding) = room_binding {
+                if let Some(binding) = context.room_binding {
                     let events = self
                         .handle_service_room_command_for_binding(
                             identity,
-                            current_view,
+                            context.current_view,
                             binding,
                             command,
                         )
@@ -654,7 +676,7 @@ where
             }
             _ => {}
         }
-        self.handle_semantic_business_command(identity, command, business_context)
+        self.handle_semantic_business_command(identity, command, context.business)
             .await
     }
 

@@ -52,7 +52,7 @@ where
         let Some(owner_player_id) = ParcelView::owner_player_id(binding) else {
             return Ok(None);
         };
-        if owner_player_id == &identity.player_id {
+        if owner_player_id == identity.player_id.as_str() {
             if is_custom_command_input(binding, raw_line) {
                 return Ok(Some(vec![UiEvent::Text(format!(
                     "You own this shop. Visitors use {} here; their requests arrive in your inbox and /shop inbox.\r\n",
@@ -463,8 +463,7 @@ pub trait ParcelView {
     fn custom_commands(&self) -> Option<&str>;
 }
 
-/// Protocol-neutral view of a mail auth token identity.
-
+/// Storage boundary for land ownership actions.
 pub trait LandStore {
     /// Store error type.
     type Error;
@@ -665,7 +664,6 @@ pub trait PaymentStore {
 }
 
 /// Result from creating a shop payment request.
-
 pub struct ShopPaymentRequestResult<I> {
     /// Text to display to the shop operator.
     pub text: String,

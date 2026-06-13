@@ -1,7 +1,7 @@
 use super::handler_helpers::*;
 use super::*;
 use hinemos_app::{AppIdentity, AppRequest, LiveInboxNotice, UiEvent};
-use hinemos_core::{JsonObservation, PlayerState, SemanticCommand};
+use hinemos_core::{Direction, JsonObservation, PlayerState, SemanticCommand};
 
 impl ConnectionHandler {
     pub(super) async fn send_app_request(
@@ -44,6 +44,35 @@ impl ConnectionHandler {
         event: UiEvent,
     ) -> Result<()> {
         match event {
+            UiEvent::Text(_)
+            | UiEvent::Observation(_)
+            | UiEvent::CommandObservation { .. }
+            | UiEvent::PersistPlayerState(_)
+            | UiEvent::Prompt
+            | UiEvent::CloseSession(_) => {
+                self.send_output_event(channel, session, event).await?;
+            }
+            UiEvent::InvalidateRoomCache
+            | UiEvent::InvalidateCommercialParcelCache { .. }
+            | UiEvent::InvalidateInboxItem { .. } => self.handle_cache_event(event).await,
+            UiEvent::LiveMessage { .. }
+            | UiEvent::LiveViewMessage { .. }
+            | UiEvent::LiveInboxNotice { .. } => self.handle_live_event(event).await,
+            UiEvent::EnsureWalletAndEnter { .. } | UiEvent::Relocate { .. } => {
+                self.handle_navigation_event(channel, session, event)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn send_output_event(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        event: UiEvent,
+    ) -> Result<()> {
+        match event {
             UiEvent::Text(text) => send_text_event(session, channel, &text)?,
             UiEvent::Observation(observation) => {
                 self.send_text_observation(channel, session, observation)
@@ -59,12 +88,15 @@ impl ConnectionHandler {
             UiEvent::PersistPlayerState(player_state) => {
                 self.persist_player_state_event(player_state).await?;
             }
-            UiEvent::Prompt => {
-                send_prompt(session, channel)?;
-            }
-            UiEvent::CloseSession(status) => {
-                close_session_event(session, channel, status)?;
-            }
+            UiEvent::Prompt => send_prompt(session, channel)?,
+            UiEvent::CloseSession(status) => close_session_event(session, channel, status)?,
+            _ => unreachable!("output event group should only contain output variants"),
+        }
+        Ok(())
+    }
+
+    async fn handle_cache_event(&self, event: UiEvent) {
+        match event {
             UiEvent::InvalidateRoomCache => {
                 self.shared.clear_room_cache().await;
             }
@@ -79,6 +111,12 @@ impl ConnectionHandler {
             UiEvent::InvalidateInboxItem { item_id } => {
                 self.shared.invalidate_inbox_item(item_id).await;
             }
+            _ => unreachable!("cache event group should only contain cache variants"),
+        }
+    }
+
+    async fn handle_live_event(&self, event: UiEvent) {
+        match event {
             UiEvent::LiveMessage {
                 target_player_id,
                 text,
@@ -96,6 +134,17 @@ impl ConnectionHandler {
                 self.send_live_inbox_notice(&target_player_id, &notice)
                     .await;
             }
+            _ => unreachable!("live event group should only contain live variants"),
+        }
+    }
+
+    async fn handle_navigation_event(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        event: UiEvent,
+    ) -> Result<()> {
+        match event {
             UiEvent::EnsureWalletAndEnter {
                 user,
                 player_id,
@@ -126,6 +175,7 @@ impl ConnectionHandler {
                 )
                 .await?;
             }
+            _ => unreachable!("navigation event group should only contain navigation variants"),
         }
         Ok(())
     }

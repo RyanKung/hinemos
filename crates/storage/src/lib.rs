@@ -8,6 +8,7 @@ mod schema;
 mod storage_ext;
 mod storage_memory;
 mod storage_payments;
+mod storage_rooms;
 mod storage_shop;
 mod types;
 

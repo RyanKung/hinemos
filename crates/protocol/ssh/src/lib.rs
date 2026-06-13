@@ -15,6 +15,7 @@ mod admin;
 mod auth;
 mod config;
 mod handler;
+mod inbox_notify;
 mod mail;
 mod mail_protocol;
 mod presence;
@@ -31,7 +32,6 @@ use russh::keys::ssh_key::LineEnding;
 use russh::keys::{Algorithm, PrivateKey, ssh_key};
 use russh::server::{Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, server};
-use sqlx::postgres::PgListener;
 use tokio::sync::Mutex;
 
 use auth::PublicKeyAuthPolicy;
@@ -111,7 +111,8 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
         let listener_database_url = database_url.clone();
         tokio::spawn(async move {
             if let Err(error) =
-                run_inbox_mail_notify_listener(listener_database_url, shared_inbox).await
+                inbox_notify::run_inbox_mail_notify_listener(listener_database_url, shared_inbox)
+                    .await
             {
                 eprintln!("inbox mail notify listener exited: {error:#}");
             }
@@ -139,50 +140,6 @@ fn load_or_create_host_key(path: &Path) -> Result<PrivateKey> {
     let private_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)?;
     private_key.write_openssh_file(path, LineEnding::LF)?;
     Ok(private_key)
-}
-
-async fn run_inbox_mail_notify_listener(
-    database_url: String,
-    shared: Arc<SharedState>,
-) -> Result<()> {
-    let mut listener = PgListener::connect(&database_url).await?;
-    listener.listen("hinemos_inbox_mail").await?;
-    loop {
-        let notification = listener.recv().await?;
-        let Ok(item_id) = notification.payload().parse::<i64>() else {
-            continue;
-        };
-        let item = shared.inbox_item(item_id).await?;
-        let sender_rooms = shared.service_rooms_by_room_user(&item.sender_user).await?;
-        let (recipients, room_replies) = {
-            let presence = shared.presence.lock().await;
-            let recipients = presence.direct_recipients(u64::MAX, &item.recipient_player_id);
-            let mut room_replies = Vec::new();
-            let room_reply_id = render::room_reply_request_id(&item.subject);
-            for room in sender_rooms {
-                let room_recipients = presence.direct_recipients_in_view(
-                    u64::MAX,
-                    &item.recipient_player_id,
-                    &room.view_id,
-                );
-                if !room_recipients.is_empty() {
-                    let label = room.label.unwrap_or(room.view_id);
-                    room_replies.push((
-                        room_recipients,
-                        render::room_reply_live_notice(&label, room_reply_id, &item.body),
-                    ));
-                }
-            }
-            (recipients, room_replies)
-        };
-        if !recipients.is_empty() {
-            render::deliver_live_inbox_notice(recipients, &item, shared.mail_domain.as_deref())
-                .await;
-        }
-        for (room_recipients, message) in room_replies {
-            render::deliver_live_message(room_recipients, &message).await;
-        }
-    }
 }
 
 pub(crate) struct SharedState {

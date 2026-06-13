@@ -223,18 +223,17 @@ fn room_directory_cache_invalidates_service_room_scopes() {
         Some("street-b"),
     );
 
-    assert!(cache.service_room_views.get("room-view").is_none());
-    assert!(cache.service_room_any_views.get("room-view").is_none());
-    assert!(cache.service_room_users.get("old-room-user").is_none());
-    assert!(cache.service_room_users.get("room-user").is_none());
-    assert!(cache.service_rooms_front_views.get("street-a").is_none());
-    assert!(cache.room_binding_views.get("room-view").is_none());
-    assert!(cache.room_binding_front_views.get("street-a").is_none());
+    assert!(!cache.service_room_views.contains_key("room-view"));
+    assert!(!cache.service_room_any_views.contains_key("room-view"));
+    assert!(!cache.service_room_users.contains_key("old-room-user"));
+    assert!(!cache.service_room_users.contains_key("room-user"));
+    assert!(!cache.service_rooms_front_views.contains_key("street-a"));
+    assert!(!cache.room_binding_views.contains_key("room-view"));
+    assert!(!cache.room_binding_front_views.contains_key("street-a"));
     assert!(
-        cache
+        !cache
             .commercial_parcels_front_views
-            .get("street-a")
-            .is_none()
+            .contains_key("street-a")
     );
 }
 
@@ -322,17 +321,16 @@ fn room_directory_cache_invalidates_commercial_parcel_scopes() {
 
     cache.invalidate_for_commercial_parcel("parcel-view", "street-a");
 
-    assert!(cache.room_binding_views.get("parcel-view").is_none());
-    assert!(cache.room_binding_front_views.get("street-a").is_none());
+    assert!(!cache.room_binding_views.contains_key("parcel-view"));
+    assert!(!cache.room_binding_front_views.contains_key("street-a"));
     assert!(
-        cache
+        !cache
             .commercial_parcels_front_views
-            .get("street-a")
-            .is_none()
+            .contains_key("street-a")
     );
-    assert!(cache.service_room_views.get("room-view").is_some());
-    assert!(cache.room_context_views.get("parcel-view").is_none());
-    assert!(cache.room_context_views.get("street-a").is_none());
+    assert!(cache.service_room_views.contains_key("room-view"));
+    assert!(!cache.room_context_views.contains_key("parcel-view"));
+    assert!(!cache.room_context_views.contains_key("street-a"));
 }
 
 #[test]

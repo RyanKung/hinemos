@@ -127,8 +127,7 @@ pub trait MailAuthTokenView {
     fn player_id(&self) -> &str;
 }
 
-/// Storage boundary for land ownership actions.
-
+/// Protocol-neutral account settings view.
 pub trait AccountSettingsView {
     /// Stable player id.
     fn player_id(&self) -> &str;

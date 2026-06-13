@@ -6,6 +6,8 @@ use super::*;
 mod handler_helpers;
 #[path = "handler_io.rs"]
 mod handler_io;
+#[path = "handler_observation.rs"]
+mod handler_observation;
 mod session;
 
 use crate::auth::AuthIdentity;
@@ -16,10 +18,10 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use handler_helpers::*;
 use hinemos_app::{
-    AppCommandContext, AppIdentity, AppRequest, PendingAdmissionCommandOutcome,
-    RoomBindingKindView, UiEvent, service_room_unavailable_text,
+    AppCommandContext, AppIdentity, AppRequest, AppViewCommandContext,
+    PendingAdmissionCommandOutcome, RoomBindingKindView, UiEvent, service_room_unavailable_text,
 };
-use hinemos_core::{Direction, JsonObservation, ObservationEvent, PlayerState, SemanticCommand};
+use hinemos_core::{JsonObservation, ObservationEvent, PlayerState, SemanticCommand};
 use rand::Rng;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +52,15 @@ struct CommandLineState {
     player: PlayerState,
     room_context: RoomViewContext,
     current_observation: JsonObservation,
+}
+
+struct HandlerViewCommand<'a> {
+    app_identity: &'a AppIdentity,
+    command: &'a SemanticCommand,
+    player: &'a PlayerState,
+    current_observation: &'a JsonObservation,
+    room_binding: Option<&'a StoredRoomBinding>,
+    prompt: bool,
 }
 
 impl ConnectionHandler {
@@ -256,12 +267,14 @@ impl ConnectionHandler {
                 .handle_app_view_command(
                     channel,
                     session,
-                    &app_identity,
-                    &command,
-                    &state.player,
-                    &state.current_observation,
-                    room_binding,
-                    prompt,
+                    HandlerViewCommand {
+                        app_identity: &app_identity,
+                        command: &command,
+                        player: &state.player,
+                        current_observation: &state.current_observation,
+                        room_binding,
+                        prompt,
+                    },
                 )
                 .await?
         {
@@ -457,12 +470,7 @@ impl ConnectionHandler {
         &self,
         channel: ChannelId,
         session: &mut Session,
-        app_identity: &AppIdentity,
-        command: &SemanticCommand,
-        player: &PlayerState,
-        current_observation: &JsonObservation,
-        room_binding: Option<&StoredRoomBinding>,
-        prompt: bool,
+        request: HandlerViewCommand<'_>,
     ) -> Result<bool> {
         let app = self.shared.app_service().await;
         let users = self
@@ -470,11 +478,12 @@ impl ConnectionHandler {
             .presence
             .lock()
             .await
-            .view_users(self.connection_id, &current_observation.view_id)
+            .view_users(self.connection_id, &request.current_observation.view_id)
             .into_iter()
             .map(|user| user.user)
             .collect::<Vec<_>>();
-        let visible_entity_ids = current_observation
+        let visible_entity_ids = request
+            .current_observation
             .entities
             .iter()
             .map(|entity| entity.id.clone())
@@ -482,31 +491,33 @@ impl ConnectionHandler {
         let token = generate_mail_auth_token();
         match app
             .handle_view_command(
-                app_identity,
-                command,
-                &current_observation.view_id,
-                &current_observation.title,
-                &player.inventory,
-                &users,
-                &visible_entity_ids,
-                room_binding,
-                self.shared.mail_domain.as_deref(),
-                AppCommandContext {
-                    current_view: &player.current_view,
+                request.app_identity,
+                request.command,
+                AppViewCommandContext {
+                    current_view: &request.current_observation.view_id,
+                    current_title: &request.current_observation.title,
+                    inventory: &request.player.inventory,
+                    online_users: &users,
+                    visible_entity_ids: &visible_entity_ids,
+                    room_binding: request.room_binding,
                     mail_domain: self.shared.mail_domain.as_deref(),
-                    generated_token: &token,
+                    business: AppCommandContext {
+                        current_view: &request.player.current_view,
+                        mail_domain: self.shared.mail_domain.as_deref(),
+                        generated_token: &token,
+                    },
                 },
             )
             .await
         {
             Ok(Some(events)) => {
                 self.send_ui_events(channel, session, events).await?;
-                send_prompt_if_requested(session, channel, prompt)?;
+                send_prompt_if_requested(session, channel, request.prompt)?;
                 Ok(true)
             }
             Ok(None) => Ok(false),
             Err(error) => {
-                send_command_error(session, channel, error.into(), prompt)?;
+                send_command_error(session, channel, error.into(), request.prompt)?;
                 Ok(true)
             }
         }
@@ -589,143 +600,6 @@ impl ConnectionHandler {
         }
 
         Ok(())
-    }
-
-    async fn observe_current_json_for_view(
-        &self,
-        player_id: &str,
-        room_context: Option<&RoomViewContext>,
-    ) -> Result<JsonObservation> {
-        match self.shared.runtime.observe_json(player_id).await {
-            Ok(observation) => Ok(observation),
-            Err(_error) => {
-                let context = room_context
-                    .expect("room context should be loaded before observing a player view");
-                match context {
-                    RoomViewContext {
-                        room_binding: Some(room),
-                        ..
-                    } if room.is_service_room() => {
-                        let app = self.shared.app_service().await;
-                        return Ok(app.service_room_observation_for(player_id, room));
-                    }
-                    RoomViewContext {
-                        room_binding: None,
-                        service_room: Some(service_room),
-                        ..
-                    } => {
-                        let app_config = self.shared.app_config().await;
-                        let target = service_room
-                            .front_view_id
-                            .as_deref()
-                            .unwrap_or(&app_config.admission_view_id)
-                            .to_owned();
-                        self.relocate_player_id_to_view(
-                            player_id,
-                            &target,
-                            Some(Direction::South),
-                            Some("This room is closed. You step back to the street."),
-                        )
-                        .await
-                    }
-                    _ => {
-                        let app_config = self.shared.app_config().await;
-                        self.relocate_player_id_to_view(
-                            player_id,
-                            &app_config.admission_view_id,
-                            Some(Direction::South),
-                            Some("This room is closed. You step back to the street."),
-                        )
-                        .await
-                    }
-                }
-            }
-        }
-    }
-
-    async fn relocate_player_id_to_view(
-        &self,
-        player_id: &str,
-        target_view_id: &str,
-        direction: Option<Direction>,
-        message: Option<&str>,
-    ) -> Result<JsonObservation> {
-        let room_context = self.shared.room_context_for_view(target_view_id).await?;
-        self.relocate_player_id_to_view_with_context(
-            player_id,
-            target_view_id,
-            direction,
-            message,
-            &room_context,
-        )
-        .await
-    }
-
-    async fn relocate_player_id_to_view_with_context(
-        &self,
-        player_id: &str,
-        target_view_id: &str,
-        direction: Option<Direction>,
-        message: Option<&str>,
-        room_context: &RoomViewContext,
-    ) -> Result<JsonObservation> {
-        let mut player = self.shared.runtime.player_state(player_id).await?;
-        let from = player.current_view.clone();
-        player.current_view = target_view_id.to_owned();
-        self.shared.runtime.set_player_state(player.clone()).await?;
-        let app = self.shared.app_service().await;
-        app.save_player_state(&player).await?;
-        self.shared
-            .presence
-            .lock()
-            .await
-            .update_view(self.connection_id, player.current_view.clone());
-        let mut observation = self
-            .observe_player_at_view_with_context(&player.id, room_context)
-            .await?;
-        if let Some(direction) = direction {
-            observation.events.push(ObservationEvent::Move {
-                from,
-                to: target_view_id.to_owned(),
-                direction,
-            });
-        }
-        if let Some(text) = message {
-            observation.events.push(ObservationEvent::Message {
-                text: text.to_owned(),
-            });
-        }
-        Ok(observation)
-    }
-
-    async fn observe_player_at_view_with_context(
-        &self,
-        player_id: &str,
-        room_context: &RoomViewContext,
-    ) -> Result<JsonObservation> {
-        match self.shared.runtime.observe_json(player_id).await {
-            Ok(observation) => Ok(observation),
-            Err(error) => {
-                if let RoomViewContext {
-                    room_binding: Some(room),
-                    ..
-                } = room_context
-                    && room.is_service_room()
-                {
-                    let app = self.shared.app_service().await;
-                    return Ok(app.service_room_observation_for(player_id, room));
-                }
-                if let RoomViewContext {
-                    service_room: Some(service_room),
-                    ..
-                } = room_context
-                {
-                    let app = self.shared.app_service().await;
-                    return Ok(app.service_room_observation_for(player_id, service_room));
-                }
-                Err(error.into())
-            }
-        }
     }
 }
 

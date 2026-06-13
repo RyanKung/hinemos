@@ -278,7 +278,7 @@ where
                 vec![UiEvent::Text(service_room_blocked_exit_text().to_owned())]
             }
             SemanticCommand::Say { text } => {
-                self.handle_service_room_say(&identity, current_view, binding, text)
+                self.handle_service_room_say(identity, current_view, binding, text)
                     .await?
             }
             SemanticCommand::Help => {
@@ -345,13 +345,12 @@ where
             if let Some(events) = self.handle_memory_raw_line(identity, raw_line).await? {
                 return Ok(Some(events));
             }
-            if RoomBindingKindView::is_commercial_parcel(binding) {
-                if let Some(events) = self
+            if RoomBindingKindView::is_commercial_parcel(binding)
+                && let Some(events) = self
                     .handle_commercial_parcel_input(identity, binding, raw_line)
                     .await?
-                {
-                    return Ok(Some(events));
-                }
+            {
+                return Ok(Some(events));
             }
             if RoomBindingKindView::is_service_room(binding)
                 && self.room_binding_accepts_input(binding, raw_line)

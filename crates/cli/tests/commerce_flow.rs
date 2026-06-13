@@ -38,8 +38,8 @@ fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path)
     let owner_setup = run_ssh_batch_with_key(
         host,
         port,
-        &owner,
-        &owner_key,
+        owner,
+        owner_key,
         &[
             "/land claim N1",
             "/go north",
@@ -104,8 +104,8 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     let customer_visit = run_ssh_batch_with_key(
         host,
         port,
-        &customer,
-        &customer_key,
+        customer,
+        customer_key,
         &["/go north", "/enter N1", "/hello", "/quit"],
     );
     assert_contains(
@@ -174,8 +174,8 @@ fn request_shop_payment(host: &str, port: u16, owner: &str, owner_key: &Path) ->
     let owner_request = run_ssh_batch_with_key(
         host,
         port,
-        &owner,
-        &owner_key,
+        owner,
+        owner_key,
         &[
             "/shop inbox",
             "/shop request-payment 1 25 hello world",
@@ -207,8 +207,8 @@ fn assert_customer_paid_request(
     let customer_payment = run_ssh_batch_with_key(
         host,
         port,
-        &customer,
-        &customer_key,
+        customer,
+        customer_key,
         &["/pay requests", &accept_request, "/balance", "/quit"],
     );
     assert_contains(
@@ -247,8 +247,8 @@ fn assert_owner_received_payment(host: &str, port: u16, owner: &str, owner_key: 
     let owner_reconnect = run_ssh_batch_with_key(
         host,
         port,
-        &owner,
-        &owner_key,
+        owner,
+        owner_key,
         &["/shop inbox", "/balance", "/quit"],
     );
     assert_contains(

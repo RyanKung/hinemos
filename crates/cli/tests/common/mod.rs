@@ -134,33 +134,51 @@ pub fn spawn_hinemos_server_with_env<const N: usize>(
     database_url: &str,
     envs: [(&str, &str); N],
 ) -> Child {
-    spawn_hinemos_server_with_options(root, host, port, log_path, database_url, None, None, envs)
+    spawn_hinemos_server_with_options(HinemosServerOptions {
+        root,
+        host,
+        port,
+        log_path,
+        database_url,
+        world: None,
+        admin_socket: None,
+        envs,
+    })
+}
+
+pub struct HinemosServerOptions<'a, const N: usize> {
+    pub root: &'a Path,
+    pub host: &'a str,
+    pub port: u16,
+    pub log_path: &'a Path,
+    pub database_url: &'a str,
+    pub world: Option<&'a Path>,
+    pub admin_socket: Option<&'a Path>,
+    pub envs: [(&'a str, &'a str); N],
 }
 
 #[allow(dead_code)]
 pub fn spawn_hinemos_server_with_options<const N: usize>(
-    root: &Path,
-    host: &str,
-    port: u16,
-    log_path: &Path,
-    database_url: &str,
-    world: Option<&Path>,
-    admin_socket: Option<&Path>,
-    envs: [(&str, &str); N],
+    options: HinemosServerOptions<'_, N>,
 ) -> Child {
-    let log = fs::File::create(log_path).expect("create server log");
+    let log = fs::File::create(options.log_path).expect("create server log");
     let mut command = Command::new(env!("CARGO_BIN_EXE_hinemos"));
     command
-        .current_dir(root)
-        .args(["serve", "ssh", "--bind", &format!("{host}:{port}")])
-        .env("DATABASE_URL", database_url);
-    if let Some(world) = world {
+        .current_dir(options.root)
+        .args([
+            "serve",
+            "ssh",
+            "--bind",
+            &format!("{}:{}", options.host, options.port),
+        ])
+        .env("DATABASE_URL", options.database_url);
+    if let Some(world) = options.world {
         command.arg("--world").arg(world);
     }
-    if let Some(admin_socket) = admin_socket {
+    if let Some(admin_socket) = options.admin_socket {
         command.arg("--admin-socket").arg(admin_socket);
     }
-    for (key, value) in envs {
+    for (key, value) in options.envs {
         command.env(key, value);
     }
     command

@@ -4,6 +4,41 @@ use std::time::Duration;
 use crate::common::*;
 use hinemos_admin_protocol::{AdminRequest, AdminResponse, unix_admin_call};
 
+struct ServiceRoomFixture<'a> {
+    view_id: &'a str,
+    address: &'a str,
+    label: &'a str,
+    aliases: &'a str,
+    room_user: &'a str,
+    room_player_id: &'a str,
+    status_text: &'a str,
+    custom_commands: &'a str,
+}
+
+fn insert_service_room(test_database: &TestDatabase, room: &ServiceRoomFixture<'_>) {
+    test_database.query_value(&format!(
+        "insert into service_rooms (
+             view_id, front_view_id, front_entity_id, address, label, enter_aliases,
+             room_user, room_player_id, status_text, custom_commands, enabled
+         ) values (
+             '{}', 'arrival_street', 'cyber_scroll_board', '{}',
+             '{}', '{}',
+             '{}', '{}',
+             '{}',
+             '{}',
+             true
+         )",
+        room.view_id,
+        room.address,
+        room.label,
+        room.aliases,
+        room.room_user,
+        room.room_player_id,
+        room.status_text,
+        room.custom_commands
+    ));
+}
+
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
 fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
@@ -121,19 +156,19 @@ fn external_room_commands_are_data_registered_and_delivered_by_mail() {
         std::process::id(),
         epoch_seconds()
     );
-    test_database.query_value(&format!(
-        "insert into service_rooms (
-             view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-             room_user, room_player_id, status_text, custom_commands, enabled
-         ) values (
-             '{room_view_id}', 'arrival_street', 'cyber_scroll_board', '{room_address}',
-             'Protocol Test Room', 'protocol test room',
-             '{room_user}', '{room_player_id}',
-             'Protocol test service room.',
-             '/room ask <question>',
-             true
-         ) returning room_user"
-    ));
+    insert_service_room(
+        &test_database,
+        &ServiceRoomFixture {
+            view_id: &room_view_id,
+            address: &room_address,
+            label: "Protocol Test Room",
+            aliases: "protocol test room",
+            room_user: &room_user,
+            room_player_id: &room_player_id,
+            status_text: "Protocol test service room.",
+            custom_commands: "/room ask <question>",
+        },
+    );
     let sender_key = admitted_key(&temp, host, port, &sender);
 
     let output = run_ssh_batch_with_key(
@@ -279,6 +314,77 @@ fn assert_external_room_mail_rows(
 
 #[test]
 #[ignore = "requires local Postgres and SSH client"]
+fn service_room_say_is_live_delivered_and_quit_closes_session() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-room-say-quit");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let speaker = format!("room_speaker_{}_{}", std::process::id(), epoch_seconds());
+    let listener = format!("room_listener_{}_{}", std::process::id(), epoch_seconds());
+    let room_user = format!("say-room-user-{}", epoch_seconds());
+    let room_player_id = format!("say-room-player-{}", epoch_seconds());
+    let room_view_id = format!("say_room_view_{}", std::process::id());
+    let room_address = format!("SAY{}", std::process::id());
+    let message = format!("room_live_say_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+    insert_service_room(
+        &test_database,
+        &ServiceRoomFixture {
+            view_id: &room_view_id,
+            address: &room_address,
+            label: "Live Say Room",
+            aliases: "live say room",
+            room_user: &room_user,
+            room_player_id: &room_player_id,
+            status_text: "Live say room.",
+            custom_commands: "/room ask <question>",
+        },
+    );
+
+    let speaker_key = admitted_key(&temp, host, port, &speaker);
+    let listener_key = admitted_key(&temp, host, port, &listener);
+    let mut listener_session = SshSession::spawn_with_key(host, port, &listener, &listener_key);
+    listener_session.wait_for_stdout("Available:", Duration::from_secs(10));
+    listener_session.write_line(&format!("/enter {room_address}"));
+    listener_session.wait_for_stdout("Live Say Room", Duration::from_secs(10));
+    let mut speaker_session = SshSession::spawn_with_key(host, port, &speaker, &speaker_key);
+    speaker_session.wait_for_stdout("Available:", Duration::from_secs(10));
+    speaker_session.write_line(&format!("/enter {room_address}"));
+    speaker_session.wait_for_stdout("Live Say Room", Duration::from_secs(10));
+
+    speaker_session.write_line(&format!("/say {message}"));
+    speaker_session.wait_for_stdout(&format!("You say: {message}"), Duration::from_secs(10));
+    speaker_session.wait_for_stdout(
+        &format!("Sent to room service {room_user} (request #"),
+        Duration::from_secs(10),
+    );
+    listener_session.wait_for_stdout(
+        &format!("[say from {speaker}] {message}"),
+        Duration::from_secs(10),
+    );
+    speaker_session.write_line("/quit");
+    let speaker_output = speaker_session.wait_success(Duration::from_secs(10));
+    assert_contains(
+        &speaker_output,
+        "Goodbye.",
+        "service-room quit closes cleanly",
+    );
+
+    listener_session.write_line("/quit");
+    listener_session.wait_success(Duration::from_secs(10));
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+#[ignore = "requires local Postgres and SSH client"]
 fn room_service_reply_with_request_id_is_live_delivered_in_room() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -300,19 +406,19 @@ fn room_service_reply_with_request_id_is_live_delivered_in_room() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    test_database.query_value(&format!(
-        "insert into service_rooms (
-             view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-             room_user, room_player_id, status_text, custom_commands, enabled
-         ) values (
-             '{room_view_id}', 'arrival_street', 'cyber_scroll_board', '{room_address}',
-             'Protocol Reply Room', 'reply room',
-             '{room_user}', '{room_player_id}',
-             'Protocol reply room.',
-             '/room ask <question>',
-             true
-         )"
-    ));
+    insert_service_room(
+        &test_database,
+        &ServiceRoomFixture {
+            view_id: &room_view_id,
+            address: &room_address,
+            label: "Protocol Reply Room",
+            aliases: "reply room",
+            room_user: &room_user,
+            room_player_id: &room_player_id,
+            status_text: "Protocol reply room.",
+            custom_commands: "/room ask <question>",
+        },
+    );
 
     let agent_key = admitted_key(&temp, host, port, &agent);
     let agent_player_id = test_database.query_value(&format!(
@@ -386,16 +492,16 @@ fn rooms_reload_disables_removed_room_and_escapes_players() {
     let conflict_view_id = format!("reload_room_conflict_{}", std::process::id());
     let alias_conflict_view_id = format!("reload_room_alias_conflict_{}", std::process::id());
     let parcel_conflict_view_id = format!("reload_room_parcel_conflict_{}", std::process::id());
-    write_reload_rooms_fixture(
-        &world_dir,
-        &room_view_id,
-        &conflict_view_id,
-        &alias_conflict_view_id,
-        &parcel_conflict_view_id,
-        &room_address,
-        &room_user,
-        &room_player_id,
-    );
+    let fixture = ReloadRoomsFixture {
+        room_view_id: &room_view_id,
+        conflict_view_id: &conflict_view_id,
+        alias_conflict_view_id: &alias_conflict_view_id,
+        parcel_conflict_view_id: &parcel_conflict_view_id,
+        room_address: &room_address,
+        room_user: &room_user,
+        room_player_id: &room_player_id,
+    };
+    write_reload_rooms_fixture(&world_dir, &fixture);
 
     let host = "127.0.0.1";
     let port = free_local_port();
@@ -408,16 +514,16 @@ fn rooms_reload_disables_removed_room_and_escapes_players() {
     let admin_socket =
         std::env::temp_dir().join(format!("hinemos-admin-{}.sock", std::process::id()));
 
-    let mut server = spawn_hinemos_server_with_options(
-        &root,
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
         host,
         port,
-        &server_log,
-        &test_database.url,
-        Some(&world_dir),
-        Some(&admin_socket),
-        [],
-    );
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world_dir),
+        admin_socket: Some(&admin_socket),
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
 
     let user_key = admitted_key(&temp, host, port, &user);
@@ -463,16 +569,25 @@ fn rooms_reload_disables_removed_room_and_escapes_players() {
     temp.remove_on_drop();
 }
 
-fn write_reload_rooms_fixture(
-    world_dir: &std::path::Path,
-    room_view_id: &str,
-    conflict_view_id: &str,
-    alias_conflict_view_id: &str,
-    parcel_conflict_view_id: &str,
-    room_address: &str,
-    room_user: &str,
-    room_player_id: &str,
-) {
+struct ReloadRoomsFixture<'a> {
+    room_view_id: &'a str,
+    conflict_view_id: &'a str,
+    alias_conflict_view_id: &'a str,
+    parcel_conflict_view_id: &'a str,
+    room_address: &'a str,
+    room_user: &'a str,
+    room_player_id: &'a str,
+}
+
+fn write_reload_rooms_fixture(world_dir: &std::path::Path, fixture: &ReloadRoomsFixture<'_>) {
+    let room_view_id = fixture.room_view_id;
+    let conflict_view_id = fixture.conflict_view_id;
+    let alias_conflict_view_id = fixture.alias_conflict_view_id;
+    let parcel_conflict_view_id = fixture.parcel_conflict_view_id;
+    let room_address = fixture.room_address;
+    let room_user = fixture.room_user;
+    let room_player_id = fixture.room_player_id;
+
     fs::write(
         world_dir.join("rooms.ron"),
         format!(
@@ -596,16 +711,16 @@ fn rooms_reload_refreshes_service_room_observation_cache() {
     let admin_socket =
         std::env::temp_dir().join(format!("hinemos-admin-{}.sock", std::process::id()));
 
-    let mut server = spawn_hinemos_server_with_options(
-        &root,
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
         host,
         port,
-        &server_log,
-        &test_database.url,
-        Some(&world_dir),
-        Some(&admin_socket),
-        [],
-    );
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world_dir),
+        admin_socket: Some(&admin_socket),
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
 
     let user_key = admitted_key(&temp, host, port, &user);

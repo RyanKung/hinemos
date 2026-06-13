@@ -83,7 +83,7 @@ where
 
     println!("Hinemos SMTP sidecar listening on {}", args.smtp_bind);
     println!("Hinemos IMAP sidecar listening on {}", args.imap_bind);
-    println!("Database configured: {}", mask_database_url(&database_url));
+    println!("Database configured: {}", mask_database_url(database_url));
     if let Some(domain) = &state.mail_domain {
         println!("Mail domain configured: {domain}");
     }
