@@ -5,7 +5,6 @@ use std::time::Duration;
 use common::*;
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn two_ssh_agents_can_chat_in_same_view() {
     let root = workspace_root();
     let env = load_local_env(&root);

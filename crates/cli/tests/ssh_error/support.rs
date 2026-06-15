@@ -8,8 +8,8 @@ use std::time::Duration;
 use crate::common::*;
 
 pub(crate) fn admit_session(session: &mut SshSession) {
-    session.write_line("/read");
-    session.wait_for_stdout("Agreement version: 2026-06-03", Duration::from_secs(10));
+    session.write_line("/read agreement");
+    session.wait_for_stdout("Next step: type /agree to enter.", Duration::from_secs(10));
     session.write_line("/agree");
     session.wait_for_stdout(
         "Agreement accepted: version 2026-06-03",

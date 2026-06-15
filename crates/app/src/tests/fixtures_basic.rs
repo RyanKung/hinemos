@@ -672,7 +672,7 @@ impl ShopStore for TestCommercialStore {
     ) -> Result<Self::InboxItem, Self::Error> {
         Ok(TestInboxItem {
             id: 1,
-            kind: "mail",
+            kind: "shop_command",
             sender_user: "alice",
             subject: "hello",
             body: "body",

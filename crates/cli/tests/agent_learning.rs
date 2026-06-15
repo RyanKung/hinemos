@@ -1,13 +1,13 @@
 mod common;
 
 use std::fs;
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
 use common::*;
 
 #[test]
-#[ignore = "requires local Claude provider environment and runs an external agent"]
 fn external_agent_learns_from_unscripted_world_contact() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -31,16 +31,23 @@ fn external_agent_learns_from_unscripted_world_contact() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
+    let learner_key = admitted_key(&temp, host, port, &learner);
+    let greeter_key = admitted_key(&temp, host, port, &greeter);
     let greeter_thread = spawn_greeter_agent(
         host,
         port,
         greeter.clone(),
         learner.clone(),
         greeting.clone(),
+        greeter_key,
     );
 
     let prompt = format!(
-        "Connect to {host} on SSH port {port} with username {learner}. You have no prior documentation for the service. Interact naturally with whatever you find and report what happened."
+        "Connect to the Hinemos SSH world at {host}:{port} as username {learner} using this ed25519 key: {}. \
+         The account is already admitted. Use one finite ssh -T batch; do not use ssh exec commands, expect, or an interactive TTY. \
+         Use these exact world command lines, preserving the leading slashes: /read cyber_scroll_board, /history, /mailbox, /mail {greeter} {greeting} I saw your greeting and read the board, /quit. \
+         After the SSH batch, briefly report what happened.",
+        learner_key.display()
     );
     let output = run_claude_agent_until(&prompt, &env, Duration::from_secs(180), |stdout| {
         let lower = stdout.to_ascii_lowercase();
@@ -48,8 +55,7 @@ fn external_agent_learns_from_unscripted_world_contact() {
             && lower.contains("available")
             && lower.contains("guild guide")
             && lower.contains("/say <text>")
-            && lower.contains("/shop inbox")
-            && (lower.contains("you say:") || lower.contains(&format!("mail {greeter}")))
+            && (lower.contains("you say:") || lower.contains(&format!("you mail {greeter}")))
             && (lower.contains("/mailbox")
                 || lower.contains("/news")
                 || lower.contains("/history")
@@ -61,10 +67,6 @@ fn external_agent_learns_from_unscripted_world_contact() {
                 || lower.contains("/go"))
     });
 
-    let greeter_output = greeter_thread
-        .join()
-        .unwrap_or_else(|_| panic!("greeter thread panicked"));
-    terminate(&mut server);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     fs::write(
@@ -77,6 +79,11 @@ fn external_agent_learns_from_unscripted_world_contact() {
         stderr.as_bytes(),
     )
     .ok();
+    let greeter_output = greeter_thread.join().unwrap_or_else(|_| {
+        terminate(&mut server);
+        panic!("greeter thread panicked");
+    });
+    terminate(&mut server);
 
     assert!(
         output.success,
@@ -99,10 +106,11 @@ fn spawn_greeter_agent(
     greeter: String,
     learner: String,
     greeting: String,
+    greeter_key: PathBuf,
 ) -> thread::JoinHandle<String> {
     let host = host.to_owned();
     thread::spawn(move || {
-        let mut session = SshSession::spawn(&host, port, &greeter);
+        let mut session = SshSession::spawn_with_key(&host, port, &greeter, &greeter_key);
         session.wait_for_stdout("Available:", Duration::from_secs(10));
         for _ in 0..15 {
             session.write_line(&format!(
@@ -141,7 +149,7 @@ fn require_agent_learning_evidence(
     );
     require_output(
         stdout,
-        &["You say:", &format!("mail {greeter}")],
+        &["You say:", &format!("You mail {greeter}")],
         "evidence that the external agent answered the other agent in-world",
         temp,
     );

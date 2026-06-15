@@ -40,7 +40,6 @@ fn insert_service_room(test_database: &TestDatabase, room: &ServiceRoomFixture<'
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -127,7 +126,6 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn external_room_commands_are_data_registered_and_delivered_by_mail() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -242,6 +240,11 @@ fn assert_external_room_output(output: &str, room_user: &str, say_message: &str)
     );
     assert_contains(
         output,
+        "World commands start with /.",
+        "plain text inside service rooms is handled by the world parser, not forwarded",
+    );
+    assert_contains(
+        output,
         &format!("You say: {say_message}"),
         "service-room say confirms locally instead of falling into runtime execute",
     );
@@ -286,8 +289,8 @@ fn assert_external_room_mail_rows(
         "select count(*) from inbox_items where recipient_user = '{room_user}' and sender_user = '{sender}' and body = 'plain room chat from test'"
     ));
     assert_eq!(
-        plain_count, "1",
-        "plain room chat is persisted for the external service"
+        plain_count, "0",
+        "plain room chat is not persisted for the external service"
     );
     let say_count = test_database.query_value(&format!(
         "select count(*) from inbox_items where recipient_user = '{room_user}' and sender_user = '{sender}' and body = '/say {say_message}'"
@@ -320,7 +323,6 @@ fn assert_external_room_mail_rows(
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn service_room_say_is_live_delivered_and_quit_closes_session() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -360,11 +362,11 @@ fn service_room_say_is_live_delivered_and_quit_closes_session() {
     let mut listener_session = SshSession::spawn_with_key(host, port, &listener, &listener_key);
     listener_session.wait_for_stdout("Available:", Duration::from_secs(10));
     listener_session.write_line(&format!("/enter {room_address}"));
-    listener_session.wait_for_stdout("Live Say Room", Duration::from_secs(10));
+    listener_session.wait_for_stdout("You enter Live Say Room.", Duration::from_secs(10));
     let mut speaker_session = SshSession::spawn_with_key(host, port, &speaker, &speaker_key);
     speaker_session.wait_for_stdout("Available:", Duration::from_secs(10));
     speaker_session.write_line(&format!("/enter {room_address}"));
-    speaker_session.wait_for_stdout("Live Say Room", Duration::from_secs(10));
+    speaker_session.wait_for_stdout("You enter Live Say Room.", Duration::from_secs(10));
 
     speaker_session.write_line(&format!("/say {message}"));
     speaker_session.wait_for_stdout(&format!("You say: {message}"), Duration::from_secs(10));
@@ -391,7 +393,6 @@ fn service_room_say_is_live_delivered_and_quit_closes_session() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn room_service_reply_with_request_id_is_live_delivered_in_room() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -434,7 +435,7 @@ fn room_service_reply_with_request_id_is_live_delivered_in_room() {
     let mut agent_session = SshSession::spawn_with_key(host, port, &agent, &agent_key);
     agent_session.wait_for_stdout("Available:", Duration::from_secs(10));
     agent_session.write_line(&format!("/enter {room_address}"));
-    agent_session.wait_for_stdout("Protocol Reply Room", Duration::from_secs(10));
+    agent_session.wait_for_stdout("You enter Protocol Reply Room.", Duration::from_secs(10));
 
     let inserted_request_id = 42_i64;
     test_database.query_value(&format!(
@@ -482,7 +483,6 @@ fn room_service_reply_with_request_id_is_live_delivered_in_room() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn rooms_reload_disables_removed_room_and_escapes_players() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -544,7 +544,7 @@ fn rooms_reload_disables_removed_room_and_escapes_players() {
     let mut session = SshSession::spawn_with_key(host, port, &user, &user_key);
     session.wait_for_stdout("Available:", Duration::from_secs(10));
     session.write_line(&format!("/enter {room_address}"));
-    session.wait_for_stdout("Reload Test Room", Duration::from_secs(10));
+    session.wait_for_stdout("You enter Reload Test Room.", Duration::from_secs(10));
 
     fs::write(world_dir.join("rooms.ron"), "[]").expect("remove room registration");
     let response = unix_admin_call(
@@ -687,7 +687,6 @@ fn assert_reload_conflict_rooms_disabled(
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn rooms_reload_refreshes_service_room_observation_cache() {
     let root = workspace_root();
     let env = load_local_env(&root);

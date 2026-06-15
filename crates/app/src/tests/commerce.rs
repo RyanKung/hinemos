@@ -74,7 +74,7 @@ fn commercial_parcel_input_routes_through_app() {
                     target_player_id: "owner-player".to_owned(),
                     notice: LiveInboxNotice {
                         id: 1,
-                        kind: "mail".to_owned(),
+                        kind: "shop_command".to_owned(),
                         sender_user: "alice".to_owned(),
                         subject: "hello".to_owned(),
                         body: "body".to_owned(),
@@ -88,6 +88,15 @@ fn commercial_parcel_input_routes_through_app() {
                 "operator:visitor:visitor-player:P1:/shop request-payment 7 25 hello world:true"
                     .to_owned()
             ]
+        );
+
+        let global_command = app
+            .handle_commercial_parcel_input(&identity, &binding, "/balance")
+            .await
+            .expect("commercial parcel input");
+        assert!(
+            global_command.is_none(),
+            "commercial parcels should not intercept global slash commands"
         );
     });
 }

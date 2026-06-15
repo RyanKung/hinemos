@@ -6,7 +6,6 @@ use std::time::Duration;
 use common::*;
 
 #[test]
-#[ignore = "requires local Claude provider environment and runs an external agent"]
 fn claude_can_discover_and_explore_world_over_ssh() {
     let root = workspace_root();
     let env = load_local_env(&root);

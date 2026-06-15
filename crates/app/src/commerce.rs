@@ -61,6 +61,9 @@ where
             }
             return Ok(None);
         }
+        if !is_custom_command_input(binding, raw_line) {
+            return Ok(None);
+        }
 
         let command = self
             .store

@@ -8,6 +8,7 @@ use hinemos_admin_protocol::{AdminRequest, unix_admin_call};
 struct RoomRegistration<'a> {
     view_id: &'a str,
     front_view_id: &'a str,
+    front_entity_id: &'a str,
     address: &'a str,
     label: &'a str,
     enter_aliases: &'a str,
@@ -41,7 +42,7 @@ fn room_registration_block(registration: &RoomRegistration<'_>) -> String {
         r#"    (
         view_id: "{view_id}",
         front_view_id: Some("{front_view_id}"),
-        front_entity_id: None,
+        front_entity_id: Some("{front_entity_id}"),
         address: Some("{address}"),
         label: Some("{label}"),
         enter_aliases: Some("{enter_aliases}"),
@@ -53,6 +54,7 @@ fn room_registration_block(registration: &RoomRegistration<'_>) -> String {
     )"#,
         view_id = registration.view_id,
         front_view_id = registration.front_view_id,
+        front_entity_id = registration.front_entity_id,
         address = registration.address,
         label = registration.label,
         enter_aliases = registration.enter_aliases,
@@ -91,7 +93,6 @@ fn wait_for_closed_room_escape(session: &mut SshSession, command: &str) {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn rooms_reload_with_missing_front_view_escapes_players_to_street() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -108,6 +109,7 @@ fn rooms_reload_with_missing_front_view_escapes_players_to_street() {
     let registration = RoomRegistration {
         view_id: &room_view_id,
         front_view_id: "arrival_street",
+        front_entity_id: "cyber_scroll_board",
         address: &room_address,
         label: "Missing Front View Reload Room",
         enter_aliases: "missing-front-reload",
@@ -146,7 +148,10 @@ fn rooms_reload_with_missing_front_view_escapes_players_to_street() {
     let mut session = SshSession::spawn_with_key(host, port, &user, &user_key);
     session.wait_for_stdout("Available:", Duration::from_secs(10));
     session.write_line(&format!("/enter {room_address}"));
-    session.wait_for_stdout("Missing Front View Reload Room", Duration::from_secs(10));
+    session.wait_for_stdout(
+        "You enter Missing Front View Reload Room.",
+        Duration::from_secs(10),
+    );
 
     write_room_registrations(
         &world_dir,
@@ -168,7 +173,6 @@ fn rooms_reload_with_missing_front_view_escapes_players_to_street() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn invalid_or_disabled_room_registration_escapes_players_to_front_view() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -186,6 +190,7 @@ fn invalid_or_disabled_room_registration_escapes_players_to_front_view() {
     let active_room = RoomRegistration {
         view_id: &room_view_id,
         front_view_id: "arrival_street",
+        front_entity_id: "cyber_scroll_board",
         address: &room_address,
         label: "Invalid Escape Test Room",
         enter_aliases: "invalid-escape-test",
@@ -270,6 +275,7 @@ fn write_invalid_escape_rooms(
     let missing_room = RoomRegistration {
         view_id: missing_front_view_id,
         front_view_id: "missing_street",
+        front_entity_id: "cyber_scroll_board",
         address: &missing_room_address,
         label: "Missing Front View Room",
         enter_aliases: "missing-front-room",
@@ -287,7 +293,6 @@ fn write_invalid_escape_rooms(
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn reloaded_disabled_room_escapes_players_on_help() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -304,6 +309,7 @@ fn reloaded_disabled_room_escapes_players_on_help() {
     let registration = RoomRegistration {
         view_id: &room_view_id,
         front_view_id: "arrival_street",
+        front_entity_id: "cyber_scroll_board",
         address: &room_address,
         label: "Disabled Help Room",
         enter_aliases: "disabled-help",
@@ -362,7 +368,6 @@ fn reloaded_disabled_room_escapes_players_on_help() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn configured_mail_domain_addresses_deliver_to_local_user() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -437,7 +442,6 @@ fn configured_mail_domain_addresses_deliver_to_local_user() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn ssh_mailbox_protocol_receives_newmail_without_polling() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -496,14 +500,14 @@ fn ssh_mailbox_protocol_receives_newmail_without_polling() {
         Duration::from_secs(10),
     );
     mailbox_session.write_line("READ 1");
-    mailbox_session.wait_for_stdout("* MESSAGE 1", Duration::from_secs(10));
+    mailbox_session.wait_for_stdout("Inbox #1", Duration::from_secs(10));
     mailbox_session.wait_for_stdout(
-        &format!("FROM {sender}@hinemos.local"),
+        &format!("From: {sender}@hinemos.local"),
         Duration::from_secs(10),
     );
-    mailbox_session.wait_for_stdout(&format!("BODY {message}"), Duration::from_secs(10));
+    mailbox_session.wait_for_stdout(&format!("Body: {message}"), Duration::from_secs(10));
     mailbox_session.write_line("ACK 1");
-    mailbox_session.wait_for_stdout("OK ACK 1", Duration::from_secs(10));
+    mailbox_session.wait_for_stdout("Acked inbox #1 kind=mail.", Duration::from_secs(10));
     mailbox_session.write_line("QUIT");
     let mailbox_output = mailbox_session.wait_success(Duration::from_secs(10));
     assert_not_contains(
@@ -517,7 +521,6 @@ fn ssh_mailbox_protocol_receives_newmail_without_polling() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -601,7 +604,6 @@ fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn same_view_say_reaches_only_players_in_that_view() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -675,7 +677,6 @@ fn same_view_say_reaches_only_players_in_that_view() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -740,7 +741,6 @@ fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn broadcast_reaches_all_online_players_and_persists_in_news() {
     let root = workspace_root();
     let env = load_local_env(&root);

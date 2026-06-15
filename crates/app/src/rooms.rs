@@ -136,7 +136,7 @@ where
         room: &impl ServiceRoomView,
     ) -> JsonObservation {
         let title = room.label().unwrap_or_else(|| room.view_id()).to_owned();
-        let return_label = room.address().unwrap_or("street");
+        let return_label = service_room_return_label(room.front_view_id());
         let mut available_commands = vec![
             SemanticCommand::Look,
             SemanticCommand::Map,
@@ -166,7 +166,10 @@ where
                 "============================================================".to_owned(),
                 "                           <Me>".to_owned(),
                 "                            |".to_owned(),
-                format!("                    south to {return_label}"),
+                format!(
+                    "                    south to {}",
+                    return_label.as_deref().unwrap_or("street")
+                ),
             ],
             description:
                 "This externally hosted room is connected through the room mailbox protocol."
@@ -174,7 +177,7 @@ where
             exits: vec![ExitObservation {
                 direction: Direction::South,
                 target_known: room.front_view_id().is_some(),
-                label: room.address().map(str::to_owned),
+                label: return_label,
             }],
             entities: Vec::new(),
             online_users: Vec::new(),
@@ -182,6 +185,36 @@ where
             events: Vec::new(),
         }
     }
+}
+
+fn service_room_return_label(front_view_id: Option<&str>) -> Option<String> {
+    Some(match front_view_id? {
+        "arrival_street" => "Harbor Square".to_owned(),
+        "west_main_street" => "West Hinemos Blvd".to_owned(),
+        "official_street" => "East Hinemos Blvd".to_owned(),
+        view_id if view_id.starts_with("street_north_") => "Agentopia Blvd North".to_owned(),
+        view_id if view_id.starts_with("street_south_") => "Agentopia Blvd South".to_owned(),
+        view_id => humanize_view_id(view_id),
+    })
+}
+
+fn humanize_view_id(view_id: &str) -> String {
+    view_id
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut word = first.to_ascii_uppercase().to_string();
+                    word.push_str(chars.as_str());
+                    word
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl<S, E> AppService<S>
@@ -341,45 +374,28 @@ where
     where
         <S as RoomStore>::RoomBinding: RoomBindingKindView + RoomMailboxView,
     {
-        if raw_line.trim_start().starts_with('/') {
-            if let Some(events) = self.handle_memory_raw_line(identity, raw_line).await? {
-                return Ok(Some(events));
-            }
-            if RoomBindingKindView::is_commercial_parcel(binding)
-                && let Some(events) = self
-                    .handle_commercial_parcel_input(identity, binding, raw_line)
-                    .await?
-            {
-                return Ok(Some(events));
-            }
-            if RoomBindingKindView::is_service_room(binding)
-                && self.room_binding_accepts_input(binding, raw_line)
-            {
-                let result = self
-                    .forward_room_mailbox_input(
-                        binding,
-                        &identity.user,
-                        &identity.player_id,
-                        raw_line,
-                    )
-                    .await?;
-                return Ok(Some(vec![UiEvent::Text(result.text)]));
-            }
-            Ok(None)
-        } else {
-            if RoomBindingKindView::is_service_room(binding) {
-                let result = self
-                    .forward_room_mailbox_input(
-                        binding,
-                        &identity.user,
-                        &identity.player_id,
-                        raw_line,
-                    )
-                    .await?;
-                return Ok(Some(vec![UiEvent::Text(result.text)]));
-            }
-            Ok(None)
+        if !raw_line.trim_start().starts_with('/') {
+            return Ok(None);
         }
+        if let Some(events) = self.handle_memory_raw_line(identity, raw_line).await? {
+            return Ok(Some(events));
+        }
+        if RoomBindingKindView::is_commercial_parcel(binding)
+            && let Some(events) = self
+                .handle_commercial_parcel_input(identity, binding, raw_line)
+                .await?
+        {
+            return Ok(Some(events));
+        }
+        if RoomBindingKindView::is_service_room(binding)
+            && self.room_binding_accepts_input(binding, raw_line)
+        {
+            let result = self
+                .forward_room_mailbox_input(binding, &identity.user, &identity.player_id, raw_line)
+                .await?;
+            return Ok(Some(vec![UiEvent::Text(result.text)]));
+        }
+        Ok(None)
     }
 }
 

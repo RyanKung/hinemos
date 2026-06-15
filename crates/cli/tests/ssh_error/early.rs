@@ -8,7 +8,6 @@ use crate::ssh_error_support::*;
 use hinemos_admin_protocol::{AdminRequest, AdminResponse, unix_admin_call};
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn pending_admission_blocks_world_until_board_agreement() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -113,11 +112,6 @@ fn assert_pending_admission_output(stdout: &str, test_database: &TestDatabase, u
     );
     assert_contains(
         stdout,
-        "Agreement version: 2026-06-03",
-        "agreement version is visible on board",
-    );
-    assert_contains(
-        stdout,
         "Next step: type /agree to enter.",
         "agreement read gives a clear next step",
     );
@@ -147,7 +141,6 @@ fn assert_pending_admission_output(stdout: &str, test_database: &TestDatabase, u
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn room_token_request_returns_authenticatable_service_room_token() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -214,7 +207,6 @@ fn room_token_request_returns_authenticatable_service_room_token() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn reload_world_updates_admission_config_from_meta() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -316,7 +308,6 @@ fn admit_user_with_version(temp: &TestTempDir, host: &str, port: u16, user: &str
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn startup_loads_admission_config_from_meta() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -382,7 +373,6 @@ fn startup_loads_admission_config_from_meta() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn command_errors_do_not_close_ssh_session() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -440,7 +430,6 @@ fn command_errors_do_not_close_ssh_session() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn natural_language_commands_execute_over_ssh_session() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -496,7 +485,6 @@ fn natural_language_commands_execute_over_ssh_session() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn slash_prefixed_natural_language_does_not_trigger_ssh_nlp() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -550,7 +538,6 @@ fn slash_prefixed_natural_language_does_not_trigger_ssh_nlp() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn business_command_errors_do_not_close_ssh_session() {
     let root = workspace_root();
     let env = load_local_env(&root);

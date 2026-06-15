@@ -485,7 +485,7 @@ impl PgStorage {
         .bind(item.payload)
         .fetch_one(&self.pool)
         .await?;
-        if row.kind == "mail" {
+        if inbox_item_triggers_notify(&row.kind) {
             sqlx::query("select pg_notify('hinemos_inbox_mail', $1)")
                 .bind(row.id.to_string())
                 .execute(&self.pool)
@@ -710,6 +710,10 @@ impl PgStorage {
         .ok_or(StorageError::InboxItemNotFound(item_id))?;
         Ok(item)
     }
+}
+
+fn inbox_item_triggers_notify(kind: &str) -> bool {
+    matches!(kind, "mail" | "shop_command")
 }
 
 fn mail_inbox_source_none(recipient_user: &str) -> MailInboxSource {

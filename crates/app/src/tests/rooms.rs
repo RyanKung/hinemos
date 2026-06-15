@@ -32,7 +32,13 @@ fn service_room_observation_exposes_local_and_registered_commands() {
     assert_eq!(observation.exits.len(), 1);
     assert_eq!(observation.exits[0].direction, Direction::South);
     assert!(observation.exits[0].target_known);
-    assert_eq!(observation.exits[0].label.as_deref(), Some("ER1"));
+    assert_eq!(observation.exits[0].label.as_deref(), Some("Harbor Square"));
+    assert!(
+        observation
+            .ascii_art
+            .iter()
+            .any(|line| line.contains("south to Harbor Square"))
+    );
     assert!(
         observation
             .available_commands

@@ -5,7 +5,6 @@ use std::path::Path;
 use common::*;
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -26,12 +25,39 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
 
     assert_owner_shop_setup(host, port, &owner, &owner_key);
     assert_customer_shop_visit(host, port, &customer, &customer_key);
+    assert_shop_mailbox_converged(&test_database);
     let request_id = request_shop_payment(host, port, &owner, &owner_key);
     assert_customer_paid_request(host, port, &customer, &customer_key, request_id);
     assert_owner_received_payment(host, port, &owner, &owner_key);
 
     terminate(&mut server);
     temp.remove_on_drop();
+}
+
+fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
+    let shop_command_count = test_database.query_value(
+        "select count(*) from inbox_items where recipient_user = 'room-N1' and kind = 'shop_command' and source_kind = 'operator_command' and body = '/hello'",
+    );
+    assert_eq!(
+        shop_command_count, "1",
+        "visitor shop command should be stored once as the shop actionable item"
+    );
+
+    let duplicate_mail_count = test_database.query_value(
+        "select count(*) from inbox_items where recipient_user = 'room-N1' and kind = 'mail' and body = '/hello'",
+    );
+    assert_eq!(
+        duplicate_mail_count, "0",
+        "visitor shop command should not also be stored as generic mail"
+    );
+
+    let world_mail_count = test_database.query_value(
+        "select count(*) from world_messages where target_user = 'room-N1' and kind = 'mail' and body = '/hello'",
+    );
+    assert_eq!(
+        world_mail_count, "0",
+        "visitor shop command should not create an extra generic mail history row"
+    );
 }
 
 fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path) {
@@ -155,8 +181,8 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
     assert_contains(
         &customer_visit,
-        "queued",
-        "offline owner command was queued",
+        "Status: delivered.",
+        "offline owner command was delivered to the shop inbox",
     );
     assert_contains(
         &customer_visit,

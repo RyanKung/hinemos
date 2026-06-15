@@ -288,7 +288,7 @@ fn service_room_binding_respects_front_entity_before_overlay() {
 }
 
 #[test]
-fn service_room_binding_overlays_status_and_commands() {
+fn service_room_binding_overlays_status_without_duplicating_commands() {
     let mut observation = JsonObservation {
         player_id: "player".to_owned(),
         view_id: "external_room".to_owned(),
@@ -298,7 +298,10 @@ fn service_room_binding_overlays_status_and_commands() {
         exits: Vec::new(),
         entities: Vec::new(),
         online_users: Vec::new(),
-        available_commands: Vec::new(),
+        available_commands: vec![hinemos_core::SemanticCommand::Extension {
+            name: "room".to_owned(),
+            input: "/room ask <question>".to_owned(),
+        }],
         events: Vec::new(),
     };
     let binding = StoredRoomBinding {
@@ -331,9 +334,18 @@ fn service_room_binding_overlays_status_and_commands() {
     overlay_service_room(&mut observation, &binding);
 
     assert!(observation.description.contains("Status line"));
-    assert!(observation.available_commands.iter().any(
-        |command| matches!(command, hinemos_core::SemanticCommand::Extension { input, .. } if input == "/room ask <question>")
-    ));
+    let command_count = observation
+        .available_commands
+        .iter()
+        .filter(|command| {
+            matches!(
+                command,
+                hinemos_core::SemanticCommand::Extension { input, .. }
+                    if input == "/room ask <question>"
+            )
+        })
+        .count();
+    assert_eq!(command_count, 1);
 }
 
 #[test]

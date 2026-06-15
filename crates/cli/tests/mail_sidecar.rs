@@ -15,7 +15,6 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, SignatureScheme, StreamOwned};
 
 #[tokio::test]
-#[ignore = "requires local Postgres"]
 async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -103,7 +102,6 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
 }
 
 #[tokio::test]
-#[ignore = "requires local Postgres"]
 async fn room_service_smtp_reply_is_threaded_as_room_reply() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -161,7 +159,6 @@ async fn room_service_smtp_reply_is_threaded_as_room_reply() {
 }
 
 #[tokio::test]
-#[ignore = "requires Docker and network access to pull Stalwart"]
 async fn agent_imap_idle_listener_handles_ten_messages_from_outside_docker() {
     install_test_rustls_provider();
     assert_docker_available();
@@ -334,14 +331,23 @@ fn run_checked(output: std::process::Output, description: &str) {
 }
 
 fn read_stalwart_admin_password(container: &str) -> String {
-    let logs = docker_logs(container);
-    logs.lines()
-        .rev()
-        .filter_map(|line| line.split_once("password '"))
-        .filter_map(|(_, rest)| rest.split_once('\''))
-        .map(|(password, _)| password.to_owned())
-        .next()
-        .unwrap_or_else(|| panic!("Stalwart admin password not found in logs:\n{logs}"))
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut logs = String::new();
+    while Instant::now() < deadline {
+        logs = docker_logs(container);
+        if let Some(password) = logs
+            .lines()
+            .rev()
+            .filter_map(|line| line.split_once("password '"))
+            .filter_map(|(_, rest)| rest.split_once('\''))
+            .map(|(password, _)| password.to_owned())
+            .next()
+        {
+            return password;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    panic!("Stalwart admin password not found in logs:\n{logs}")
 }
 
 fn docker_logs(container: &str) -> String {

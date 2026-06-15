@@ -641,9 +641,13 @@ where
             500,
         )
         .await?;
-    items.retain(|item| item.kind() == "mail");
+    items.retain(|item| imap_visible_inbox_kind(item.kind()));
     items.sort_by_key(|item| item.id());
     Ok(items)
+}
+
+fn imap_visible_inbox_kind(kind: &str) -> bool {
+    matches!(kind, "mail" | "shop_command")
 }
 
 fn imap_search_ids<I: InboxItemView>(items: &[I], query: &str) -> Vec<String> {
@@ -829,5 +833,17 @@ fn parse_imap_index(input: &str, len: usize) -> Option<usize> {
         Some(len)
     } else {
         input.parse::<usize>().ok()
+    }
+}
+
+#[cfg(test)]
+mod mail_tests {
+    use super::imap_visible_inbox_kind;
+
+    #[test]
+    fn imap_exposes_mail_and_shop_commands_but_not_player_action_items() {
+        assert!(imap_visible_inbox_kind("mail"));
+        assert!(imap_visible_inbox_kind("shop_command"));
+        assert!(!imap_visible_inbox_kind("payment_request"));
     }
 }

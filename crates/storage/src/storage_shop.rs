@@ -155,15 +155,6 @@ impl PgStorage {
             }),
         })
         .await?;
-        self.save_mail_message_to_principal(
-            sender_user,
-            sender_player_id,
-            parties.room_user,
-            parties.room_player_id,
-            &subject,
-            raw_input,
-        )
-        .await?;
         Ok(())
     }
 

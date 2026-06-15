@@ -7,10 +7,7 @@ mod render_map;
 mod render_tests;
 
 use anyhow::Result;
-use hinemos_core::{
-    JsonObservation, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, SemanticCommand,
-    extension_commands,
-};
+use hinemos_core::{JsonObservation, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, SemanticCommand};
 use hinemos_runtime::{Chrome, render_text_events, render_text_observation_with_width};
 use hinemos_storage::{StoredInboxItem, StoredRoomBinding};
 use russh::ChannelId;
@@ -219,9 +216,6 @@ pub(crate) fn overlay_service_room(observation: &mut JsonObservation, room: &imp
     if let Some(status) = room.status_text().filter(|status| !status.is_empty()) {
         observation.description = format!("{}\n{status}", observation.description);
     }
-    observation
-        .available_commands
-        .extend(extension_commands(room.custom_commands()));
 }
 
 pub(crate) fn overlay_room_binding_entries(

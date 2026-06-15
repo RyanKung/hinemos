@@ -65,7 +65,7 @@ impl BlackstoneIzakaya {
 
     pub fn status_text(&self) -> String {
         let mut lines = vec![
-            "Room service is external. Commands and chat are sent to the room service.".to_owned(),
+            "Room service is external. Registered local commands and /say chat are sent to the room service.".to_owned(),
         ];
         for user in self.drinks.keys() {
             if self.has_drink(user) {

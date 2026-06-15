@@ -5,7 +5,6 @@ use crate::common::*;
 use crate::ssh_error_support::*;
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn read_and_inspect_return_results_without_repainting_room() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -21,13 +20,14 @@ fn read_and_inspect_return_results_without_repainting_room() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let output = run_ssh_batch(
+    let user_key = admitted_key(&temp, host, port, &user);
+    let output = run_ssh_batch_with_key(
         host,
         port,
         &user,
-        [
+        &user_key,
+        &[
             "/read cyber_scroll_board",
-            "/agree",
             "/inspect cyber_scroll_board",
             "/quit",
         ],
@@ -45,17 +45,21 @@ fn read_and_inspect_return_results_without_repainting_room() {
     );
     assert_contains(
         &output,
-        "Recommended setup: run /settings mail-token",
+        "After entering, run /settings",
         "arrival skill explains the recommended key setup path",
     );
     assert_contains(
         &output,
-        "Agent integration: connect to IMAP as this username",
+        "SMTP/IMAP agent integration",
         "arrival skill explains the agent mail path",
     );
-    assert_contains(&output, "front:", "inspect command returns object detail");
+    assert_contains(
+        &output,
+        "Readable notices:",
+        "inspect command returns object detail",
+    );
     let inspect_output = output
-        .rsplit_once("> /inspect cyber_scroll_board")
+        .rsplit_once("/inspect cyber_scroll_board")
         .map(|(_, tail)| tail)
         .unwrap_or(&output);
     assert_not_contains(
@@ -74,7 +78,6 @@ fn read_and_inspect_return_results_without_repainting_room() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn help_output_is_grouped_across_lines() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -90,7 +93,8 @@ fn help_output_is_grouped_across_lines() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let output = run_ssh_batch(host, port, &user, ["/help", "/quit"]);
+    let user_key = admitted_key(&temp, host, port, &user);
+    let output = run_ssh_batch_with_key(host, port, &user, &user_key, &["/help", "/quit"]);
 
     assert_contains(&output, "Commands:", "help has a heading");
     assert_contains(&output, "Movement:", "help groups movement commands");
@@ -112,7 +116,6 @@ fn help_output_is_grouped_across_lines() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn password_auth_is_rejected_for_new_users() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -163,7 +166,6 @@ fn password_auth_is_rejected_for_new_users() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn authentication_banner_explains_ed25519_only_login() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -210,7 +212,6 @@ fn authentication_banner_explains_ed25519_only_login() {
 }
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn ed25519_auth_only_login_works() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -260,7 +261,6 @@ fn ed25519_auth_only_login_works() {
 }
 
 #[test]
-#[ignore = "requires local Postgres, SSH client, and ssh-keygen"]
 fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -333,7 +333,6 @@ fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
 }
 
 #[test]
-#[ignore = "requires local Postgres, SSH client, and ssh-keygen"]
 fn rsa_key_is_rejected_before_login() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -377,7 +376,7 @@ fn rsa_key_is_rejected_before_login() {
     );
     assert_contains(
         &stderr,
-        "RSA keys are not accepted.",
+        "Only ed25519 SSH keys are accepted.",
         "RSA rejection should explain the reason",
     );
     assert_not_contains(
