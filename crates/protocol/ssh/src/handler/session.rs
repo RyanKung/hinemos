@@ -5,6 +5,17 @@ use super::*;
 impl server::Handler for ConnectionHandler {
     type Error = anyhow::Error;
 
+    async fn authentication_banner(&mut self) -> Result<Option<String>, Self::Error> {
+        Ok(Some(
+            r#"Welcome to hinemos.ai.
+Hinemos is a persistent SSH world for humans and agents.
+Only ed25519 SSH keys are accepted.
+If you need a key, run: ssh-keygen -t ed25519 -C "<user>@hinemos"
+"#
+            .to_owned(),
+        ))
+    }
+
     async fn auth_publickey_offered(
         &mut self,
         user: &str,
@@ -29,14 +40,26 @@ impl server::Handler for ConnectionHandler {
         user: &str,
         public_key: &ssh_key::PublicKey,
     ) -> Result<Auth, Self::Error> {
+        if !public_key.algorithm().is_ed25519() {
+            return Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        }
         let mut authorized = self.shared.auth_policy.authorize(user, public_key);
-        let identity = self
+        let Some(identity) = self
             .shared
             .storage
             .authenticate_ssh_identity(user, &authorized.fingerprint, &authorized.player_id)
-            .await?;
+            .await?
+        else {
+            return Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        };
         if !identity.created {
-            authorized.onboarding = AuthOnboarding::None;
+            authorized.mark_existing_ssh_identity();
         }
         authorized.user = identity.username;
         authorized.player_id = identity.player_id;
@@ -60,40 +83,11 @@ impl server::Handler for ConnectionHandler {
     }
 
     async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
-        let Some(stored_identity) = self
-            .shared
-            .storage
-            .authenticate_password_identity(user, password)
-            .await?
-        else {
-            return Ok(Auth::Reject {
-                proceed_with_methods: None,
-                partial_success: false,
-            });
-        };
-
-        let identity = AuthIdentity::password(
-            stored_identity.username,
-            stored_identity.player_id,
-            stored_identity.created,
-        );
-        self.finish_authentication(identity).await?;
-        let presence = self.shared.presence.lock().await;
-        eprintln!(
-            "accepted SSH password auth for user={user} player_id={} peer={:?} online_for_player={} online_users={:?}",
-            self.identity
-                .as_ref()
-                .map(|identity| identity.player_id.as_str())
-                .unwrap_or("unknown"),
-            self.peer_addr,
-            self.identity
-                .as_ref()
-                .map(|identity| presence.online_count_for_player(&identity.player_id))
-                .unwrap_or(0),
-            presence.users()
-        );
-        drop(presence);
-        Ok(Auth::Accept)
+        let _ = (user, password);
+        Ok(Auth::Reject {
+            proceed_with_methods: None,
+            partial_success: false,
+        })
     }
 
     async fn channel_open_session(
@@ -109,13 +103,14 @@ impl server::Handler for ConnectionHandler {
         &mut self,
         channel: ChannelId,
         _term: &str,
-        _col_width: u32,
+        col_width: u32,
         _row_height: u32,
         _pix_width: u32,
         _pix_height: u32,
         _modes: &[(russh::Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        self.terminal_cols = Some(col_width as usize);
         session.channel_success(channel)?;
         Ok(())
     }

@@ -14,6 +14,7 @@ fi
 
 repo="${1:-/opt/hinemos}"
 binary="$repo/.host-build/hinemos"
+db_script="$repo/scripts/install-host-database.sh"
 service_file="/etc/systemd/system/hinemos.service"
 env_dir="/etc/hinemos"
 env_file="$env_dir/hinemos.env"
@@ -37,17 +38,17 @@ install -d -o hinemos -g hinemos -m 0750 /var/lib/hinemos
 install -m 0755 "$binary" /usr/local/bin/hinemos
 
 if [[ ! -f "$env_file" ]]; then
-  cat >"$env_file" <<'ENV'
-DATABASE_URL=postgres://hinemos:change-me@127.0.0.1:5432/hinemos
-HINEMOS_BIND=0.0.0.0:2222
+  if [[ ! -f "$db_script" ]]; then
+    echo "missing database setup script: $db_script" >&2
+    exit 1
+  fi
+  bash "$db_script" "$env_file"
+  cat >>"$env_file" <<'ENV'
+HINEMOS_BIND=127.0.0.1:2022
 HINEMOS_WORLD=/opt/hinemos/worlds/sample
 HINEMOS_HOST_KEY=/var/lib/hinemos/ssh_host_ed25519_key
 HINEMOS_ADMIN_SOCKET=/run/hinemos/admin.sock
 HINEMOS_MAIL_DOMAIN=hinemos.local
-BLACKSTONE_LLM_ENABLED=0
-BLACKSTONE_LLM_BASE_URL=
-BLACKSTONE_LLM_AUTH_TOKEN=
-BLACKSTONE_LLM_MODEL=
 ENV
   chmod 0600 "$env_file"
   chown root:root "$env_file"
@@ -74,6 +75,8 @@ ExecStart=/usr/local/bin/hinemos serve ssh --bind ${HINEMOS_BIND} --world ${HINE
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 PrivateTmp=true
 
 [Install]

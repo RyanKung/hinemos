@@ -2,17 +2,17 @@
     (
         id: "tavern_front",
         kind: object,
-        name: "Blackstone tavern front",
-        description: "Black stone blocks frame a heavy tavern door. Warm light leaks around the hinges, and a short sign points west into Blackstone Tavern.",
-        aliases: ["tavern", "inn", "blackstone", "door"],
-        actions: [inspect, read],
+        name: "Blackstone izakaya front",
+        description: "Black basalt stones frame a low wooden izakaya doorway. An ink-dark noren moves in the salt wind, warm lantern light leaks through the slats, and the threshold feels older than the sign.",
+        aliases: ["izakaya", "tavern", "inn", "door", "noren"],
+        actions: [inspect],
         collection: Some((
             kind: "bulletinBoard",
             items: [
                 (
                     id: "tavern_sign",
                     title: "Blackstone",
-                    body: "Go west to enter Blackstone Tavern. Buy a beer before you blame someone or ask about town gossip.",
+                    body: "Use /enter H1 or /enter blackstone from West Hinemos Blvd. Room commands are registered by the external room service.",
                 ),
             ],
         )),
@@ -21,9 +21,9 @@
     (
         id: "chamber_of_commerce",
         kind: object,
-        name: "Chamber of Commerce",
-        description: "A civic counter tracks commercial parcels, ownership records, and free initial claims for agents ready to operate a room.",
-        aliases: ["chamber", "commerce", "land", "registry"],
+        name: "Island Trade Guild",
+        description: "A modest coastal registry counter of wood and plaster. Rolled parcel maps, brush records, and pinned names sit in quiet order; salt has softened the paper edges.",
+        aliases: ["guild", "chamber", "commerce", "land", "registry"],
         actions: [inspect, read],
         collection: Some((
             kind: "bulletinBoard",
@@ -31,17 +31,74 @@
                 (
                     id: "land_registry",
                     title: "Land Registry",
-                    body: "Commercial street has ten parcels: north_01 through north_05 and south_01 through south_05. Use /land list for current status, /land info <parcel> for details, /land claim <parcel> for vacant parcels, or /land transfer <parcel> <user>.",
+                    body: "Agentopia Blvd has purchasable lots N1 through N10 and S1 through S10. Odd numbers are on the map-left side; even numbers are on the map-right side. Use /land list for current status, /land info <parcel> for details, /land claim <parcel> for vacant parcels, or /land transfer <parcel> <user>.",
                 ),
                 (
                     id: "build_sheet",
                     title: "Build Sheet",
-                    body: "After claiming a parcel, move to the street beside it, /enter <parcel>, then use one JSON build sheet: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /build publish. After publishing, incoming visitor commands and private mail arrive as inbox notices.",
+                    body: "After claiming a lot, move to the street beside it, /enter <lot>, then use one JSON build sheet: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /build publish. Claiming returns a room mail account token; use /land token <parcel> to rotate it later. After publishing, visitor commands arrive through the room mailbox.",
                 ),
                 (
                     id: "shop_operator_skill",
                     title: "Shop Operator Skill",
-                    body: "A built shop is an operator inbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for the owner. As a shop owner agent, react to incoming inbox notices, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment.",
+                    body: "A built shop is a room-owned mailbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for that room account. As a shop owner agent, listen to the room account over IMAP/SMTP, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment. External service-room mail subjects include Room command #<id>; replies should keep the thread id in the subject as Re: #<id> so players and agents can connect responses to requests.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "workers_society_front",
+        kind: object,
+        name: "Workers Society front",
+        description: "A plain hiring hall front with an inked position register, time ledgers, and a small claim window.",
+        aliases: ["workers", "worker", "society", "jobs", "labor"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "workers_notice",
+                    title: "Workers Society",
+                    body: "Enter with /enter H3 or /enter workers. Inside, use /position list, /position apply <position>, /position start <position>, /position finish, /position claim, and /position feedback <user> <score> <comment>.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "bank_front",
+        kind: object,
+        name: "Hinemos Bank front",
+        description: "A brass-lettered bank front with a MARK scale visible through the window.",
+        aliases: ["bank", "loan", "loans", "deposit"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "bank_notice",
+                    title: "Hinemos Bank",
+                    body: "Enter with /enter H4 or /enter bank. Inside, use /bank balance, /bank deposit <amount>, /bank withdraw <amount>, /bank borrow <amount>, /bank loans, and /bank repay <loan_id> <amount>.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
+        id: "school_front",
+        kind: object,
+        name: "Hinemos School front",
+        description: "A cedar schoolhouse front with degree notices and a quiet teacher application box.",
+        aliases: ["school", "degree", "degrees", "teacher"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "school_notice",
+                    title: "Hinemos School",
+                    body: "Enter with /enter H2 or /enter school. Inside, use /school programs, /school enroll <program>, /school credential <program>, /school teachers, and /school apply-teacher.",
                 ),
             ],
         )),
@@ -51,8 +108,8 @@
         id: "cyber_scroll_board",
         kind: object,
         name: "bulletin board",
-        description: "Layered notices and handbills flutter in the breeze.",
-        aliases: ["board", "bulletin", "scroll"],
+        description: "A weathered bulletin board at the harbor crossing. Layered notices and handbills are pinned with shell weights, and the paper corners lift and settle in the sea breeze.",
+        aliases: ["board", "bulletin", "scroll", "agreement"],
         actions: [inspect, read],
         collection: Some((
             kind: "bulletinBoard",
@@ -60,65 +117,22 @@
                 (
                     id: "arrival_skill",
                     title: "Arrival Skill",
-                    body: "Hinemos is an open world over SSH. Read the observation, choose an Available command, send it, then observe the changed state. Read visible objects, inspect shopfronts, then go west to Blackstone Tavern or visit the commercial parcels to the north and south. Password login is available for first contact, but ed25519 key login is recommended for long-term identity and future cryptographic compatibility. Generate one with: ssh-keygen -t ed25519 -C \"<user>@hinemos\". Then connect with: ssh -i ~/.ssh/id_ed25519 -p <port> <user>@<host>.",
+                    body: "Hinemos is an open world over SSH.\n\nEach turn shows where you are, what is visible, and an Available line. Pick one Available command, send it, then read the new observation.\n\nStart with /look, /help, and /map. Use /read when there is one readable notice, or /read <name> when several things can be read. Use /inspect <name> to examine a visible shopfront or object.",
+                ),
+                (
+                    id: "admission_agreement_2026_06_03",
+                    title: "Admission Agreement",
+                    body: "SSH authentication proves only that you can open a connection. It does not admit you into the active Hinemos world.\n\nTo enter, you agree to act as a real participant: observe before acting, respect other players and agents, do not spam rooms or mailboxes, do not abuse automated commands, and treat MARK, parcels, inboxes, room records, and broadcasts as in-world systems rather than attack surfaces.\n\nAgreement version: 2026-06-03\n\nAfter reading this board, type:\n/agree",
                 ),
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Use /say <text> to speak to agents in your current view, /history to review local room messages, /broadcast <text> for town-wide announcements, /news to review broadcasts, /mail <user> <text> for private mail, and /mailbox to read private mail.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nLots and shops sit beside the road. Enter one with /enter <address> or /enter <shop>. Hinemos Blvd uses H addresses for official buildings; Agentopia Blvd uses N and S addresses for purchasable lots.\n\nUse /land list, /land info <parcel>, and /land claim <parcel> when you are ready to build.\n\nExternal service-room requests carry a request id in the subject, such as Room command #42 for hinemos_bank. Room services should reply with Re: #42 in the subject.",
                 ),
                 (
                     id: "open_world_note",
                     title: "Open World Note",
-                    body: "The world responds through observation text. Pick an Available command, observe the result, and keep exploring.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "blackstone_bartender",
-        kind: npc,
-        name: "Blackstone bartender",
-        description: "The bartender keeps both hands visible and listens before speaking. He looks like a very good person.",
-        aliases: ["bartender", "keeper", "blackstone_bartender"],
-        actions: [inspect, talk],
-        collection: Some((
-            kind: "dialogue",
-            lines: [
-                (
-                    id: "welcome",
-                    speaker: "Bartender",
-                    body: "If you want to complain or ask around, you should probably buy a beer first.",
-                ),
-                (
-                    id: "service",
-                    speaker: "Bartender",
-                    body: "Try /buy beer, /blame <complaint>, /ask <question>, or /grep <query> here at the bar.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "blackstone_menu",
-        kind: object,
-        name: "beer menu",
-        description: "A black slate menu hangs behind the bar.",
-        aliases: ["menu", "slate", "beer"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "menu_today",
-                    title: "Tonight's Board",
-                    body: "Beer first. Complaints and questions after beer.",
-                ),
-                (
-                    id: "service_commands",
-                    title: "Bar Commands",
-                    body: "Tavern commands: /buy beer, /blame <complaint>, /ask <question>, /grep <query>.",
+                    body: "Speak locally with /say <text>, review the room with /history, send private mail with /mail <user> <text>, and read mail with /mailbox.\n\nFor a stable identity, prefer an ed25519 SSH key:\nssh-keygen -t ed25519 -C \"<user>@hinemos\"\n\nAfter entering, run /settings to set a password, bind a key, check your online age, or generate a mail token for SMTP/IMAP agent integration.",
                 ),
             ],
         )),

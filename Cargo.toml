@@ -1,11 +1,12 @@
 [workspace]
 members = [
     "crates/admin-protocol",
+    "crates/app",
     "crates/cli",
     "crates/core",
     "crates/runtime",
     "crates/storage",
-    "crates/blackstone",
+    "crates/protocol/http",
     "crates/protocol/ssh",
 ]
 resolver = "3"

@@ -1,12 +1,23 @@
 //! Client-facing prompts and slash parsing — **not** world/map prose.
 
+#[cfg(test)]
+#[path = "client_shell_tests.rs"]
+mod client_shell_tests;
+
+#[path = "client_shell_natural.rs"]
+mod client_shell_natural;
+#[path = "client_shell_text.rs"]
+mod client_shell_text;
+
 use std::collections::HashMap;
 
-use hinemos_core::{
-    BuildAction, BuildSheet, Direction, EntityRef, InboxAction, JsonObservation, LandAction,
-    ObservationEvent, PayAction, SemanticCommand, SettingsAction, ShopAction, WorldState,
-};
+use hinemos_core::{Direction, EntityRef, JsonObservation, SemanticCommand, WorldState};
 use thiserror::Error;
+
+use client_shell_natural::*;
+pub use client_shell_text::{
+    render_text_events, render_text_observation, render_text_observation_with_width,
+};
 
 /// Engine chrome plus [`WorldState::entity_alias_map`] for slash targets.
 #[derive(Debug, Clone)]
@@ -21,6 +32,18 @@ impl Chrome {
 
     /// ANSI style for the local player marker.
     pub const ANSI_PLAYER_MARKER: &'static str = "\x1b[1;36m";
+
+    /// ANSI style for rendered room titles and important headings.
+    pub const ANSI_TITLE: &'static str = "\x1b[1;36m";
+
+    /// ANSI style for informational event lines.
+    pub const ANSI_EVENT_MESSAGE: &'static str = "\x1b[2m";
+
+    /// ANSI style for movement event lines.
+    pub const ANSI_EVENT_MOVE: &'static str = "\x1b[1;32m";
+
+    /// ANSI style for the available command summary.
+    pub const ANSI_AVAILABLE: &'static str = "\x1b[1;35m";
 
     /// ANSI style for room/place markers in ASCII maps (`[...]`).
     pub const ANSI_PLACE_MARKER: &'static str = "\x1b[1;33m";
@@ -49,14 +72,16 @@ impl Chrome {
 
     /// Summary shown after the `/help` command.
     pub const HELP_SUMMARY: &'static str = "Commands:\n\
+        Admission: first read /read agreement, then type /agree\n\
         Movement: /look, /map, /go <dir>, /enter <parcel>, /inventory, /quit\n\
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
-        Settings: /settings, /settings mail-token, /settings password <new-password>, /settings key <openssh-public-key>\n\
+        Memory: /memory, /memory self, /memory commitments, /memory recall <person>, /memory search <query>\n\
+        Settings: /settings, /settings mail-token\n\
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
-        Land: /land list, /land info <parcel>, /land claim <parcel>, /land transfer <parcel> <user>\n\
+        Land: /land list, /land info <parcel>, /land claim <parcel>, /land token <parcel>, /land transfer <parcel> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
         Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>\n\
         Local extensions appear in Available inside their view.";
@@ -71,7 +96,7 @@ impl Chrome {
     pub const FEEDBACK_TALK: &'static str = "You exchange a few words.";
 
     /// Feedback line when ending the session.
-    pub const FEEDBACK_QUIT: &'static str = "Goodbye.";
+    pub const FEEDBACK_QUIT: &'static str = hinemos_core::FEEDBACK_QUIT;
 
     /// Feedback line after picking up an item.
     pub const FEEDBACK_TAKE: &'static str = "Taken.";
@@ -110,6 +135,31 @@ impl Chrome {
 
     /// Parses slash-prefixed player input into a semantic command.
     pub fn parse_command(&self, input: &str) -> Result<SemanticCommand, SlashParseError> {
+        self.parse_command_with_observation(input, None)
+    }
+
+    /// Parses player input into a semantic command.
+    ///
+    /// Slash-prefixed input keeps the existing exact command behavior. Non-slash
+    /// input uses a local rule-based natural language mapper constrained by the
+    /// current observation.
+    pub fn parse_player_input_with_observation(
+        &self,
+        input: &str,
+        observation: Option<&JsonObservation>,
+    ) -> Result<SemanticCommand, SlashParseError> {
+        if input.trim_start().starts_with('/') {
+            return self.parse_command_with_observation(input, observation);
+        }
+        self.parse_natural_command(input, observation)
+    }
+
+    /// Parses slash-prefixed player input using the current observation as context.
+    pub fn parse_command_with_observation(
+        &self,
+        input: &str,
+        observation: Option<&JsonObservation>,
+    ) -> Result<SemanticCommand, SlashParseError> {
         let trimmed = input.trim();
         if trimmed.is_empty() {
             return Err(SlashParseError::UnknownCommand);
@@ -122,17 +172,10 @@ impl Chrome {
             .next()
             .ok_or(SlashParseError::UnknownCommand)?
             .to_ascii_lowercase();
+        if let Some(command) = parse_simple_command(cmd.as_str()) {
+            return Ok(command);
+        }
         match cmd.as_str() {
-            "look" | "l" => Ok(SemanticCommand::Look),
-            "map" | "m" => Ok(SemanticCommand::Map),
-            "inventory" | "inv" | "i" => Ok(SemanticCommand::Inventory),
-            "help" | "h" => Ok(SemanticCommand::Help),
-            "quit" | "exit" | "q" => Ok(SemanticCommand::Quit),
-            "mailbox" | "inbox" => Ok(SemanticCommand::Mailbox),
-            "history" => Ok(SemanticCommand::History),
-            "who" => Ok(SemanticCommand::Who),
-            "news" => Ok(SemanticCommand::News),
-            "balance" | "bal" => Ok(SemanticCommand::Balance),
             "go" | "move" => {
                 let direction_token = tokens.next().ok_or(SlashParseError::MissingArgument)?;
                 let direction =
@@ -151,10 +194,19 @@ impl Chrome {
                 })
             }
             "read" => {
-                let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+                let target = match tokens.next() {
+                    Some(target) => self.resolve_entity_target(target),
+                    None => self
+                        .resolve_unique_read_target(observation)
+                        .ok_or(SlashParseError::MissingArgument)?,
+                };
                 Ok(SemanticCommand::Read {
-                    target: EntityRef::new(self.resolve_entity_target(target)),
+                    target: EntityRef::new(target),
                 })
+            }
+            "agree" => {
+                let phrase = rest_after_command(trimmed, rest, cmd.as_str()).unwrap_or_default();
+                Ok(SemanticCommand::Agree { phrase })
             }
             "take" | "get" | "pick" => {
                 let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
@@ -211,240 +263,305 @@ impl Chrome {
             .cloned()
             .unwrap_or_else(|| token.to_owned())
     }
-}
 
-fn parse_inbox_action<'a>(
-    first: &str,
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<Option<InboxAction>, SlashParseError> {
-    let action = match first.to_ascii_lowercase().as_str() {
-        "list" | "ls" => InboxAction::List {
-            filter: parse_inbox_filter(tokens.next().unwrap_or("open"))?.to_owned(),
-        },
-        "read" => InboxAction::Read {
-            item_id: parse_inbox_id(tokens.next())?,
-        },
-        "claim" => InboxAction::Claim {
-            item_id: parse_inbox_id(tokens.next())?,
-        },
-        "ack" | "done" => InboxAction::Ack {
-            item_id: parse_inbox_id(tokens.next())?,
-        },
-        "archive" => InboxAction::Archive {
-            item_id: parse_inbox_id(tokens.next())?,
-        },
-        _ => return Ok(None),
-    };
-    Ok(Some(action))
-}
-
-fn parse_inbox_id(value: Option<&str>) -> Result<i64, SlashParseError> {
-    value
-        .ok_or(SlashParseError::MissingArgument)?
-        .parse::<i64>()
-        .map_err(|_| SlashParseError::InvalidAmount)
-}
-
-fn parse_inbox_filter(value: &str) -> Result<&str, SlashParseError> {
-    match value {
-        "open" | "unread" | "claimed" | "done" | "all" => Ok(value),
-        _ => Err(SlashParseError::InvalidInboxFilter),
+    fn resolve_unique_read_target(&self, observation: Option<&JsonObservation>) -> Option<String> {
+        let observation = observation?;
+        let mut read_targets =
+            observation
+                .available_commands
+                .iter()
+                .filter_map(|command| match command {
+                    SemanticCommand::Read { target } => Some(target.id.as_str()),
+                    _ => None,
+                });
+        let first = read_targets.next()?;
+        if read_targets.next().is_some() {
+            return None;
+        }
+        Some(first.to_owned())
     }
-}
 
-fn parse_land_command<'a>(
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<SemanticCommand, SlashParseError> {
-    let action = tokens
-        .next()
-        .ok_or(SlashParseError::MissingArgument)?
-        .to_ascii_lowercase();
-    let action = match action.as_str() {
-        "list" => LandAction::List,
-        "info" => LandAction::Info {
-            parcel_id: tokens
-                .next()
-                .ok_or(SlashParseError::MissingArgument)?
-                .to_owned(),
-        },
-        "claim" => LandAction::Claim {
-            parcel_id: tokens
-                .next()
-                .ok_or(SlashParseError::MissingArgument)?
-                .to_owned(),
-        },
-        "transfer" => LandAction::Transfer {
-            parcel_id: tokens
-                .next()
-                .ok_or(SlashParseError::MissingArgument)?
-                .to_owned(),
-            target: tokens
-                .next()
-                .ok_or(SlashParseError::MissingArgument)?
-                .to_owned(),
-        },
-        _ => return Err(SlashParseError::UnknownCommand),
-    };
-    Ok(SemanticCommand::Land { action })
-}
-
-fn parse_pay_action<'a>(
-    trimmed: &str,
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<PayAction, SlashParseError> {
-    let first = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-    match first.to_ascii_lowercase().as_str() {
-        "requests" | "request" => Ok(PayAction::Requests),
-        "accept" | "confirm" => {
-            let request_id = tokens
-                .next()
-                .ok_or(SlashParseError::MissingArgument)?
-                .parse::<i64>()
-                .map_err(|_| SlashParseError::InvalidAmount)?;
-            Ok(PayAction::Accept { request_id })
-        }
-        _ => {
-            let amount_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-            let amount = amount_text
-                .parse::<i64>()
-                .map_err(|_| SlashParseError::InvalidAmount)?;
-            let memo = rest_after_token(trimmed, amount_text).unwrap_or_default();
-            Ok(PayAction::Direct {
-                target: first.to_owned(),
-                amount,
-                memo,
-            })
-        }
-    }
-}
-
-fn parse_settings_command<'a>(
-    trimmed: &str,
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<SemanticCommand, SlashParseError> {
-    let Some(action) = tokens.next() else {
-        return Ok(SemanticCommand::Settings {
-            action: SettingsAction::Show,
-        });
-    };
-    let action = match action.to_ascii_lowercase().as_str() {
-        "mail-token" | "mailtoken" | "token" => {
-            if tokens.next().is_some() {
-                return Err(SlashParseError::UnexpectedArgument);
-            }
-            SettingsAction::MailToken
-        }
-        "password" | "pass" => {
-            let password = rest_after_token(trimmed, action)?;
-            SettingsAction::SetPassword { password }
-        }
-        "key" => {
-            let public_key = rest_after_token(trimmed, action)?;
-            SettingsAction::SetKey { public_key }
-        }
-        _ => {
+    fn parse_natural_command(
+        &self,
+        input: &str,
+        observation: Option<&JsonObservation>,
+    ) -> Result<SemanticCommand, SlashParseError> {
+        let normalized = normalize_natural_input(input);
+        if normalized.is_empty() {
             return Err(SlashParseError::UnknownCommand);
         }
-    };
-    Ok(SemanticCommand::Settings { action })
-}
 
-fn parse_build_command<'a>(
-    trimmed: &str,
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<SemanticCommand, SlashParseError> {
-    let build_input = trimmed
-        .strip_prefix("/build")
-        .ok_or(SlashParseError::MissingArgument)?
-        .trim();
-    if build_input.starts_with('{') {
-        let sheet = serde_json::from_str::<BuildSheet>(build_input)
-            .map_err(|_| SlashParseError::InvalidJson)?;
-        return Ok(SemanticCommand::Build {
-            action: BuildAction::Apply { sheet },
-        });
-    }
-    if let Some(json_input) = build_input.strip_prefix("json ") {
-        let sheet = serde_json::from_str::<BuildSheet>(json_input.trim())
-            .map_err(|_| SlashParseError::InvalidJson)?;
-        return Ok(SemanticCommand::Build {
-            action: BuildAction::Apply { sheet },
-        });
-    }
-
-    let Some(field) = tokens.next() else {
-        return Ok(SemanticCommand::Build {
-            action: BuildAction::Help,
-        });
-    };
-    let field = field.to_ascii_lowercase();
-    if field == "publish" {
-        return Ok(SemanticCommand::Build {
-            action: BuildAction::Publish,
-        });
-    }
-    let value = rest_after_token(trimmed, &field)?;
-    Ok(SemanticCommand::Build {
-        action: BuildAction::Set { field, value },
-    })
-}
-
-fn parse_shop_command<'a>(
-    trimmed: &str,
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<SemanticCommand, SlashParseError> {
-    let action = tokens
-        .next()
-        .ok_or(SlashParseError::MissingArgument)?
-        .to_ascii_lowercase();
-    match action.as_str() {
-        "inbox" | "commands" => Ok(SemanticCommand::Shop {
-            action: ShopAction::Inbox,
-        }),
-        "request-payment" | "request" => {
-            let command_id_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-            let amount_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-            let command_id = command_id_text
-                .parse::<i64>()
-                .map_err(|_| SlashParseError::InvalidAmount)?;
-            let amount = amount_text
-                .parse::<i64>()
-                .map_err(|_| SlashParseError::InvalidAmount)?;
-            let delivery = rest_after_token(trimmed, amount_text)?;
-            Ok(SemanticCommand::Shop {
-                action: ShopAction::RequestPayment {
-                    command_id,
-                    amount,
-                    delivery,
-                },
-            })
+        if let Some(direction) = parse_natural_direction(&normalized) {
+            return Ok(SemanticCommand::Move { direction });
         }
-        _ => Err(SlashParseError::UnknownCommand),
+        if natural_matches_any(&normalized, LOOK_PHRASES) {
+            return Ok(SemanticCommand::Look);
+        }
+        if natural_matches_any(&normalized, MAP_PHRASES) {
+            return Ok(SemanticCommand::Map);
+        }
+        if natural_matches_any(&normalized, INVENTORY_PHRASES) {
+            return Ok(SemanticCommand::Inventory);
+        }
+        if natural_matches_any(&normalized, HELP_PHRASES) {
+            return Ok(SemanticCommand::Help);
+        }
+        if natural_matches_any(&normalized, MAILBOX_PHRASES) {
+            return Ok(SemanticCommand::Mailbox);
+        }
+        if natural_matches_any(&normalized, HISTORY_PHRASES) {
+            return Ok(SemanticCommand::History);
+        }
+        if natural_matches_any(&normalized, WHO_PHRASES) {
+            return Ok(SemanticCommand::Who);
+        }
+        if natural_matches_any(&normalized, NEWS_PHRASES) {
+            return Ok(SemanticCommand::News);
+        }
+        if natural_matches_any(&normalized, BALANCE_PHRASES) {
+            return Ok(SemanticCommand::Balance);
+        }
+        if let Some(text) = natural_message_text(input, &normalized, SAY_PREFIXES) {
+            return Ok(SemanticCommand::Say { text });
+        }
+
+        if let Some(observation) = observation {
+            if let Some(command) = parse_natural_enter(&normalized, observation) {
+                return Ok(command);
+            }
+            if let Some(command) = parse_natural_entity_action(&normalized, observation) {
+                return Ok(command);
+            }
+        }
+
+        Err(SlashParseError::UnknownCommand)
     }
 }
 
-fn rest_after_command(trimmed: &str, rest: &str, command: &str) -> Result<String, SlashParseError> {
-    let prefix_len = trimmed.len() - rest.len() + command.len();
-    let text = trimmed[prefix_len..].trim();
-    if text.is_empty() {
-        Err(SlashParseError::MissingArgument)
-    } else {
-        Ok(text.to_owned())
+fn parse_simple_command(command: &str) -> Option<SemanticCommand> {
+    match command {
+        "look" | "l" => Some(SemanticCommand::Look),
+        "map" | "m" => Some(SemanticCommand::Map),
+        "inventory" | "inv" | "i" => Some(SemanticCommand::Inventory),
+        "help" | "h" => Some(SemanticCommand::Help),
+        "quit" | "exit" | "q" => Some(SemanticCommand::Quit),
+        "mailbox" | "inbox" => Some(SemanticCommand::Mailbox),
+        "history" => Some(SemanticCommand::History),
+        "who" => Some(SemanticCommand::Who),
+        "news" => Some(SemanticCommand::News),
+        "balance" | "bal" => Some(SemanticCommand::Balance),
+        _ => None,
     }
 }
 
-fn rest_after_token(trimmed: &str, token: &str) -> Result<String, SlashParseError> {
-    let token_offset = trimmed
-        .find(token)
-        .ok_or(SlashParseError::MissingArgument)?
-        + token.len();
-    let text = trimmed[token_offset..].trim();
-    if text.is_empty() {
-        Err(SlashParseError::MissingArgument)
-    } else {
-        Ok(text.to_owned())
-    }
-}
+const LOOK_PHRASES: &[&str] = &[
+    "look",
+    "look around",
+    "observe",
+    "查看周围",
+    "看看周围",
+    "环顾",
+    "观察周围",
+    "看一下周围",
+    "見る",
+    "周りを見る",
+    "見回す",
+    "見渡す",
+    "観察する",
+];
+const MAP_PHRASES: &[&str] = &[
+    "map",
+    "show map",
+    "地图",
+    "查看地图",
+    "打开地图",
+    "地図",
+    "地図を見る",
+    "地図を開く",
+];
+const INVENTORY_PHRASES: &[&str] = &[
+    "inventory",
+    "bag",
+    "backpack",
+    "items",
+    "背包",
+    "物品",
+    "查看背包",
+    "我的物品",
+    "持ち物",
+    "インベントリ",
+    "バッグ",
+    "所持品",
+    "持ち物を見る",
+];
+const HELP_PHRASES: &[&str] = &[
+    "help",
+    "commands",
+    "帮助",
+    "命令",
+    "怎么玩",
+    "可以做什么",
+    "ヘルプ",
+    "助けて",
+    "コマンド",
+    "何ができる",
+];
+const MAILBOX_PHRASES: &[&str] = &[
+    "mailbox",
+    "inbox",
+    "mail",
+    "邮箱",
+    "信箱",
+    "收件箱",
+    "メール",
+    "メールボックス",
+    "受信箱",
+    "郵便箱",
+];
+const HISTORY_PHRASES: &[&str] = &[
+    "history",
+    "log",
+    "历史",
+    "记录",
+    "聊天记录",
+    "履歴",
+    "ログ",
+    "会話履歴",
+];
+const WHO_PHRASES: &[&str] = &[
+    "who",
+    "who is here",
+    "online",
+    "谁在",
+    "附近的人",
+    "在线的人",
+    "誰がいる",
+    "誰かいる",
+    "近くの人",
+    "オンライン",
+];
+const NEWS_PHRASES: &[&str] = &[
+    "news",
+    "broadcasts",
+    "新闻",
+    "公告消息",
+    "广播",
+    "ニュース",
+    "お知らせ",
+    "放送",
+];
+const BALANCE_PHRASES: &[&str] = &[
+    "balance",
+    "wallet",
+    "money",
+    "余额",
+    "钱包",
+    "账户",
+    "残高",
+    "財布",
+    "ウォレット",
+    "お金",
+];
+const SAY_PREFIXES: &[&str] = &[
+    "say ",
+    "speak ",
+    "说 ",
+    "说：",
+    "喊 ",
+    "喊：",
+    "言う ",
+    "言う：",
+    "話す ",
+    "話す：",
+    "叫ぶ ",
+    "叫ぶ：",
+];
+
+const ENTER_VERBS: &[&str] = &[
+    "enter",
+    "visit",
+    "open",
+    "go into",
+    "go to",
+    "进入",
+    "进去",
+    "访问",
+    "打开",
+    "去",
+    "入る",
+    "入って",
+    "訪問",
+    "訪ねる",
+    "開く",
+    "行く",
+];
+const READ_VERBS: &[&str] = &[
+    "read",
+    "阅读",
+    "读",
+    "读一下",
+    "看公告",
+    "看牌子",
+    "読む",
+    "読んで",
+    "読んでみる",
+    "掲示を見る",
+    "看板を見る",
+];
+const TALK_VERBS: &[&str] = &[
+    "talk",
+    "speak",
+    "chat",
+    "ask",
+    "交谈",
+    "聊天",
+    "对话",
+    "问",
+    "跟",
+    "和",
+    "話す",
+    "話しかける",
+    "会話",
+    "聞く",
+    "質問",
+    "尋ねる",
+];
+const TAKE_VERBS: &[&str] = &[
+    "take",
+    "get",
+    "pick",
+    "pick up",
+    "grab",
+    "拿",
+    "捡",
+    "拾取",
+    "收起",
+    "放进背包",
+    "取る",
+    "拾う",
+    "拾って",
+    "手に取る",
+    "持つ",
+    "バッグに入れる",
+];
+const INSPECT_VERBS: &[&str] = &[
+    "inspect",
+    "examine",
+    "check",
+    "look at",
+    "observe",
+    "查看",
+    "检查",
+    "观察",
+    "调查",
+    "看看",
+    "調べる",
+    "見る",
+    "確認",
+    "観察",
+    "検査",
+    "見て",
+];
 
 /// Slash parsing failures (shown to the player).
 #[derive(Debug, Error, Eq, PartialEq, Clone)]
@@ -478,497 +595,5 @@ fn parse_direction(token: &str) -> Option<Direction> {
         "up" | "u" => Some(Direction::Up),
         "down" | "d" => Some(Direction::Down),
         _ => None,
-    }
-}
-
-/// Renders a structured observation for text clients using line-feed separators.
-#[must_use]
-pub fn render_text_observation(observation: &JsonObservation) -> String {
-    let mut output = String::new();
-    output.push_str(&render_text_events(observation));
-    output.push('\n');
-    output.push_str(&observation.title);
-    output.push('\n');
-    if !observation.ascii_art.is_empty() {
-        output.push('\n');
-        for line in compact_ascii_art(observation) {
-            output.push_str(&highlight_ascii_markers(line));
-            output.push('\n');
-        }
-    }
-    output.push('\n');
-    output.push_str(&observation.description);
-    output.push('\n');
-    output.push_str(Chrome::MAP_LEGEND);
-    output.push('\n');
-
-    if !observation.exits.is_empty() {
-        let exits = observation
-            .exits
-            .iter()
-            .map(|exit| exit.direction.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        output.push_str(&format!("{}: {exits}\n", Chrome::LABEL_EXITS));
-    }
-
-    if !observation.entities.is_empty() {
-        let entities = observation
-            .entities
-            .iter()
-            .map(|entity| entity.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        output.push_str(&format!("{}: {entities}\n", Chrome::LABEL_VISIBLE));
-    }
-
-    if !observation.online_users.is_empty() {
-        output.push_str(&format!(
-            "Online here: {}\n",
-            observation.online_users.join(", ")
-        ));
-    }
-
-    if !observation.available_commands.is_empty() {
-        output.push_str(&render_available_summary(observation));
-    }
-
-    output
-}
-
-/// Renders only command result events, without repeating the current room.
-#[must_use]
-pub fn render_text_events(observation: &JsonObservation) -> String {
-    let mut output = String::new();
-    for event in &observation.events {
-        match event {
-            ObservationEvent::Message { text } => {
-                output.push_str(text);
-                output.push('\n');
-            }
-            ObservationEvent::Move { direction, .. } => {
-                output.push_str(&format!("{} {}\n", Chrome::MOVE_VERB, direction.as_str()));
-            }
-        }
-    }
-    output
-}
-
-fn compact_ascii_art(observation: &JsonObservation) -> Vec<&str> {
-    let title = observation.title.trim().to_ascii_uppercase();
-    let mut lines = Vec::new();
-    let mut previous_blank = false;
-    for line in &observation.ascii_art {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            if !lines.is_empty() && !previous_blank {
-                lines.push(line.as_str());
-                previous_blank = true;
-            }
-            continue;
-        }
-        if trimmed.chars().all(|character| character == '=') || trimmed == title {
-            continue;
-        }
-        lines.push(line.as_str());
-        previous_blank = false;
-    }
-    while lines.last().is_some_and(|line| line.trim().is_empty()) {
-        lines.pop();
-    }
-    lines
-}
-
-fn render_available_summary(observation: &JsonObservation) -> String {
-    let mut parts = vec![
-        "/look".to_owned(),
-        "/map".to_owned(),
-        "/inventory".to_owned(),
-        "/history".to_owned(),
-        "/help".to_owned(),
-    ];
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Settings { .. }))
-    {
-        parts.push("/settings".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Who))
-    {
-        parts.push("/who".to_owned());
-    }
-    if observation
-        .available_commands
-        .iter()
-        .any(|command| matches!(command, SemanticCommand::Say { .. }))
-    {
-        parts.push("/say <text>".to_owned());
-    }
-
-    let moves = observation
-        .available_commands
-        .iter()
-        .filter_map(|command| match command {
-            SemanticCommand::Move { direction } => Some(format!("/go {}", direction.as_str())),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if !moves.is_empty() {
-        parts.push(format!("move: {}", moves.join(", ")));
-    }
-
-    let enter_commands = observation
-        .available_commands
-        .iter()
-        .filter_map(|command| match command {
-            SemanticCommand::Enter { target } => Some(format!("/enter {target}")),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if !enter_commands.is_empty() {
-        parts.push(format!("enter: {}", enter_commands.join(", ")));
-    }
-
-    push_target_commands(
-        "inspect",
-        observation,
-        |command| match command {
-            SemanticCommand::Inspect { target } => Some(target.id.as_str()),
-            _ => None,
-        },
-        &mut parts,
-    );
-    push_target_commands(
-        "read",
-        observation,
-        |command| match command {
-            SemanticCommand::Read { target } => Some(target.id.as_str()),
-            _ => None,
-        },
-        &mut parts,
-    );
-    push_target_commands(
-        "talk",
-        observation,
-        |command| match command {
-            SemanticCommand::Talk { target } => Some(target.id.as_str()),
-            _ => None,
-        },
-        &mut parts,
-    );
-    push_target_commands(
-        "take",
-        observation,
-        |command| match command {
-            SemanticCommand::Take { target } => Some(target.id.as_str()),
-            _ => None,
-        },
-        &mut parts,
-    );
-
-    let extension_commands = observation
-        .available_commands
-        .iter()
-        .filter_map(|command| match command {
-            SemanticCommand::Extension { input, .. } => Some(input.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if !extension_commands.is_empty() {
-        parts.push(format!("local: {}", extension_commands.join(", ")));
-    }
-
-    format!("{}: {}\n", Chrome::LABEL_AVAILABLE, parts.join("; "))
-}
-
-fn push_target_commands<'a>(
-    verb: &str,
-    observation: &'a JsonObservation,
-    target_for: impl Fn(&'a SemanticCommand) -> Option<&'a str>,
-    parts: &mut Vec<String>,
-) {
-    let commands = observation
-        .available_commands
-        .iter()
-        .filter_map(|command| target_for(command).map(|target| format!("/{verb} {target}")))
-        .collect::<Vec<_>>();
-    if !commands.is_empty() {
-        parts.push(format!("{verb}: {}", commands.join(", ")));
-    }
-}
-
-fn highlight_ascii_markers(line: &str) -> String {
-    highlight_player_marker(&highlight_item_markers(&highlight_place_markers(line)))
-}
-
-fn highlight_player_marker(line: &str) -> String {
-    style_literal(line, "<Me>", Chrome::ANSI_PLAYER_MARKER)
-}
-
-fn highlight_place_markers(line: &str) -> String {
-    line.replace(
-        "[Blackstone]",
-        &styled_marker("[Blackstone]", Chrome::ANSI_PLACE_MARKER),
-    )
-}
-
-fn highlight_item_markers(line: &str) -> String {
-    line.replace(
-        "{bulletin board}",
-        &styled_marker("{bulletin board}", Chrome::ANSI_ITEM_MARKER),
-    )
-}
-
-fn style_literal(line: &str, literal: &str, ansi_style: &str) -> String {
-    line.replace(literal, &styled_marker(literal, ansi_style))
-}
-
-fn styled_marker(label: &str, ansi_style: &str) -> String {
-    format!("{ansi_style}{label}{}", Chrome::ANSI_RESET)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use hinemos_core::{
-        ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef, InboxAction,
-        JsonObservation, ObservationEvent, SemanticCommand, SettingsAction,
-    };
-
-    use super::{Chrome, SlashParseError, render_text_observation};
-
-    #[test]
-    fn text_renderer_highlights_player_marker() {
-        let rendered = render_text_observation(&JsonObservation {
-            player_id: "local_player".to_owned(),
-            view_id: "arrival_street".to_owned(),
-            title: "Town Crossroads".to_owned(),
-            ascii_art: vec!["west --- <Me> --- east".to_owned()],
-            description: "A crossing.".to_owned(),
-            exits: Vec::new(),
-            entities: Vec::new(),
-            online_users: Vec::new(),
-            available_commands: Vec::new(),
-            events: vec![ObservationEvent::Message {
-                text: "hello".to_owned(),
-            }],
-        });
-
-        assert!(rendered.contains(Chrome::ANSI_PLAYER_MARKER));
-        assert!(rendered.contains("<Me>"));
-        assert!(rendered.contains(Chrome::ANSI_RESET));
-    }
-
-    #[test]
-    fn text_renderer_distinguishes_place_and_item_markers() {
-        let rendered = render_text_observation(&JsonObservation {
-            player_id: "local_player".to_owned(),
-            view_id: "arrival_street".to_owned(),
-            title: "Town Crossroads".to_owned(),
-            ascii_art: vec!["[Blackstone] -- {bulletin board}".to_owned()],
-            description: "A crossing.".to_owned(),
-            exits: Vec::new(),
-            entities: Vec::new(),
-            online_users: Vec::new(),
-            available_commands: Vec::new(),
-            events: Vec::new(),
-        });
-
-        assert!(rendered.contains(Chrome::ANSI_PLACE_MARKER));
-        assert!(rendered.contains("[Blackstone]"));
-        assert!(rendered.contains(Chrome::ANSI_ITEM_MARKER));
-        assert!(rendered.contains("{bulletin board}"));
-    }
-
-    #[test]
-    fn text_renderer_shows_events_before_room_context() {
-        let rendered = render_text_observation(&JsonObservation {
-            player_id: "local_player".to_owned(),
-            view_id: "north_parcel_01".to_owned(),
-            title: "North Parcel 01".to_owned(),
-            ascii_art: Vec::new(),
-            description: "A parcel.".to_owned(),
-            exits: Vec::new(),
-            entities: Vec::new(),
-            online_users: Vec::new(),
-            available_commands: Vec::new(),
-            events: vec![ObservationEvent::Move {
-                from: "arrival_street".to_owned(),
-                to: "north_parcel_01".to_owned(),
-                direction: Direction::North,
-            }],
-        });
-
-        let move_index = rendered.find("You go north").expect("move result");
-        let title_index = rendered.find("North Parcel 01").expect("room title");
-        assert!(move_index < title_index);
-    }
-
-    #[test]
-    fn text_renderer_lists_executable_entity_commands() {
-        let rendered = render_text_observation(&JsonObservation {
-            player_id: "local_player".to_owned(),
-            view_id: "arrival_street".to_owned(),
-            title: "Town Crossroads".to_owned(),
-            ascii_art: Vec::new(),
-            description: "A crossing.".to_owned(),
-            exits: Vec::new(),
-            entities: vec![EntityObservation {
-                id: "cyber_scroll_board".to_owned(),
-                kind: EntityKind::Object,
-                name: "bulletin board".to_owned(),
-                description: "A board.".to_owned(),
-                actions: vec![ActionKind::Inspect, ActionKind::Read],
-            }],
-            online_users: Vec::new(),
-            available_commands: vec![
-                SemanticCommand::Inspect {
-                    target: EntityRef::new("cyber_scroll_board"),
-                },
-                SemanticCommand::Read {
-                    target: EntityRef::new("cyber_scroll_board"),
-                },
-            ],
-            events: Vec::new(),
-        });
-
-        assert!(rendered.contains("/inspect cyber_scroll_board"));
-        assert!(rendered.contains("/read cyber_scroll_board"));
-        assert!(!rendered.contains("interact: bulletin board"));
-    }
-
-    #[test]
-    fn text_renderer_splits_move_and_enter_commands() {
-        let rendered = render_text_observation(&JsonObservation {
-            player_id: "local_player".to_owned(),
-            view_id: "street_north_01".to_owned(),
-            title: "North Commercial Street 01".to_owned(),
-            ascii_art: Vec::new(),
-            description: "A street.".to_owned(),
-            exits: Vec::new(),
-            entities: Vec::new(),
-            online_users: Vec::new(),
-            available_commands: vec![
-                SemanticCommand::Move {
-                    direction: Direction::North,
-                },
-                SemanticCommand::Enter {
-                    target: "north_01".to_owned(),
-                },
-            ],
-            events: Vec::new(),
-        });
-
-        assert!(rendered.contains("move: /go north"));
-        assert!(rendered.contains("enter: /enter north_01"));
-        assert!(!rendered.contains("move: /go north, /enter north_01"));
-    }
-
-    #[test]
-    fn slash_parser_accepts_build_json() {
-        let command = Chrome::with_aliases(HashMap::new())
-            .parse_command(
-                "/build {\"title\":\"Tool Broker\",\"description\":\"Simple tools\",\"style\":\"ledger\",\"prompt\":\"reply tersely\"}",
-            )
-            .expect("build json parses");
-
-        let SemanticCommand::Build {
-            action: BuildAction::Apply { sheet },
-        } = command
-        else {
-            panic!("expected build sheet");
-        };
-        assert_eq!(sheet.title.as_deref(), Some("Tool Broker"));
-        assert_eq!(sheet.description.as_deref(), Some("Simple tools"));
-        assert_eq!(sheet.style.as_deref(), Some("ledger"));
-        assert_eq!(sheet.prompt.as_deref(), Some("reply tersely"));
-        assert_eq!(sheet.commands, None);
-    }
-
-    #[test]
-    fn slash_parser_accepts_enter_target_with_spaces() {
-        let command = Chrome::with_aliases(HashMap::new())
-            .parse_command("/enter Offline Tool Broker")
-            .expect("enter parses");
-
-        assert_eq!(
-            command,
-            SemanticCommand::Enter {
-                target: "Offline Tool Broker".to_owned()
-            }
-        );
-    }
-
-    #[test]
-    fn slash_parser_accepts_inbox_actions() {
-        let command = Chrome::with_aliases(HashMap::new())
-            .parse_command("/mail claim 42")
-            .expect("mail claim parses");
-
-        assert_eq!(
-            command,
-            SemanticCommand::Inbox {
-                action: InboxAction::Claim { item_id: 42 }
-            }
-        );
-    }
-
-    #[test]
-    fn slash_parser_accepts_settings_actions() {
-        let chrome = Chrome::with_aliases(HashMap::new());
-
-        assert_eq!(
-            chrome.parse_command("/settings").expect("settings parses"),
-            SemanticCommand::Settings {
-                action: SettingsAction::Show
-            }
-        );
-        assert_eq!(
-            chrome
-                .parse_command("/settings mail-token")
-                .expect("mail token setting parses"),
-            SemanticCommand::Settings {
-                action: SettingsAction::MailToken
-            }
-        );
-        assert_eq!(
-            chrome
-                .parse_command("/settings password new secret")
-                .expect("password setting parses"),
-            SemanticCommand::Settings {
-                action: SettingsAction::SetPassword {
-                    password: "new secret".to_owned()
-                }
-            }
-        );
-        assert_eq!(
-            chrome
-                .parse_command("/settings key ssh-ed25519 AAAA test@example")
-                .expect("key setting parses"),
-            SemanticCommand::Settings {
-                action: SettingsAction::SetKey {
-                    public_key: "ssh-ed25519 AAAA test@example".to_owned()
-                }
-            }
-        );
-
-        assert_eq!(
-            chrome.parse_command("/settings mail-token extra"),
-            Err(SlashParseError::UnexpectedArgument)
-        );
-    }
-
-    #[test]
-    fn slash_parser_rejects_unknown_inbox_filter() {
-        let error = Chrome::with_aliases(HashMap::new())
-            .parse_command("/mail list stale")
-            .expect_err("unknown inbox filter is rejected");
-
-        assert_eq!(error, SlashParseError::InvalidInboxFilter);
     }
 }

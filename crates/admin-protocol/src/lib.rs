@@ -34,6 +34,11 @@ pub enum AdminRequest {
         #[serde(default)]
         world_dir: Option<PathBuf>,
     },
+    /// Generate or rotate the SMTP/IMAP token for an externally registered service room.
+    RoomToken {
+        /// Service room view id from rooms.ron / service_rooms.
+        view_id: String,
+    },
 }
 
 /// Successful or error payload returned to the client.
@@ -61,6 +66,17 @@ pub enum AdminResponse {
     Users {
         /// One row per online SSH username.
         users: Vec<AdminUser>,
+    },
+    /// One-time plaintext room mailbox token.
+    RoomToken {
+        /// Service room view id.
+        view_id: String,
+        /// SMTP/IMAP username for the room service.
+        username: String,
+        /// Registered room player id.
+        player_id: String,
+        /// Plaintext token, shown only in this response.
+        token: String,
     },
     /// Operation failed; `message` is safe to show operators.
     Error {
@@ -318,6 +334,45 @@ fn status_response_round_trips() {
             assert_eq!(summary.view_count, 5);
             assert_eq!(summary.entity_count, 8);
             assert_eq!(summary.player_count, 3);
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn room_token_request_and_response_round_trip() {
+    let request = AdminRequest::RoomToken {
+        view_id: "example_service_room".to_owned(),
+    };
+    let encoded = serde_json::to_vec(&request).expect("room token request should serialize");
+    let decoded: AdminRequest =
+        serde_json::from_slice(&encoded).expect("room token request should deserialize");
+    match decoded {
+        AdminRequest::RoomToken { view_id } => assert_eq!(view_id, "example_service_room"),
+        other => panic!("unexpected request: {other:?}"),
+    }
+
+    let response = AdminResponse::RoomToken {
+        view_id: "example_service_room".to_owned(),
+        username: "example-room-service".to_owned(),
+        player_id: "room:example-service".to_owned(),
+        token: "secret".to_owned(),
+    };
+    let encoded = serde_json::to_vec(&response).expect("room token response should serialize");
+    let decoded: AdminResponse =
+        serde_json::from_slice(&encoded).expect("room token response should deserialize");
+    match decoded {
+        AdminResponse::RoomToken {
+            view_id,
+            username,
+            player_id,
+            token,
+        } => {
+            assert_eq!(view_id, "example_service_room");
+            assert_eq!(username, "example-room-service");
+            assert_eq!(player_id, "room:example-service");
+            assert_eq!(token, "secret");
         }
         other => panic!("unexpected response: {other:?}"),
     }

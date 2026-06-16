@@ -1,18 +1,20 @@
 //! SMTP and IMAP sidecar for agent mailbox integrations.
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::Args;
-use hinemos_storage::{PgStorage, StoredInboxItem, StoredMailAuthToken};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use hinemos_app::{InboxItemView, MailAuthTokenView, MailDaemonStore};
+use hinemos_storage::{
+    INBOX_FILTER_ALL, INBOX_STATUS_ACKED, INBOX_STATUS_UNREAD, PgStorage, StoredInboxItem,
+    StoredMailAuthToken,
+};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::config::{mail_domain_from_env, mask_database_url, normalize_mail_target};
+use crate::mail_protocol::*;
 
 /// SMTP/IMAP sidecar command-line arguments.
 #[derive(Debug, Clone, Args)]
@@ -27,8 +29,8 @@ pub struct MailArgs {
 }
 
 #[derive(Debug, Clone)]
-struct MailState {
-    storage: PgStorage,
+struct MailState<S> {
+    storage: S,
     mail_domain: Option<String>,
 }
 
@@ -38,6 +40,19 @@ struct MailIdentity {
     player_id: String,
 }
 
+#[derive(Debug, Default)]
+struct SmtpSessionState {
+    identity: Option<MailIdentity>,
+    sender: String,
+    recipients: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct ImapSessionState {
+    identity: Option<MailIdentity>,
+    selected: Vec<StoredInboxItem>,
+}
+
 /// Runs SMTP and IMAP listeners until one listener exits.
 pub async fn run_mail_daemon(args: MailArgs) -> Result<()> {
     dotenvy::dotenv().ok();
@@ -45,14 +60,30 @@ pub async fn run_mail_daemon(args: MailArgs) -> Result<()> {
         .context("DATABASE_URL must be set in the environment or .env")?;
     let storage = PgStorage::connect(&database_url).await?;
     storage.migrate().await?;
+    run_mail_daemon_with_storage(args, storage, mail_domain_from_env(), &database_url).await
+}
+
+async fn run_mail_daemon_with_storage<S>(
+    args: MailArgs,
+    storage: S,
+    mail_domain: Option<String>,
+    database_url: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>
+        + Send
+        + Sync
+        + 'static,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
     let state = Arc::new(MailState {
         storage,
-        mail_domain: mail_domain_from_env(),
+        mail_domain,
     });
 
     println!("Hinemos SMTP sidecar listening on {}", args.smtp_bind);
     println!("Hinemos IMAP sidecar listening on {}", args.imap_bind);
-    println!("Database configured: {}", mask_database_url(&database_url));
+    println!("Database configured: {}", mask_database_url(database_url));
     if let Some(domain) = &state.mail_domain {
         println!("Mail domain configured: {domain}");
     }
@@ -66,28 +97,33 @@ pub async fn run_mail_daemon(args: MailArgs) -> Result<()> {
     Ok(())
 }
 
-async fn authenticate_mail_token(
-    state: &MailState,
+async fn authenticate_mail_token<S>(
+    state: &MailState<S>,
     username: &str,
     token: &str,
-) -> Result<Option<MailIdentity>> {
+) -> Result<Option<MailIdentity>>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
     let identity = state
         .storage
         .verify_mail_auth_token(username, token)
         .await?;
-    Ok(identity.map(
-        |StoredMailAuthToken {
-             username,
-             player_id,
-             ..
-         }| MailIdentity {
-            user: username,
-            player_id,
-        },
-    ))
+    Ok(identity.map(|identity| MailIdentity {
+        user: identity.username().to_owned(),
+        player_id: identity.player_id().to_owned(),
+    }))
 }
 
-async fn run_smtp_listener(bind: SocketAddr, state: Arc<MailState>) -> Result<()> {
+async fn run_smtp_listener<S>(bind: SocketAddr, state: Arc<MailState<S>>) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>
+        + Send
+        + Sync
+        + 'static,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind SMTP listener on {bind}"))?;
@@ -102,113 +138,181 @@ async fn run_smtp_listener(bind: SocketAddr, state: Arc<MailState>) -> Result<()
     }
 }
 
-async fn handle_smtp_connection(stream: TcpStream, state: Arc<MailState>) -> Result<()> {
+async fn handle_smtp_connection<S>(stream: TcpStream, state: Arc<MailState<S>>) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>
+        + Send
+        + Sync
+        + 'static,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
     let mut reader = BufReader::new(stream);
     write_line(&mut reader, "220 hinemos ESMTP ready").await?;
-    let mut identity: Option<MailIdentity> = None;
-    let mut sender = String::new();
-    let mut recipients = Vec::<String>::new();
+    let mut session = SmtpSessionState::default();
 
     loop {
         let Some(line) = read_protocol_line(&mut reader).await? else {
             break;
         };
         let (command, rest) = split_command(&line);
-        match command.as_str() {
-            "EHLO" | "HELO" => {
-                write_line(&mut reader, "250-hinemos").await?;
-                write_line(&mut reader, "250-AUTH PLAIN LOGIN").await?;
-                write_line(&mut reader, "250 SIZE 1048576").await?;
-            }
-            "AUTH" => {
-                if let Some(auth_identity) = handle_smtp_auth(&mut reader, &state, rest).await? {
-                    identity = Some(auth_identity);
-                    write_line(&mut reader, "235 2.7.0 Authentication successful").await?;
-                } else {
-                    write_line(&mut reader, "535 5.7.8 Authentication failed").await?;
-                }
-            }
-            "MAIL" => {
-                if identity.is_none() {
-                    write_line(&mut reader, "530 5.7.0 Authentication required").await?;
-                    continue;
-                }
-                let Some(address) = smtp_path_after(rest, "FROM:") else {
-                    write_line(&mut reader, "501 5.5.4 Syntax: MAIL FROM:<address>").await?;
-                    continue;
-                };
-                sender = address;
-                recipients.clear();
-                write_line(&mut reader, "250 2.1.0 Sender OK").await?;
-            }
-            "RCPT" => {
-                if sender.is_empty() {
-                    write_line(&mut reader, "503 5.5.1 Need MAIL FROM first").await?;
-                    continue;
-                }
-                let Some(address) = smtp_path_after(rest, "TO:") else {
-                    write_line(&mut reader, "501 5.5.4 Syntax: RCPT TO:<address>").await?;
-                    continue;
-                };
-                match normalize_mail_target(&address, state.mail_domain.as_deref()) {
-                    Ok(target) => {
-                        recipients.push(target);
-                        write_line(&mut reader, "250 2.1.5 Recipient OK").await?;
-                    }
-                    Err(error) => {
-                        write_line(&mut reader, &format!("550 5.1.1 {error}")).await?;
-                    }
-                }
-            }
-            "DATA" => {
-                let Some(identity) = identity.as_ref() else {
-                    write_line(&mut reader, "530 5.7.0 Authentication required").await?;
-                    continue;
-                };
-                if recipients.is_empty() {
-                    write_line(&mut reader, "503 5.5.1 Need RCPT TO first").await?;
-                    continue;
-                }
-                write_line(&mut reader, "354 End data with <CR><LF>.<CR><LF>").await?;
-                let raw_message = read_smtp_data(&mut reader).await?;
-                let parsed = parse_email_message(&raw_message);
-                for recipient in &recipients {
-                    state
-                        .storage
-                        .save_mail_message_with_subject(
-                            &identity.user,
-                            &identity.player_id,
-                            recipient,
-                            &parsed.subject,
-                            &parsed.body,
-                        )
-                        .await?;
-                }
-                sender.clear();
-                recipients.clear();
-                write_line(&mut reader, "250 2.0.0 Message accepted").await?;
-            }
-            "RSET" => {
-                sender.clear();
-                recipients.clear();
-                write_line(&mut reader, "250 2.0.0 Reset OK").await?;
-            }
-            "NOOP" => write_line(&mut reader, "250 2.0.0 OK").await?,
-            "QUIT" => {
-                write_line(&mut reader, "221 2.0.0 Bye").await?;
-                break;
-            }
-            _ => write_line(&mut reader, "502 5.5.1 Command not implemented").await?,
+        if handle_smtp_command(&mut reader, &state, &mut session, &command, rest).await? {
+            break;
         }
     }
     Ok(())
 }
 
-async fn handle_smtp_auth(
+async fn handle_smtp_command<S>(
     reader: &mut BufReader<TcpStream>,
-    state: &MailState,
+    state: &MailState<S>,
+    session: &mut SmtpSessionState,
+    command: &str,
     rest: &str,
-) -> Result<Option<MailIdentity>> {
+) -> Result<bool>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    match command {
+        "EHLO" | "HELO" => handle_smtp_helo(reader).await?,
+        "AUTH" => handle_smtp_auth_command(reader, state, session, rest).await?,
+        "MAIL" => handle_smtp_mail_from(reader, session, rest).await?,
+        "RCPT" => handle_smtp_recipient(reader, state, session, rest).await?,
+        "DATA" => handle_smtp_data(reader, state, session).await?,
+        "RSET" => handle_smtp_reset(reader, session).await?,
+        "NOOP" => write_line(reader, "250 2.0.0 OK").await?,
+        "QUIT" => {
+            write_line(reader, "221 2.0.0 Bye").await?;
+            return Ok(true);
+        }
+        _ => write_line(reader, "502 5.5.1 Command not implemented").await?,
+    }
+    Ok(false)
+}
+
+async fn handle_smtp_helo(reader: &mut BufReader<TcpStream>) -> Result<()> {
+    write_line(reader, "250-hinemos").await?;
+    write_line(reader, "250-AUTH PLAIN LOGIN").await?;
+    write_line(reader, "250 SIZE 1048576").await
+}
+
+async fn handle_smtp_auth_command<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut SmtpSessionState,
+    rest: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    if let Some(auth_identity) = handle_smtp_auth(reader, state, rest).await? {
+        session.identity = Some(auth_identity);
+        write_line(reader, "235 2.7.0 Authentication successful").await
+    } else {
+        write_line(reader, "535 5.7.8 Authentication failed").await
+    }
+}
+
+async fn handle_smtp_mail_from(
+    reader: &mut BufReader<TcpStream>,
+    session: &mut SmtpSessionState,
+    rest: &str,
+) -> Result<()> {
+    if session.identity.is_none() {
+        write_line(reader, "530 5.7.0 Authentication required").await?;
+        return Ok(());
+    }
+    let Some(address) = smtp_path_after(rest, "FROM:") else {
+        write_line(reader, "501 5.5.4 Syntax: MAIL FROM:<address>").await?;
+        return Ok(());
+    };
+    session.sender = address;
+    session.recipients.clear();
+    write_line(reader, "250 2.1.0 Sender OK").await
+}
+
+async fn handle_smtp_recipient<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut SmtpSessionState,
+    rest: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken>,
+{
+    if session.sender.is_empty() {
+        write_line(reader, "503 5.5.1 Need MAIL FROM first").await?;
+        return Ok(());
+    }
+    let Some(address) = smtp_path_after(rest, "TO:") else {
+        write_line(reader, "501 5.5.4 Syntax: RCPT TO:<address>").await?;
+        return Ok(());
+    };
+    match normalize_mail_target(&address, state.mail_domain.as_deref()) {
+        Ok(target) => {
+            session.recipients.push(target);
+            write_line(reader, "250 2.1.5 Recipient OK").await
+        }
+        Err(error) => write_line(reader, &format!("550 5.1.1 {error}")).await,
+    }
+}
+
+async fn handle_smtp_data<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut SmtpSessionState,
+) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    let Some(identity) = session.identity.as_ref() else {
+        write_line(reader, "530 5.7.0 Authentication required").await?;
+        return Ok(());
+    };
+    if session.recipients.is_empty() {
+        write_line(reader, "503 5.5.1 Need RCPT TO first").await?;
+        return Ok(());
+    }
+    write_line(reader, "354 End data with <CR><LF>.<CR><LF>").await?;
+    let raw_message = read_smtp_data(reader).await?;
+    let parsed = parse_email_message(&raw_message);
+    for recipient in &session.recipients {
+        state
+            .storage
+            .save_mail_message_with_subject(
+                &identity.user,
+                &identity.player_id,
+                recipient,
+                &parsed.subject,
+                &parsed.body,
+            )
+            .await?;
+    }
+    session.sender.clear();
+    session.recipients.clear();
+    write_line(reader, "250 2.0.0 Message accepted").await
+}
+
+async fn handle_smtp_reset(
+    reader: &mut BufReader<TcpStream>,
+    session: &mut SmtpSessionState,
+) -> Result<()> {
+    session.sender.clear();
+    session.recipients.clear();
+    write_line(reader, "250 2.0.0 Reset OK").await
+}
+
+async fn handle_smtp_auth<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    rest: &str,
+) -> Result<Option<MailIdentity>>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
     let (mechanism, initial) = split_command(rest);
     match mechanism.as_str() {
         "PLAIN" => {
@@ -240,7 +344,14 @@ async fn handle_smtp_auth(
     }
 }
 
-async fn run_imap_listener(bind: SocketAddr, state: Arc<MailState>) -> Result<()> {
+async fn run_imap_listener<S>(bind: SocketAddr, state: Arc<MailState<S>>) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>
+        + Send
+        + Sync
+        + 'static,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind IMAP listener on {bind}"))?;
@@ -255,11 +366,17 @@ async fn run_imap_listener(bind: SocketAddr, state: Arc<MailState>) -> Result<()
     }
 }
 
-async fn handle_imap_connection(stream: TcpStream, state: Arc<MailState>) -> Result<()> {
+async fn handle_imap_connection<S>(stream: TcpStream, state: Arc<MailState<S>>) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>
+        + Send
+        + Sync
+        + 'static,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
     let mut reader = BufReader::new(stream);
     write_line(&mut reader, "* OK Hinemos IMAP4rev1 ready").await?;
-    let mut identity: Option<MailIdentity> = None;
-    let mut selected = Vec::<StoredInboxItem>::new();
+    let mut session = ImapSessionState::default();
 
     loop {
         let Some(line) = read_protocol_line(&mut reader).await? else {
@@ -269,163 +386,295 @@ async fn handle_imap_connection(stream: TcpStream, state: Arc<MailState>) -> Res
         if tag.is_empty() {
             continue;
         }
-        let (mut command, mut rest) = split_command(after_tag);
-        if command == "UID" {
-            let (uid_command, uid_rest) = split_command(rest);
-            command = format!("UID {uid_command}");
-            rest = uid_rest;
-        }
-        match command.as_str() {
-            "CAPABILITY" => {
-                write_line(
-                    &mut reader,
-                    "* CAPABILITY IMAP4rev1 AUTH=PLAIN LOGIN-REFERRALS",
-                )
-                .await?;
-                tagged_ok(&mut reader, tag, "CAPABILITY completed").await?;
-            }
-            "NOOP" => tagged_ok(&mut reader, tag, "NOOP completed").await?,
-            "LOGOUT" => {
-                write_line(&mut reader, "* BYE Hinemos IMAP logging out").await?;
-                tagged_ok(&mut reader, tag, "LOGOUT completed").await?;
-                break;
-            }
-            "LOGIN" => {
-                let Some((username, token)) = parse_imap_login(rest) else {
-                    tagged_no(&mut reader, tag, "LOGIN expects username and password").await?;
-                    continue;
-                };
-                match authenticate_mail_token(&state, &username, &token).await? {
-                    Some(authenticated) => {
-                        identity = Some(authenticated);
-                        tagged_ok(&mut reader, tag, "LOGIN completed").await?;
-                    }
-                    None => tagged_no(&mut reader, tag, "authentication failed").await?,
-                }
-            }
-            "AUTHENTICATE" => {
-                if !rest.eq_ignore_ascii_case("PLAIN") {
-                    tagged_no(&mut reader, tag, "unsupported authentication mechanism").await?;
-                    continue;
-                }
-                write_line(&mut reader, "+").await?;
-                let payload = read_protocol_line(&mut reader).await?.unwrap_or_default();
-                let Some((username, token)) = decode_auth_plain(&payload) else {
-                    tagged_no(&mut reader, tag, "authentication failed").await?;
-                    continue;
-                };
-                match authenticate_mail_token(&state, &username, &token).await? {
-                    Some(authenticated) => {
-                        identity = Some(authenticated);
-                        tagged_ok(&mut reader, tag, "AUTHENTICATE completed").await?;
-                    }
-                    None => tagged_no(&mut reader, tag, "authentication failed").await?,
-                }
-            }
-            _ if identity.is_none() => {
-                tagged_no(&mut reader, tag, "authentication required").await?;
-            }
-            "LIST" | "LSUB" => {
-                write_line(&mut reader, r#"* LIST (\HasNoChildren) "/" "INBOX""#).await?;
-                tagged_ok(&mut reader, tag, "LIST completed").await?;
-            }
-            "SELECT" | "EXAMINE" => {
-                selected = load_imap_mailbox(&state, identity.as_ref().expect("checked")).await?;
-                let unseen = selected
-                    .iter()
-                    .filter(|item| item.status == "unread")
-                    .count();
-                write_line(&mut reader, &format!("* {} EXISTS", selected.len())).await?;
-                write_line(&mut reader, &format!("* {unseen} RECENT")).await?;
-                write_line(&mut reader, r"* FLAGS (\Seen)").await?;
-                write_line(&mut reader, r"* OK [PERMANENTFLAGS (\Seen)] Limited flags").await?;
-                tagged_ok(&mut reader, tag, "SELECT completed").await?;
-            }
-            "STATUS" => {
-                let items = load_imap_mailbox(&state, identity.as_ref().expect("checked")).await?;
-                let unseen = items.iter().filter(|item| item.status == "unread").count();
-                write_line(
-                    &mut reader,
-                    &format!(
-                        r#"* STATUS "INBOX" (MESSAGES {} UNSEEN {unseen})"#,
-                        items.len()
-                    ),
-                )
-                .await?;
-                tagged_ok(&mut reader, tag, "STATUS completed").await?;
-            }
-            "SEARCH" | "UID SEARCH" => {
-                if selected.is_empty() {
-                    selected =
-                        load_imap_mailbox(&state, identity.as_ref().expect("checked")).await?;
-                }
-                let ids = imap_search_ids(&selected, rest);
-                write_line(&mut reader, &format!("* SEARCH {}", ids.join(" "))).await?;
-                tagged_ok(&mut reader, tag, "SEARCH completed").await?;
-            }
-            "FETCH" | "UID FETCH" => {
-                if selected.is_empty() {
-                    selected =
-                        load_imap_mailbox(&state, identity.as_ref().expect("checked")).await?;
-                }
-                handle_imap_fetch(&mut reader, &selected, rest).await?;
-                tagged_ok(&mut reader, tag, "FETCH completed").await?;
-            }
-            "STORE" | "UID STORE" => {
-                if selected.is_empty() {
-                    selected =
-                        load_imap_mailbox(&state, identity.as_ref().expect("checked")).await?;
-                }
-                handle_imap_store(&state, identity.as_ref().expect("checked"), &selected, rest)
-                    .await?;
-                selected = load_imap_mailbox(&state, identity.as_ref().expect("checked")).await?;
-                tagged_ok(&mut reader, tag, "STORE completed").await?;
-            }
-            "APPEND" => {
-                handle_imap_append(&mut reader, rest).await?;
-                tagged_ok(&mut reader, tag, "APPEND completed").await?;
-            }
-            _ => tagged_bad(&mut reader, tag, "command not implemented").await?,
+        let (command, rest) = normalize_imap_command(after_tag);
+        if handle_imap_command(&mut reader, &state, &mut session, tag, &command, rest).await? {
+            break;
         }
     }
     Ok(())
 }
 
-async fn load_imap_mailbox(
-    state: &MailState,
+fn normalize_imap_command(input: &str) -> (String, &str) {
+    let (command, rest) = split_command(input);
+    if command == "UID" {
+        let (uid_command, uid_rest) = split_command(rest);
+        (format!("UID {uid_command}"), uid_rest)
+    } else {
+        (command, rest)
+    }
+}
+
+async fn handle_imap_command<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut ImapSessionState,
+    tag: &str,
+    command: &str,
+    rest: &str,
+) -> Result<bool>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    match command {
+        "CAPABILITY" => handle_imap_capability(reader, tag).await?,
+        "NOOP" => tagged_ok(reader, tag, "NOOP completed").await?,
+        "LOGOUT" => {
+            write_line(reader, "* BYE Hinemos IMAP logging out").await?;
+            tagged_ok(reader, tag, "LOGOUT completed").await?;
+            return Ok(true);
+        }
+        "LOGIN" => handle_imap_login(reader, state, session, tag, rest).await?,
+        "AUTHENTICATE" => handle_imap_authenticate(reader, state, session, tag, rest).await?,
+        _ if session.identity.is_none() => {
+            tagged_no(reader, tag, "authentication required").await?;
+        }
+        "LIST" | "LSUB" => {
+            write_line(reader, r#"* LIST (\HasNoChildren) "/" "INBOX""#).await?;
+            tagged_ok(reader, tag, "LIST completed").await?;
+        }
+        "SELECT" | "EXAMINE" => handle_imap_select(reader, state, session, tag).await?,
+        "STATUS" => handle_imap_status(reader, state, session, tag).await?,
+        "SEARCH" | "UID SEARCH" => handle_imap_search(reader, state, session, tag, rest).await?,
+        "FETCH" | "UID FETCH" => {
+            handle_imap_fetch_command(reader, state, session, tag, rest).await?
+        }
+        "STORE" | "UID STORE" => {
+            handle_imap_store_command(reader, state, session, tag, rest).await?
+        }
+        "APPEND" => {
+            handle_imap_append(reader, rest).await?;
+            tagged_ok(reader, tag, "APPEND completed").await?;
+        }
+        _ => tagged_bad(reader, tag, "command not implemented").await?,
+    }
+    Ok(false)
+}
+
+async fn handle_imap_capability(reader: &mut BufReader<TcpStream>, tag: &str) -> Result<()> {
+    write_line(reader, "* CAPABILITY IMAP4rev1 AUTH=PLAIN LOGIN-REFERRALS").await?;
+    tagged_ok(reader, tag, "CAPABILITY completed").await
+}
+
+async fn handle_imap_login<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut ImapSessionState,
+    tag: &str,
+    rest: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    let Some((username, token)) = parse_imap_login(rest) else {
+        tagged_no(reader, tag, "LOGIN expects username and password").await?;
+        return Ok(());
+    };
+    match authenticate_mail_token(state, &username, &token).await? {
+        Some(authenticated) => {
+            session.identity = Some(authenticated);
+            tagged_ok(reader, tag, "LOGIN completed").await
+        }
+        None => tagged_no(reader, tag, "authentication failed").await,
+    }
+}
+
+async fn handle_imap_authenticate<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut ImapSessionState,
+    tag: &str,
+    rest: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<MailAuthToken = StoredMailAuthToken>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    if !rest.eq_ignore_ascii_case("PLAIN") {
+        tagged_no(reader, tag, "unsupported authentication mechanism").await?;
+        return Ok(());
+    }
+    write_line(reader, "+").await?;
+    let payload = read_protocol_line(reader).await?.unwrap_or_default();
+    let Some((username, token)) = decode_auth_plain(&payload) else {
+        tagged_no(reader, tag, "authentication failed").await?;
+        return Ok(());
+    };
+    match authenticate_mail_token(state, &username, &token).await? {
+        Some(authenticated) => {
+            session.identity = Some(authenticated);
+            tagged_ok(reader, tag, "AUTHENTICATE completed").await
+        }
+        None => tagged_no(reader, tag, "authentication failed").await,
+    }
+}
+
+async fn handle_imap_select<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut ImapSessionState,
+    tag: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    let identity = session.identity.as_ref().expect("checked");
+    session.selected = load_imap_mailbox(state, identity).await?;
+    let unseen = session
+        .selected
+        .iter()
+        .filter(|item| item.status() == INBOX_STATUS_UNREAD)
+        .count();
+    write_line(reader, &format!("* {} EXISTS", session.selected.len())).await?;
+    write_line(reader, &format!("* {unseen} RECENT")).await?;
+    write_line(reader, r"* FLAGS (\Seen)").await?;
+    write_line(reader, r"* OK [PERMANENTFLAGS (\Seen)] Limited flags").await?;
+    tagged_ok(reader, tag, "SELECT completed").await
+}
+
+async fn handle_imap_status<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &ImapSessionState,
+    tag: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    let items = load_imap_mailbox(state, session.identity.as_ref().expect("checked")).await?;
+    let unseen = items
+        .iter()
+        .filter(|item| item.status() == INBOX_STATUS_UNREAD)
+        .count();
+    write_line(
+        reader,
+        &format!(
+            r#"* STATUS "INBOX" (MESSAGES {} UNSEEN {unseen})"#,
+            items.len()
+        ),
+    )
+    .await?;
+    tagged_ok(reader, tag, "STATUS completed").await
+}
+
+async fn ensure_imap_selected<S>(state: &MailState<S>, session: &mut ImapSessionState) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    if session.selected.is_empty() {
+        session.selected =
+            load_imap_mailbox(state, session.identity.as_ref().expect("checked")).await?;
+    }
+    Ok(())
+}
+
+async fn handle_imap_search<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut ImapSessionState,
+    tag: &str,
+    rest: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    ensure_imap_selected(state, session).await?;
+    let ids = imap_search_ids(&session.selected, rest);
+    write_line(reader, &format!("* SEARCH {}", ids.join(" "))).await?;
+    tagged_ok(reader, tag, "SEARCH completed").await
+}
+
+async fn handle_imap_fetch_command<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut ImapSessionState,
+    tag: &str,
+    rest: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    ensure_imap_selected(state, session).await?;
+    handle_imap_fetch(reader, &session.selected, rest).await?;
+    tagged_ok(reader, tag, "FETCH completed").await
+}
+
+async fn handle_imap_store_command<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut ImapSessionState,
+    tag: &str,
+    rest: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    ensure_imap_selected(state, session).await?;
+    let identity = session.identity.as_ref().expect("checked");
+    handle_imap_store(state, identity, &session.selected, rest).await?;
+    session.selected = load_imap_mailbox(state, identity).await?;
+    tagged_ok(reader, tag, "STORE completed").await
+}
+
+async fn load_imap_mailbox<S>(
+    state: &MailState<S>,
     identity: &MailIdentity,
-) -> Result<Vec<StoredInboxItem>> {
+) -> Result<Vec<S::InboxItem>>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::InboxItem: InboxItemView,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
     let mut items = state
         .storage
-        .list_inbox_items(&identity.user, &identity.player_id, Some("all"), 500)
+        .list_inbox_items(
+            &identity.user,
+            &identity.player_id,
+            Some(INBOX_FILTER_ALL),
+            500,
+        )
         .await?;
-    items.retain(|item| item.kind == "mail");
-    items.sort_by_key(|item| item.id);
+    items.retain(|item| imap_visible_inbox_kind(item.kind()));
+    items.sort_by_key(|item| item.id());
     Ok(items)
 }
 
-fn imap_search_ids(items: &[StoredInboxItem], query: &str) -> Vec<String> {
+fn imap_visible_inbox_kind(kind: &str) -> bool {
+    matches!(kind, "mail" | "shop_command")
+}
+
+fn imap_search_ids<I: InboxItemView>(items: &[I], query: &str) -> Vec<String> {
     let unseen_only = query.to_ascii_uppercase().contains("UNSEEN");
     items
         .iter()
         .enumerate()
-        .filter(|(_, item)| !unseen_only || item.status == "unread")
+        .filter(|(_, item)| !unseen_only || item.status() == INBOX_STATUS_UNREAD)
         .map(|(index, _)| (index + 1).to_string())
         .collect()
 }
 
-async fn handle_imap_fetch(
+async fn handle_imap_fetch<I>(
     reader: &mut BufReader<TcpStream>,
-    selected: &[StoredInboxItem],
+    selected: &[I],
     rest: &str,
-) -> Result<()> {
+) -> Result<()>
+where
+    I: InboxItemView,
+{
     let (set, _attributes) = split_first_token(rest);
     for sequence in expand_imap_set(set, selected.len()) {
         let Some(item) = selected.get(sequence - 1) else {
             continue;
         };
         let message = render_rfc822_message(item);
-        let flags = if item.status == "unread" {
+        let flags = if item.status() == INBOX_STATUS_UNREAD {
             ""
         } else {
             r"\Seen"
@@ -434,7 +683,7 @@ async fn handle_imap_fetch(
             reader,
             &format!(
                 "* {sequence} FETCH (UID {} FLAGS ({flags}) INTERNALDATE \"{}\" ENVELOPE {} BODYSTRUCTURE {} RFC822.SIZE {} BODY[] {{{}}}",
-                item.id,
+                item.id(),
                 imap_internal_date(item),
                 render_imap_envelope(item),
                 render_bodystructure(item),
@@ -449,12 +698,16 @@ async fn handle_imap_fetch(
     Ok(())
 }
 
-async fn handle_imap_store(
-    state: &MailState,
+async fn handle_imap_store<S, I>(
+    state: &MailState<S>,
     identity: &MailIdentity,
-    selected: &[StoredInboxItem],
+    selected: &[I],
     rest: &str,
-) -> Result<()> {
+) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = I>,
+    I: InboxItemView,
+{
     let upper = rest.to_ascii_uppercase();
     if !upper.contains("\\SEEN") {
         return Ok(());
@@ -466,7 +719,12 @@ async fn handle_imap_store(
         };
         let _ = state
             .storage
-            .finish_inbox_item(&identity.user, &identity.player_id, item.id, "acked")
+            .finish_inbox_item(
+                &identity.user,
+                &identity.player_id,
+                item.id(),
+                INBOX_STATUS_ACKED,
+            )
             .await;
     }
     Ok(())
@@ -494,38 +752,38 @@ fn imap_literal_size(input: &str) -> Option<usize> {
         .ok()
 }
 
-fn render_rfc822_message(item: &StoredInboxItem) -> String {
+fn render_rfc822_message(item: &impl InboxItemView) -> String {
     format!(
         "From: {}\r\nTo: {}\r\nSubject: {}\r\nDate: {}\r\nMessage-ID: <hinemos-{}@local>\r\n\r\n{}\r\n",
-        item.sender_user,
-        item.recipient_user,
-        sanitize_header(&item.subject),
-        item.created_at,
-        item.id,
-        item.body
+        item.sender_user(),
+        item.subject(),
+        sanitize_header(item.subject()),
+        item.created_at(),
+        item.id(),
+        item.body()
     )
 }
 
-fn imap_internal_date(_item: &StoredInboxItem) -> &'static str {
+fn imap_internal_date(_item: &impl InboxItemView) -> &'static str {
     "02-Jun-2026 00:00:00 +0000"
 }
 
-fn render_imap_envelope(item: &StoredInboxItem) -> String {
-    let from = render_imap_address(&item.sender_user);
-    let to = render_imap_address(&item.recipient_user);
+fn render_imap_envelope(item: &impl InboxItemView) -> String {
+    let from = render_imap_address(item.sender_user());
+    let to = render_imap_address(item.subject());
     format!(
         "(\"{}\" \"{}\" ({from}) ({from}) ({from}) ({to}) NIL NIL NIL \"<hinemos-{}@local>\")",
         imap_internal_date(item),
-        imap_quote(&item.subject),
-        item.id
+        imap_quote(item.subject()),
+        item.id()
     )
 }
 
-fn render_bodystructure(item: &StoredInboxItem) -> String {
-    let body_lines = item.body.lines().count().max(1);
+fn render_bodystructure(item: &impl InboxItemView) -> String {
+    let body_lines = item.body().lines().count().max(1);
     format!(
         "(\"TEXT\" \"PLAIN\" NIL NIL NIL \"7BIT\" {} {body_lines} NIL NIL NIL)",
-        item.body.len()
+        item.body().len()
     )
 }
 
@@ -578,219 +836,14 @@ fn parse_imap_index(input: &str, len: usize) -> Option<usize> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ParsedEmail {
-    subject: String,
-    body: String,
-}
-
-fn parse_email_message(raw: &str) -> ParsedEmail {
-    let normalized = raw.replace("\r\n", "\n");
-    let (headers, body) = normalized.split_once("\n\n").unwrap_or(("", &normalized));
-    let headers = parse_headers(headers);
-    ParsedEmail {
-        subject: headers
-            .get("subject")
-            .cloned()
-            .unwrap_or_else(|| "Private mail".to_owned()),
-        body: body.trim_end_matches('\n').to_owned(),
-    }
-}
-
-fn parse_headers(input: &str) -> HashMap<String, String> {
-    let mut headers: HashMap<String, String> = HashMap::new();
-    let mut current_key = String::new();
-    for line in input.lines() {
-        if line.starts_with([' ', '\t']) && !current_key.is_empty() {
-            if let Some(value) = headers.get_mut(&current_key) {
-                value.push(' ');
-                value.push_str(line.trim());
-            }
-            continue;
-        }
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        current_key = key.trim().to_ascii_lowercase();
-        headers.insert(current_key.clone(), value.trim().to_owned());
-    }
-    headers
-}
-
-async fn read_smtp_data(reader: &mut BufReader<TcpStream>) -> Result<String> {
-    let mut data = String::new();
-    loop {
-        let Some(line) = read_protocol_line(reader).await? else {
-            break;
-        };
-        if line == "." {
-            break;
-        }
-        let line = line.strip_prefix("..").unwrap_or(&line);
-        data.push_str(line);
-        data.push_str("\r\n");
-    }
-    Ok(data)
-}
-
-async fn read_protocol_line(reader: &mut BufReader<TcpStream>) -> Result<Option<String>> {
-    let mut line = String::new();
-    let read = reader.read_line(&mut line).await?;
-    if read == 0 {
-        return Ok(None);
-    }
-    Ok(Some(
-        line.trim_end_matches('\n')
-            .trim_end_matches('\r')
-            .to_owned(),
-    ))
-}
-
-async fn write_line(reader: &mut BufReader<TcpStream>, line: &str) -> Result<()> {
-    let stream = reader.get_mut();
-    stream.write_all(line.as_bytes()).await?;
-    stream.write_all(b"\r\n").await?;
-    stream.flush().await?;
-    Ok(())
-}
-
-async fn tagged_ok(reader: &mut BufReader<TcpStream>, tag: &str, message: &str) -> Result<()> {
-    write_line(reader, &format!("{tag} OK {message}")).await
-}
-
-async fn tagged_no(reader: &mut BufReader<TcpStream>, tag: &str, message: &str) -> Result<()> {
-    write_line(reader, &format!("{tag} NO {message}")).await
-}
-
-async fn tagged_bad(reader: &mut BufReader<TcpStream>, tag: &str, message: &str) -> Result<()> {
-    write_line(reader, &format!("{tag} BAD {message}")).await
-}
-
-fn split_command(input: &str) -> (String, &str) {
-    let (command, rest) = split_first_token(input);
-    (command.to_ascii_uppercase(), rest)
-}
-
-fn split_first_token(input: &str) -> (&str, &str) {
-    let input = input.trim_start();
-    input
-        .split_once(char::is_whitespace)
-        .map_or((input, ""), |(head, rest)| (head, rest.trim_start()))
-}
-
-fn smtp_path_after(rest: &str, marker: &str) -> Option<String> {
-    let rest = rest.trim_start();
-    if !rest
-        .get(..marker.len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(marker))
-    {
-        return None;
-    }
-    let value = rest[marker.len()..].trim();
-    Some(
-        value
-            .trim_start_matches('<')
-            .trim_end_matches('>')
-            .trim()
-            .to_owned(),
-    )
-}
-
-fn decode_auth_plain(input: &str) -> Option<(String, String)> {
-    let decoded = decode_base64_bytes(input)?;
-    let mut parts = decoded.split(|byte| *byte == 0);
-    let _authorization_identity = parts.next()?;
-    let username = String::from_utf8(parts.next()?.to_vec()).ok()?;
-    let password = String::from_utf8(parts.next()?.to_vec()).ok()?;
-    Some((username, password))
-}
-
-fn decode_base64_text(input: &str) -> Option<String> {
-    String::from_utf8(decode_base64_bytes(input)?).ok()
-}
-
-fn decode_base64_bytes(input: &str) -> Option<Vec<u8>> {
-    BASE64.decode(input.trim()).ok()
-}
-
-fn parse_imap_login(input: &str) -> Option<(String, String)> {
-    let (username, rest) = parse_imap_atom_or_string(input)?;
-    let (password, _) = parse_imap_atom_or_string(rest)?;
-    Some((username, password))
-}
-
-fn parse_imap_atom_or_string(input: &str) -> Option<(String, &str)> {
-    let input = input.trim_start();
-    if let Some(rest) = input.strip_prefix('"') {
-        let mut escaped = false;
-        let mut value = String::new();
-        for (index, character) in rest.char_indices() {
-            if escaped {
-                value.push(character);
-                escaped = false;
-                continue;
-            }
-            match character {
-                '\\' => escaped = true,
-                '"' => return Some((value, &rest[index + 1..])),
-                _ => value.push(character),
-            }
-        }
-        None
-    } else {
-        let (value, rest) = split_first_token(input);
-        (!value.is_empty()).then(|| (value.to_owned(), rest))
-    }
-}
-
-fn sanitize_header(input: &str) -> String {
-    input.replace(['\r', '\n'], " ")
-}
-
 #[cfg(test)]
-mod tests {
-    use super::{
-        decode_auth_plain, expand_imap_set, parse_email_message, parse_imap_login, smtp_path_after,
-    };
-    use base64::Engine;
-    use base64::engine::general_purpose::STANDARD as BASE64;
+mod mail_tests {
+    use super::imap_visible_inbox_kind;
 
     #[test]
-    fn decodes_auth_plain() {
-        let encoded = BASE64.encode(b"\0alice\0secret");
-
-        assert_eq!(
-            decode_auth_plain(&encoded),
-            Some(("alice".to_owned(), "secret".to_owned()))
-        );
-    }
-
-    #[test]
-    fn parses_quoted_imap_login() {
-        assert_eq!(
-            parse_imap_login("\"alice\" \"s e c r e t\""),
-            Some(("alice".to_owned(), "s e c r e t".to_owned()))
-        );
-    }
-
-    #[test]
-    fn extracts_smtp_paths_case_insensitively() {
-        assert_eq!(
-            smtp_path_after("to:<bob@hinemos.local>", "TO:"),
-            Some("bob@hinemos.local".to_owned())
-        );
-    }
-
-    #[test]
-    fn parses_email_subject_and_body() {
-        let parsed = parse_email_message("Subject: Hello\r\nFrom: alice\r\n\r\nBody\r\n");
-
-        assert_eq!(parsed.subject, "Hello");
-        assert_eq!(parsed.body, "Body");
-    }
-
-    #[test]
-    fn expands_imap_ranges() {
-        assert_eq!(expand_imap_set("1:3,5,*", 8), vec![1, 2, 3, 5, 8]);
+    fn imap_exposes_mail_and_shop_commands_but_not_player_action_items() {
+        assert!(imap_visible_inbox_kind("mail"));
+        assert!(imap_visible_inbox_kind("shop_command"));
+        assert!(!imap_visible_inbox_kind("payment_request"));
     }
 }

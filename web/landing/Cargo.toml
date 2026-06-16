@@ -1,0 +1,10 @@
+[package]
+name = "hinemos-landing"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+web-sys = { version = "0.3.83", features = ["Document", "Element", "Window"] }
+yew = { version = "0.21.0", features = ["csr"] }

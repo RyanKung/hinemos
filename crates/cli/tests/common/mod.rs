@@ -134,13 +134,51 @@ pub fn spawn_hinemos_server_with_env<const N: usize>(
     database_url: &str,
     envs: [(&str, &str); N],
 ) -> Child {
-    let log = fs::File::create(log_path).expect("create server log");
+    spawn_hinemos_server_with_options(HinemosServerOptions {
+        root,
+        host,
+        port,
+        log_path,
+        database_url,
+        world: None,
+        admin_socket: None,
+        envs,
+    })
+}
+
+pub struct HinemosServerOptions<'a, const N: usize> {
+    pub root: &'a Path,
+    pub host: &'a str,
+    pub port: u16,
+    pub log_path: &'a Path,
+    pub database_url: &'a str,
+    pub world: Option<&'a Path>,
+    pub admin_socket: Option<&'a Path>,
+    pub envs: [(&'a str, &'a str); N],
+}
+
+#[allow(dead_code)]
+pub fn spawn_hinemos_server_with_options<const N: usize>(
+    options: HinemosServerOptions<'_, N>,
+) -> Child {
+    let log = fs::File::create(options.log_path).expect("create server log");
     let mut command = Command::new(env!("CARGO_BIN_EXE_hinemos"));
     command
-        .current_dir(root)
-        .args(["serve", "ssh", "--bind", &format!("{host}:{port}")])
-        .env("DATABASE_URL", database_url);
-    for (key, value) in envs {
+        .current_dir(options.root)
+        .args([
+            "serve",
+            "ssh",
+            "--bind",
+            &format!("{}:{}", options.host, options.port),
+        ])
+        .env("DATABASE_URL", options.database_url);
+    if let Some(world) = options.world {
+        command.arg("--world").arg(world);
+    }
+    if let Some(admin_socket) = options.admin_socket {
+        command.arg("--admin-socket").arg(admin_socket);
+    }
+    for (key, value) in options.envs {
         command.env(key, value);
     }
     command
@@ -148,6 +186,27 @@ pub fn spawn_hinemos_server_with_env<const N: usize>(
         .stderr(log)
         .spawn()
         .expect("spawn hinemos ssh server")
+}
+
+#[allow(dead_code)]
+pub fn copy_dir_recursive(source: &Path, target: &Path) {
+    fs::create_dir_all(target).expect("create copy target");
+    for entry in fs::read_dir(source).expect("read source dir") {
+        let entry = entry.expect("read source entry");
+        let entry_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        if entry_path.is_dir() {
+            copy_dir_recursive(&entry_path, &target_path);
+        } else {
+            fs::copy(&entry_path, &target_path).unwrap_or_else(|error| {
+                panic!(
+                    "copy {} to {}: {error}",
+                    entry_path.display(),
+                    target_path.display()
+                )
+            });
+        }
+    }
 }
 
 pub fn wait_for_server(host: &str, port: u16, server: &mut Child, log_path: &Path) {
@@ -212,6 +271,74 @@ pub fn run_ssh_batch<const N: usize>(
     stdout.into_owned()
 }
 
+pub fn generate_ed25519_key(path: &Path) {
+    let output = Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(path)
+        .output()
+        .expect("spawn ssh-keygen");
+    assert!(
+        output.status.success(),
+        "ssh-keygen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+pub fn run_ssh_batch_with_key(
+    host: &str,
+    port: u16,
+    user: &str,
+    key_path: &Path,
+    commands: &[&str],
+) -> String {
+    let input = format!("{}\n", commands.join("\n"));
+    let mut child = ssh_command(host, port, user, Some(key_path))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn ssh batch");
+    child
+        .stdin
+        .as_mut()
+        .expect("open ssh stdin")
+        .write_all(input.as_bytes())
+        .expect("write ssh commands");
+    drop(child.stdin.take());
+    let output = wait_with_timeout(child, Duration::from_secs(30));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "ssh batch failed for {user}: {}\nstdout:\n{}",
+        stderr,
+        stdout
+    );
+    stdout.into_owned()
+}
+
+pub fn admit_ssh_user(host: &str, port: u16, user: &str, key_path: &Path) {
+    let output = run_ssh_batch_with_key(
+        host,
+        port,
+        user,
+        key_path,
+        &["/read agreement", "/agree", "/quit"],
+    );
+    assert_contains(
+        &output,
+        "Agreement accepted",
+        "test user completes admission",
+    );
+}
+
+pub fn admitted_key(temp: &TestTempDir, host: &str, port: u16, user: &str) -> PathBuf {
+    let key_path = temp.path.join(format!("{user}_ed25519"));
+    generate_ed25519_key(&key_path);
+    admit_ssh_user(host, port, user, &key_path);
+    key_path
+}
+
 pub struct SshSession {
     child: Child,
     stdin: std::process::ChildStdin,
@@ -223,26 +350,36 @@ pub struct SshSession {
 
 impl SshSession {
     pub fn spawn(host: &str, port: u16, user: &str) -> Self {
-        Self::spawn_with_args(host, port, user, [])
+        Self::spawn_with_args(host, port, user, None, [])
+    }
+
+    pub fn spawn_with_key(host: &str, port: u16, user: &str, key_path: &Path) -> Self {
+        Self::spawn_with_args(host, port, user, Some(key_path), [])
     }
 
     #[allow(dead_code)]
     pub fn spawn_exec<const N: usize>(host: &str, port: u16, user: &str, args: [&str; N]) -> Self {
-        Self::spawn_with_args(host, port, user, args)
+        Self::spawn_with_args(host, port, user, None, args)
     }
 
-    fn spawn_with_args<const N: usize>(host: &str, port: u16, user: &str, args: [&str; N]) -> Self {
-        let mut child = Command::new("ssh")
-            .args([
-                "-T",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-p",
-                &port.to_string(),
-                &format!("{user}@{host}"),
-            ])
+    pub fn spawn_exec_with_key<const N: usize>(
+        host: &str,
+        port: u16,
+        user: &str,
+        key_path: &Path,
+        args: [&str; N],
+    ) -> Self {
+        Self::spawn_with_args(host, port, user, Some(key_path), args)
+    }
+
+    fn spawn_with_args<const N: usize>(
+        host: &str,
+        port: u16,
+        user: &str,
+        key_path: Option<&Path>,
+        args: [&str; N],
+    ) -> Self {
+        let mut child = ssh_command(host, port, user, key_path)
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -310,6 +447,27 @@ impl SshSession {
     fn stderr_text(&self) -> String {
         String::from_utf8_lossy(&self.stderr.lock().expect("stderr lock")).to_string()
     }
+}
+
+fn ssh_command(host: &str, port: u16, user: &str, key_path: Option<&Path>) -> Command {
+    let mut command = Command::new("ssh");
+    command.args([
+        "-T",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+    ]);
+    if let Some(key_path) = key_path {
+        command
+            .arg("-i")
+            .arg(key_path)
+            .args(["-o", "IdentitiesOnly=yes"]);
+    }
+    command.args(["-p", &port.to_string(), &format!("{user}@{host}")]);
+    command
 }
 
 pub fn assert_contains(output: &str, needle: &str, description: &str) {
@@ -480,7 +638,7 @@ fn has_world_agent_evidence(stdout: &str) -> bool {
         &["ssh", "SSH"][..],
         &["Hinemos", "open world"],
         &["Available", "/look", "/go"],
-        &["Chamber", "commercial", "parcel", "north_01", "/land"],
+        &["Guild", "market", "parcel", "north_01", "/land"],
         &["claim", "build", "publish", "/build", "owned", "shop"],
     ]
     .iter()
@@ -570,16 +728,19 @@ pub struct TestTempDir {
 }
 
 pub struct TestDatabase {
-    admin_url: String,
     name: String,
     pub url: String,
     drop_on_exit: bool,
+    isolation: TestDatabaseIsolation,
+}
+
+enum TestDatabaseIsolation {
+    Database { admin_url: String },
+    Schema { base_url: String },
 }
 
 impl TestDatabase {
     pub fn create(env: &HashMap<String, String>) -> Self {
-        assert_command_exists("createdb");
-        assert_command_exists("dropdb");
         let base_url = assert_database_env(env);
         let name = format!(
             "hinemos_test_{}_{}_{}",
@@ -590,22 +751,50 @@ impl TestDatabase {
         let admin_url = database_url_with_name(&base_url, "postgres");
         let url = database_url_with_name(&base_url, &name);
 
-        let output = Command::new("createdb")
+        let createdb = Command::new("createdb")
             .args(["--maintenance-db", &admin_url, &name])
+            .output();
+        if let Ok(output) = &createdb
+            && output.status.success()
+        {
+            return Self {
+                name,
+                url,
+                drop_on_exit: true,
+                isolation: TestDatabaseIsolation::Database { admin_url },
+            };
+        }
+
+        let createdb_error = match createdb {
+            Ok(output) => String::from_utf8_lossy(&output.stderr).into_owned(),
+            Err(error) => error.to_string(),
+        };
+        assert_command_exists("psql");
+        let schema_url = database_url_with_search_path(&base_url, &name);
+        let create_schema = Command::new("psql")
+            .args([
+                &base_url,
+                "--no-align",
+                "--tuples-only",
+                "--command",
+                &format!("create schema {name};"),
+            ])
             .output()
-            .expect("spawn createdb");
+            .expect("spawn psql create schema");
         assert!(
-            output.status.success(),
-            "failed to create isolated integration test database `{}`: {}",
+            create_schema.status.success(),
+            "failed to create isolated integration test database `{}`: {}\n\
+             fallback schema creation also failed: {}",
             name,
-            String::from_utf8_lossy(&output.stderr)
+            createdb_error,
+            String::from_utf8_lossy(&create_schema.stderr)
         );
 
         Self {
-            admin_url,
             name,
-            url,
+            url: schema_url,
             drop_on_exit: true,
+            isolation: TestDatabaseIsolation::Schema { base_url },
         }
     }
 
@@ -633,15 +822,30 @@ impl Drop for TestDatabase {
             eprintln!("test database kept: {}", self.name);
             return;
         }
-        let _ = Command::new("dropdb")
-            .args([
-                "--if-exists",
-                "--force",
-                "--maintenance-db",
-                &self.admin_url,
-                &self.name,
-            ])
-            .status();
+        match &self.isolation {
+            TestDatabaseIsolation::Database { admin_url } => {
+                let _ = Command::new("dropdb")
+                    .args([
+                        "--if-exists",
+                        "--force",
+                        "--maintenance-db",
+                        admin_url,
+                        &self.name,
+                    ])
+                    .status();
+            }
+            TestDatabaseIsolation::Schema { base_url } => {
+                let _ = Command::new("psql")
+                    .args([
+                        base_url,
+                        "--no-align",
+                        "--tuples-only",
+                        "--command",
+                        &format!("drop schema if exists {} cascade;", self.name),
+                    ])
+                    .status();
+            }
+        }
     }
 }
 
@@ -658,6 +862,11 @@ fn database_url_with_name(base_url: &str, database: &str) -> String {
         url.push_str(query);
     }
     url
+}
+
+fn database_url_with_search_path(base_url: &str, schema: &str) -> String {
+    let separator = if base_url.contains('?') { '&' } else { '?' };
+    format!("{base_url}{separator}options=-csearch_path%3D{schema}%2Cpublic")
 }
 
 impl TestTempDir {
@@ -703,7 +912,14 @@ fn common_helpers_are_reachable_for_lints() {
         as fn(&Path, &str, u16, &Path, &str, [(&str, &str); 0]) -> Child;
     let _ = wait_for_server as fn(&str, u16, &mut Child, &Path);
     let _ = run_ssh_batch::<0> as fn(&str, u16, &str, [&str; 0]) -> String;
+    let _ = generate_ed25519_key as fn(&Path);
+    let _ = run_ssh_batch_with_key as fn(&str, u16, &str, &Path, &[&str]) -> String;
+    let _ = admit_ssh_user as fn(&str, u16, &str, &Path);
+    let _ = admitted_key as fn(&TestTempDir, &str, u16, &str) -> PathBuf;
     let _ = SshSession::spawn as fn(&str, u16, &str) -> SshSession;
+    let _ = SshSession::spawn_with_key as fn(&str, u16, &str, &Path) -> SshSession;
+    let _ =
+        SshSession::spawn_exec_with_key::<0> as fn(&str, u16, &str, &Path, [&str; 0]) -> SshSession;
     let _ = SshSession::write_line as fn(&mut SshSession, &str);
     let _ = SshSession::wait_for_stdout as fn(&SshSession, &str, Duration);
     let _ = SshSession::wait_for_any_stdout as fn(&SshSession, &[&str], Duration) -> String;

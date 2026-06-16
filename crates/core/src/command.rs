@@ -52,6 +52,52 @@ impl EntityRef {
     }
 }
 
+/// Parses slash-prefixed custom command strings into canonical extension commands.
+pub fn extension_commands(commands: Option<&str>) -> impl Iterator<Item = SemanticCommand> + '_ {
+    commands
+        .unwrap_or_default()
+        .split(['\n', ';'])
+        .filter_map(|entry| {
+            let entry = entry.trim();
+            let command = entry.split_whitespace().next()?;
+            command.starts_with('/').then(|| entry.to_owned())
+        })
+        .map(|input| {
+            let name = input
+                .trim_start_matches('/')
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            SemanticCommand::Extension { name, input }
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_commands_keep_slash_prefixed_entries() {
+        let commands =
+            extension_commands(Some("/room ask\nnot-a-command; /room status")).collect::<Vec<_>>();
+
+        assert_eq!(
+            commands,
+            vec![
+                SemanticCommand::Extension {
+                    name: "room".to_owned(),
+                    input: "/room ask".to_owned(),
+                },
+                SemanticCommand::Extension {
+                    name: "room".to_owned(),
+                    input: "/room status".to_owned(),
+                },
+            ]
+        );
+    }
+}
+
 /// Canonical commands produced by the slash parser.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -89,6 +135,11 @@ pub enum SemanticCommand {
     Talk {
         /// Target entity.
         target: EntityRef,
+    },
+    /// Agree to the current admission agreement.
+    Agree {
+        /// Exact agreement phrase shown by the board.
+        phrase: String,
     },
     /// Send a message to players in the same view.
     Say {
@@ -185,6 +236,11 @@ pub enum LandAction {
         /// Target user or player id.
         target: String,
     },
+    /// Rotate and show the room mailbox token for an owned parcel.
+    Token {
+        /// Parcel id.
+        parcel_id: String,
+    },
 }
 
 /// Wallet payment actions.
@@ -248,16 +304,6 @@ pub enum SettingsAction {
     Show,
     /// Generate or rotate the dedicated SMTP/IMAP mail auth token.
     MailToken,
-    /// Set the SSH password login secret for this account.
-    SetPassword {
-        /// New SSH password.
-        password: String,
-    },
-    /// Replace the SSH public key bound to this account.
-    SetKey {
-        /// OpenSSH public key text.
-        public_key: String,
-    },
 }
 
 /// Build sheet actions for an owned parcel.

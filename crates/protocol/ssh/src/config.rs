@@ -8,7 +8,7 @@ use clap::Args;
 /// SSH adapter command-line arguments.
 #[derive(Debug, Clone, Args)]
 pub struct SshArgs {
-    #[arg(long, default_value = "127.0.0.1:2222")]
+    #[arg(long, default_value = "127.0.0.1:2022")]
     pub(crate) bind: SocketAddr,
 
     #[arg(long, default_value = "worlds/sample")]

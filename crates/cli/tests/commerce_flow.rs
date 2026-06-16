@@ -1,9 +1,10 @@
 mod common;
 
+use std::path::Path;
+
 use common::*;
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -19,31 +20,72 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
 
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
+    let owner_key = admitted_key(&temp, host, port, &owner);
+    let customer_key = admitted_key(&temp, host, port, &customer);
 
-    let owner_setup = run_ssh_batch(
+    assert_owner_shop_setup(host, port, &owner, &owner_key);
+    assert_customer_shop_visit(host, port, &customer, &customer_key);
+    assert_shop_mailbox_converged(&test_database);
+    let request_id = request_shop_payment(host, port, &owner, &owner_key);
+    assert_customer_paid_request(host, port, &customer, &customer_key, request_id);
+    assert_owner_received_payment(host, port, &owner, &owner_key);
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
+    let shop_command_count = test_database.query_value(
+        "select count(*) from inbox_items where recipient_user = 'room-N1' and kind = 'shop_command' and source_kind = 'operator_command' and body = '/hello'",
+    );
+    assert_eq!(
+        shop_command_count, "1",
+        "visitor shop command should be stored once as the shop actionable item"
+    );
+
+    let duplicate_mail_count = test_database.query_value(
+        "select count(*) from inbox_items where recipient_user = 'room-N1' and kind = 'mail' and body = '/hello'",
+    );
+    assert_eq!(
+        duplicate_mail_count, "0",
+        "visitor shop command should not also be stored as generic mail"
+    );
+
+    let world_mail_count = test_database.query_value(
+        "select count(*) from world_messages where target_user = 'room-N1' and kind = 'mail' and body = '/hello'",
+    );
+    assert_eq!(
+        world_mail_count, "0",
+        "visitor shop command should not create an extra generic mail history row"
+    );
+}
+
+fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path) {
+    let owner_setup = run_ssh_batch_with_key(
         host,
         port,
-        &owner,
-        [
-            "/land claim north_01",
+        owner,
+        owner_key,
+        &[
+            "/land claim N1",
             "/go north",
-            "/enter north_01",
+            "/enter N1",
             "/build {\"title\":\"Offline Tool Broker\",\"description\":\"An operator-run shop that sells a simple greeting string.\",\"style\":\"Ledger-first counter service.\",\"prompt\":\"Parse visitor requests, create payment requests, and deliver content only after payment.\"}",
-            "/land info north_01",
+            "/land info N1",
             "/build publish",
             "/hello",
-            "/land info north_01",
+            "/land info N1",
             "/quit",
         ],
     );
     assert_contains(
         &owner_setup,
-        "You can build here with /build",
+        "Build here with /build",
         "claim response gives the owner a usable build command",
     );
     assert_not_contains(
         &owner_setup,
-        "Go to parcel_north_01",
+        "Go to parcel_N1",
         "claim response does not expose internal view ids",
     );
     assert_contains(
@@ -71,11 +113,7 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         "Commands: /hello preview=hello price=25; /status",
         "owner build custom commands were persisted",
     );
-    assert_contains(
-        &owner_setup,
-        "Published parcel north_01",
-        "owner published shop",
-    );
+    assert_contains(&owner_setup, "Published parcel N1", "owner published shop");
     assert_contains(
         &owner_setup,
         "You own this shop. Visitors use /hello here",
@@ -86,12 +124,15 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         "Status: built",
         "published build status is visible in parcel detail",
     );
+}
 
-    let customer_visit = run_ssh_batch(
+fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_key: &Path) {
+    let customer_visit = run_ssh_batch_with_key(
         host,
         port,
-        &customer,
-        ["/go north", "/enter north_01", "/hello", "/quit"],
+        customer,
+        customer_key,
+        &["/go north", "/enter N1", "/hello", "/quit"],
     );
     assert_contains(
         &customer_visit,
@@ -120,13 +161,18 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     );
     assert_contains(
         &customer_visit,
-        "local: /hello, /status",
+        "local: /hello preview=hello price=25, /status",
         "customer sees shop commands in Available",
     );
     assert_contains(
         &customer_visit,
-        "Operator prompt: Parse visitor requests, create payment requests, and deliver content only after payment.",
+        "Operator prompt: Parse visitor requests",
         "customer sees the edited operator prompt",
+    );
+    assert_contains(
+        &customer_visit,
+        "content only after payment.",
+        "customer sees the full edited operator prompt",
     );
     assert_contains(
         &customer_visit,
@@ -135,8 +181,8 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     );
     assert_contains(
         &customer_visit,
-        "queued",
-        "offline owner command was queued",
+        "Status: delivered.",
+        "offline owner command was delivered to the shop inbox",
     );
     assert_contains(
         &customer_visit,
@@ -148,12 +194,15 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         "hello world",
         "customer did not receive paid content before payment",
     );
+}
 
-    let owner_request = run_ssh_batch(
+fn request_shop_payment(host: &str, port: u16, owner: &str, owner_key: &Path) -> i64 {
+    let owner_request = run_ssh_batch_with_key(
         host,
         port,
-        &owner,
-        [
+        owner,
+        owner_key,
+        &[
             "/shop inbox",
             "/shop request-payment 1 25 hello world",
             "/quit",
@@ -169,14 +218,24 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         "Created payment request",
         "owner created a payment request",
     );
-    let request_id = parse_hash_id(&owner_request, "Created payment request #");
+    parse_hash_id(&owner_request, "Created payment request #")
+}
+
+fn assert_customer_paid_request(
+    host: &str,
+    port: u16,
+    customer: &str,
+    customer_key: &Path,
+    request_id: i64,
+) {
     let accept_request = format!("/pay accept {request_id}");
 
-    let customer_payment = run_ssh_batch(
+    let customer_payment = run_ssh_batch_with_key(
         host,
         port,
-        &customer,
-        ["/pay requests", &accept_request, "/balance", "/quit"],
+        customer,
+        customer_key,
+        &["/pay requests", &accept_request, "/balance", "/quit"],
     );
     assert_contains(
         &customer_payment,
@@ -208,8 +267,16 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         "Balance: 975 MARK",
         "customer balance updated",
     );
+}
 
-    let owner_reconnect = run_ssh_batch(host, port, &owner, ["/shop inbox", "/balance", "/quit"]);
+fn assert_owner_received_payment(host: &str, port: u16, owner: &str, owner_key: &Path) {
+    let owner_reconnect = run_ssh_batch_with_key(
+        host,
+        port,
+        owner,
+        owner_key,
+        &["/shop inbox", "/balance", "/quit"],
+    );
     assert_contains(
         &owner_reconnect,
         "/hello",
@@ -225,7 +292,4 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
         "Balance: 1025 MARK",
         "owner received payment",
     );
-
-    terminate(&mut server);
-    temp.remove_on_drop();
 }

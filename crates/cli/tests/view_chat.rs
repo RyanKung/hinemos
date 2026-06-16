@@ -5,7 +5,6 @@ use std::time::Duration;
 use common::*;
 
 #[test]
-#[ignore = "requires local Postgres and SSH client"]
 fn two_ssh_agents_can_chat_in_same_view() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -23,14 +22,18 @@ fn two_ssh_agents_can_chat_in_same_view() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
 
-    let mut listener_session = SshSession::spawn(host, port, &listener);
+    let listener_key = admitted_key(&temp, host, port, &listener);
+    let speaker_key = admitted_key(&temp, host, port, &speaker);
+
+    let mut listener_session = SshSession::spawn_with_key(host, port, &listener, &listener_key);
     listener_session.wait_for_stdout("Available:", Duration::from_secs(10));
 
-    let speaker_output = run_ssh_batch(
+    let speaker_output = run_ssh_batch_with_key(
         host,
         port,
         &speaker,
-        [&format!("/say {message}"), "/history", "/quit"],
+        &speaker_key,
+        &[&format!("/say {message}"), "/history", "/quit"],
     );
     assert_contains(
         &speaker_output,

@@ -5,7 +5,10 @@
 mod client_shell;
 mod reload;
 
-pub use client_shell::{Chrome, SlashParseError, render_text_events, render_text_observation};
+pub use client_shell::{
+    Chrome, SlashParseError, render_text_events, render_text_observation,
+    render_text_observation_with_width,
+};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -240,6 +243,11 @@ impl GameRuntime {
             SemanticCommand::Read { target } => {
                 let entity = self.visible_entity(player_id, target)?;
                 vec![message(read_entity_message(entity))]
+            }
+            SemanticCommand::Agree { .. } => {
+                vec![message(
+                    "Admission agreements are handled in SSH sessions.".to_owned(),
+                )]
             }
             SemanticCommand::Take { target } => self.take_entity(player_id, target)?,
             SemanticCommand::Talk { target } => {
@@ -621,7 +629,19 @@ fn read_entity_message(entity: &Entity) -> String {
         Some(EntityCollection::BulletinBoard { items }) if !items.is_empty() => {
             let mut lines = vec![format!("{}:", entity.name)];
             for item in items {
-                lines.push(format!("- {}: {}", item.title, item.body));
+                let body_lines = item.body.lines().collect::<Vec<_>>();
+                if body_lines.len() <= 1 {
+                    lines.push(format!("- {}: {}", item.title, item.body));
+                } else {
+                    lines.push(format!("- {}:", item.title));
+                    lines.extend(body_lines.into_iter().map(|line| {
+                        if line.trim().is_empty() {
+                            "  ".to_owned()
+                        } else {
+                            format!("  {line}")
+                        }
+                    }));
+                }
             }
             lines.join("\n")
         }
@@ -654,10 +674,6 @@ fn message(text: String) -> ObservationEvent {
 }
 
 fn render_ascii_art_for_view(view: &View) -> Vec<String> {
-    if view.ascii_art.is_empty() {
-        return Vec::new();
-    }
-
     view.ascii_art.clone()
 }
 
@@ -712,6 +728,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("Arrival Skill"));
-        assert!(text.contains("go west to Blackstone Tavern"));
+        assert!(text.contains("Admission Agreement"));
+        assert!(text.contains("Guild Guide"));
+        assert!(text.contains("Open World Note"));
     }
 }

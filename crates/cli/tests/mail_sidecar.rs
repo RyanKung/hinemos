@@ -15,7 +15,6 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, SignatureScheme, StreamOwned};
 
 #[tokio::test]
-#[ignore = "requires local Postgres"]
 async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -103,7 +102,63 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
 }
 
 #[tokio::test]
-#[ignore = "requires Docker and network access to pull Stalwart"]
+async fn room_service_smtp_reply_is_threaded_as_room_reply() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    let storage = hinemos_storage::PgStorage::connect(&test_database.url)
+        .await
+        .expect("connect test database");
+    storage.migrate().await.expect("migrate test database");
+    storage
+        .set_mail_auth_token("room", "room:smtp-reply", "token")
+        .await
+        .expect("seed room mail auth token");
+    test_database.query_value(
+        "insert into service_rooms (
+             view_id, front_view_id, front_entity_id, address, label, enter_aliases,
+             room_user, room_player_id, status_text, custom_commands, enabled
+         ) values (
+             'smtp_reply_room', 'arrival_street', null, 'SMTP',
+             'SMTP Reply Room', 'smtp-reply',
+             'room', 'room:smtp-reply',
+             'SMTP reply room.', '/room ask <question>', true
+         ) returning view_id",
+    );
+
+    let temp = TestTempDir::new("hinemos-room-smtp-reply");
+    let smtp_port = free_local_port();
+    let imap_port = free_local_port();
+    let log_path = temp.path.join("mail-sidecar.log");
+    let mut server = spawn_mail_sidecar(
+        &root,
+        "127.0.0.1",
+        smtp_port,
+        "127.0.0.1",
+        imap_port,
+        &log_path,
+        &test_database.url,
+    );
+    wait_for_tcp("127.0.0.1", smtp_port, &mut server, &log_path);
+
+    send_smtp_message_as_room(smtp_port, "agent", "Re: #42", "reply via smtp");
+    let threaded = test_database.query_value(
+        "select count(*) from inbox_items
+         where sender_user = 'room'
+           and recipient_user = 'agent'
+           and subject = 'Re: #42'
+           and source_kind = 'room_reply'
+           and source_id is null
+           and payload->>'reply_to_request_id' = '42'
+           and payload->>'view_id' = 'smtp_reply_room'",
+    );
+    assert_eq!(threaded, "1", "SMTP room replies carry thread metadata");
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[tokio::test]
 async fn agent_imap_idle_listener_handles_ten_messages_from_outside_docker() {
     install_test_rustls_provider();
     assert_docker_available();
@@ -229,6 +284,30 @@ fn spawn_mail_sidecar(
         .expect("spawn hinemos mail sidecar")
 }
 
+fn send_smtp_message_as_room(smtp_port: u16, recipient: &str, subject: &str, body: &str) {
+    let mut smtp = ProtocolClient::connect(("127.0.0.1", smtp_port));
+    smtp.expect_contains("220 hinemos ESMTP ready");
+    smtp.send("EHLO local");
+    smtp.expect_contains("250-AUTH PLAIN LOGIN");
+    smtp.send("AUTH LOGIN cm9vbQ==");
+    smtp.expect_contains("334 UGFzc3dvcmQ6");
+    smtp.send("dG9rZW4=");
+    smtp.expect_contains("235 2.7.0 Authentication successful");
+    smtp.send("MAIL FROM:<room@hinemos.local>");
+    smtp.expect_contains("250 2.1.0 Sender OK");
+    smtp.send(&format!("RCPT TO:<{recipient}@hinemos.local>"));
+    smtp.expect_contains("250 2.1.5 Recipient OK");
+    smtp.send("DATA");
+    smtp.expect_contains("354 End data");
+    smtp.send(&format!("Subject: {subject}"));
+    smtp.send("");
+    smtp.send(body);
+    smtp.send(".");
+    smtp.expect_contains("250 2.0.0 Message accepted");
+    smtp.send("QUIT");
+    smtp.expect_contains("221 2.0.0 Bye");
+}
+
 fn assert_docker_available() {
     run_checked(
         Command::new("docker")
@@ -252,14 +331,23 @@ fn run_checked(output: std::process::Output, description: &str) {
 }
 
 fn read_stalwart_admin_password(container: &str) -> String {
-    let logs = docker_logs(container);
-    logs.lines()
-        .rev()
-        .filter_map(|line| line.split_once("password '"))
-        .filter_map(|(_, rest)| rest.split_once('\''))
-        .map(|(password, _)| password.to_owned())
-        .next()
-        .unwrap_or_else(|| panic!("Stalwart admin password not found in logs:\n{logs}"))
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut logs = String::new();
+    while Instant::now() < deadline {
+        logs = docker_logs(container);
+        if let Some(password) = logs
+            .lines()
+            .rev()
+            .filter_map(|line| line.split_once("password '"))
+            .filter_map(|(_, rest)| rest.split_once('\''))
+            .map(|(password, _)| password.to_owned())
+            .next()
+        {
+            return password;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    panic!("Stalwart admin password not found in logs:\n{logs}")
 }
 
 fn docker_logs(container: &str) -> String {

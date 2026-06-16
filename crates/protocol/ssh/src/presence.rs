@@ -105,6 +105,19 @@ impl PresenceRegistry {
             .collect()
     }
 
+    pub(crate) fn connection_views(&self) -> Vec<(u64, String)> {
+        self.connections
+            .iter()
+            .map(|(&connection_id, record)| (connection_id, record.current_view.clone()))
+            .collect()
+    }
+
+    pub(crate) fn connection_player_id(&self, connection_id: u64) -> Option<String> {
+        self.connections
+            .get(&connection_id)
+            .map(|record| record.player_id.clone())
+    }
+
     pub(crate) fn admin_users(&self) -> Vec<AdminUser> {
         let mut grouped = HashMap::<String, UserAccumulator>::new();
         for record in self.connections.values() {
@@ -180,6 +193,23 @@ impl PresenceRegistry {
             .iter()
             .filter(|(connection_id, record)| {
                 **connection_id != sender_connection_id
+                    && (record.user == target || record.player_id == target)
+            })
+            .filter_map(|(_, record)| record.delivery())
+            .collect()
+    }
+
+    pub(crate) fn direct_recipients_in_view(
+        &self,
+        sender_connection_id: u64,
+        target: &str,
+        view_id: &str,
+    ) -> Vec<PresenceDelivery> {
+        self.connections
+            .iter()
+            .filter(|(connection_id, record)| {
+                **connection_id != sender_connection_id
+                    && record.current_view == view_id
                     && (record.user == target || record.player_id == target)
             })
             .filter_map(|(_, record)| record.delivery())

@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hinemos_admin_protocol::{AdminRequest, AdminResponse, MAX_ADMIN_FRAME};
+use rand::Rng;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
@@ -113,14 +116,9 @@ async fn dispatch_admin_request(
         }
         AdminRequest::ReloadWorld { world_dir } => {
             let dir = world_dir.unwrap_or(default_world);
-            if let Err(error) = shared
-                .runtime
-                .reload_from_world_dir_preserving_players(&dir)
-                .await
-            {
+            if let Err(error) = shared.reload_world_from_dir(&dir).await {
                 return AdminResponse::error(error);
             }
-
             match shared.runtime.world_counts().await {
                 Ok(counts) => AdminResponse::Ok {
                     message: format!(
@@ -134,7 +132,28 @@ async fn dispatch_admin_request(
                 Err(error) => AdminResponse::error(error),
             }
         }
+        AdminRequest::RoomToken { view_id } => {
+            let token = generate_admin_mail_auth_token();
+            match shared
+                .set_service_room_mail_auth_token(&view_id, &token)
+                .await
+            {
+                Ok(auth) => AdminResponse::RoomToken {
+                    view_id,
+                    username: auth.username,
+                    player_id: auth.player_id,
+                    token,
+                },
+                Err(error) => AdminResponse::error(error),
+            }
+        }
     }
+}
+
+fn generate_admin_mail_auth_token() -> String {
+    let mut bytes = [0_u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 async fn read_framed_json_async<T: serde::de::DeserializeOwned>(
