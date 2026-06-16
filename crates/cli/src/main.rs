@@ -14,6 +14,8 @@ use hinemos_runtime::{Chrome, GameRuntime, render_text_observation};
 use hinemos_storage::{NewMemoryAtom, NewMemoryEvent, PgStorage};
 use serde_json::json;
 
+mod rooms_service;
+
 #[derive(Debug, Parser)]
 #[command(name = "hinemos")]
 #[command(about = "A local open-world prototype for agent exploration")]
@@ -47,6 +49,8 @@ enum ServeCli {
     Ssh(hinemos_ssh::SshArgs),
     /// Run the SMTP/IMAP mail sidecar.
     Mail(hinemos_ssh::MailArgs),
+    /// Run the built-in external room service workers.
+    Rooms(rooms_service::RoomsArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -181,6 +185,7 @@ async fn main() -> Result<()> {
             TopCommand::Serve(ServeCli::Http(args)) => hinemos_http::run_daemon(args).await,
             TopCommand::Serve(ServeCli::Ssh(args)) => hinemos_ssh::run_daemon(args).await,
             TopCommand::Serve(ServeCli::Mail(args)) => hinemos_ssh::run_mail_daemon(args).await,
+            TopCommand::Serve(ServeCli::Rooms(args)) => rooms_service::run(args).await,
         };
     }
 

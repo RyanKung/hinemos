@@ -123,7 +123,10 @@ impl HinemosBank {
         };
         let account = self.account_mut(&item.sender_user);
         if account.cash < amount {
-            return Some(format!("You only have {} MARK cash available.", account.cash));
+            return Some(format!(
+                "You only have {} MARK cash available.",
+                account.cash
+            ));
         }
         account.cash -= amount;
         account.deposit += amount;

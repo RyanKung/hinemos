@@ -72,7 +72,7 @@ install-host:
 	$(SSH) $(HOST) 'cd $(REMOTE_DIR) && sudo scripts/install-host-service.sh $(REMOTE_DIR) && sudo scripts/install-host-http-service.sh $(REMOTE_DIR)'
 
 restart-host:
-	$(SSH) $(HOST) 'sudo systemctl restart hinemos.service hinemos-http.service hinemos-mail.service'
+	$(SSH) $(HOST) 'sudo systemctl restart hinemos.service hinemos-http.service hinemos-mail.service hinemos-rooms.service'
 
 deploy-host: build-host build-landing sync-source sync-binary sync-landing install-host restart-host
 
@@ -80,7 +80,7 @@ test-landing-agent-matrix:
 	scripts/landing_agent_matrix.sh
 
 status-host:
-	$(SSH) $(HOST) 'systemctl is-active hinemos.service hinemos-http.service hinemos-mail.service && cd $(REMOTE_DIR) && git rev-parse --short HEAD'
+	$(SSH) $(HOST) 'systemctl is-active hinemos.service hinemos-http.service hinemos-mail.service hinemos-rooms.service && cd $(REMOTE_DIR) && git rev-parse --short HEAD'
 
 clean-host:
 	rm -rf $(REPO)/.cargo-home $(REPO)/.cache $(REPO)/.host-build

@@ -8,6 +8,11 @@ members = [
     "crates/storage",
     "crates/protocol/http",
     "crates/protocol/ssh",
+    "rooms/bank",
+    "rooms/blackstone",
+    "rooms/libhinemos-room",
+    "rooms/school",
+    "rooms/workers",
 ]
 resolver = "3"
 

@@ -26,6 +26,23 @@ fn load_service_room_registrations_disables_same_front_view_conflicts() {
     });
 }
 
+#[test]
+fn sample_service_rooms_are_not_static_views() {
+    let world = load_sample_world();
+    let registrations = load_sample_room_registrations();
+    let static_room_views = registrations
+        .iter()
+        .filter(|registration| world.views.contains_key(&registration.view_id))
+        .map(|registration| registration.view_id.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        static_room_views.is_empty(),
+        "service rooms must be rendered dynamically, not as static views: {}",
+        static_room_views.join(", ")
+    );
+}
+
 fn write_registration_fixture() -> std::path::PathBuf {
     let temp_root = std::env::temp_dir().join(format!(
         "hinemos-app-room-reg-load-{}-{}",
@@ -40,9 +57,19 @@ fn write_registration_fixture() -> std::path::PathBuf {
     temp_root
 }
 
+fn sample_world_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds/sample")
+}
+
 fn load_sample_world() -> WorldState {
-    let world_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds/sample");
+    let world_dir = sample_world_dir();
     hinemos_core::sample_world::load_world_from_dir(&world_dir).expect("load sample world")
+}
+
+fn load_sample_room_registrations() -> Vec<ServiceRoomRegistration> {
+    let path = sample_world_dir().join("rooms.ron");
+    let content = fs::read_to_string(&path).expect("read rooms.ron");
+    ron::from_str(&content).expect("parse rooms.ron")
 }
 
 fn registration_store_with_arrival_parcel() -> TestRegistrationStore {

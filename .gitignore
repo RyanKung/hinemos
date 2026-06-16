@@ -1,5 +1,11 @@
-docs
-docs/
+# Documentation is local unless it is a README.
+*.md
+!README.md
+!**/README.md
+docs/**
+!docs/**/
+!docs/**/README.md
+scripts/**
 scripts/local/
 scripts/*.local.sh
 scripts/**/__pycache__/
