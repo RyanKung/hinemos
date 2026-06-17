@@ -60,6 +60,12 @@ sync-source:
 		--exclude .env \
 		--exclude .env.local \
 		--exclude .env.test \
+		--exclude .env.production \
+		--exclude .env.prod \
+		--exclude .hinemos \
+		--exclude .xagora \
+		--exclude .claude \
+		--exclude .DS_Store \
 		$(REPO)/ $(HOST):$(REMOTE_DIR)/
 
 sync-binary:

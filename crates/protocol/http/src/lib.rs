@@ -14,12 +14,14 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Args;
 use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-use hinemos_core::{JsonObservation, SemanticCommand};
+use hinemos_core::{ActionKind, Direction, JsonObservation, ObservationEvent, SemanticCommand};
 use hinemos_runtime::GameRuntime;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
+
+const ANONYMOUS_DEMO_PLAYER_ID: &str = "anonymous_demo";
 
 /// HTTP adapter command-line arguments.
 #[derive(Debug, Clone, Args)]
@@ -47,9 +49,11 @@ pub async fn run_daemon(args: HttpArgs) -> Result<()> {
     let api = Router::new()
         .route("/health", get(health))
         .route("/intro", get(intro))
-        .route("/players/{player_id}/observe", get(observe_player))
-        .route("/players/{player_id}/commands", post(execute_command))
-        .route("/demo/observe", get(observe_demo_player))
+        .route("/anonymous/observe", get(observe_anonymous))
+        .route("/anonymous/commands", post(execute_anonymous_command))
+        .route("/demo/observe", get(observe_anonymous))
+        .route("/players/{player_id}/observe", get(reject_player_observe))
+        .route("/players/{player_id}/commands", post(reject_player_command))
         .layer(cors_layer())
         .with_state(state);
 
@@ -113,6 +117,14 @@ struct ErrorResponse {
     error: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnonymousCommandRequest {
+    #[serde(flatten)]
+    command: SemanticCommand,
+    view_id: Option<String>,
+}
+
 fn cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list([
@@ -162,29 +174,88 @@ async fn intro() -> Json<IntroPage> {
     })
 }
 
-async fn observe_demo_player(
+async fn observe_anonymous(
     State(state): State<AppState>,
 ) -> Result<Json<JsonObservation>, ApiError> {
-    observation_for_player(state, LOCAL_PLAYER_ID)
+    observation_for_player(state, LOCAL_PLAYER_ID).map(|Json(mut observation)| {
+        sanitize_anonymous_observation(&mut observation, true);
+        Json(observation)
+    })
 }
 
-async fn observe_player(
+async fn execute_anonymous_command(
     State(state): State<AppState>,
-    Path(player_id): Path<String>,
+    Json(request): Json<AnonymousCommandRequest>,
 ) -> Result<Json<JsonObservation>, ApiError> {
-    observation_for_player(state, &player_id)
-}
-
-async fn execute_command(
-    State(state): State<AppState>,
-    Path(player_id): Path<String>,
-    Json(command): Json<SemanticCommand>,
-) -> Result<Json<JsonObservation>, ApiError> {
+    if let SemanticCommand::Move { direction } = request.command {
+        return execute_anonymous_move(state, direction, request.view_id).await;
+    }
+    if !anonymous_command_is_demo_safe(&request.command) {
+        return Err(ApiError::forbidden(
+            "Anonymous web access only permits demo-safe commands.",
+        ));
+    }
     state
         .runtime
-        .execute(&player_id, &command)
-        .map(Json)
+        .execute(LOCAL_PLAYER_ID, &request.command)
+        .map(|mut observation| {
+            sanitize_anonymous_observation(&mut observation, false);
+            Json(observation)
+        })
         .map_err(ApiError::runtime)
+}
+
+async fn execute_anonymous_move(
+    state: AppState,
+    direction: Direction,
+    view_id: Option<String>,
+) -> Result<Json<JsonObservation>, ApiError> {
+    let from = match view_id {
+        Some(view_id) => view_id,
+        None => {
+            state
+                .runtime
+                .player_state(LOCAL_PLAYER_ID)
+                .map_err(ApiError::runtime)?
+                .current_view
+        }
+    };
+    let target = state
+        .runtime
+        .exit_target(&from, direction)
+        .map_err(ApiError::runtime)?;
+    let events = vec![ObservationEvent::Move {
+        from,
+        to: target.clone(),
+        direction,
+    }];
+
+    state
+        .runtime
+        .observe_view_json(ANONYMOUS_DEMO_PLAYER_ID, &target, events)
+        .map(|mut observation| {
+            sanitize_anonymous_observation(&mut observation, false);
+            Json(observation)
+        })
+        .map_err(ApiError::runtime)
+}
+
+async fn reject_player_observe(
+    Path(_player_id): Path<String>,
+) -> Result<Json<JsonObservation>, ApiError> {
+    Err(ApiError::forbidden(
+        "Anonymous web access is read-only. Use /api/anonymous/observe.",
+    ))
+}
+
+async fn reject_player_command(
+    State(state): State<AppState>,
+    Path(player_id): Path<String>,
+) -> Result<Json<JsonObservation>, ApiError> {
+    let _ = (state, player_id);
+    Err(ApiError::forbidden(
+        "Anonymous web access cannot execute commands. Use SSH for an authenticated session.",
+    ))
 }
 
 fn observation_for_player(
@@ -196,6 +267,36 @@ fn observation_for_player(
         .observe_json(player_id, Vec::new())
         .map(Json)
         .map_err(ApiError::runtime)
+}
+
+fn sanitize_anonymous_observation(observation: &mut JsonObservation, clear_events: bool) {
+    observation.player_id = ANONYMOUS_DEMO_PLAYER_ID.to_owned();
+    if clear_events {
+        observation.events.clear();
+    }
+    observation
+        .available_commands
+        .retain(anonymous_command_is_demo_safe);
+    for entity in &mut observation.entities {
+        entity.actions.retain(anonymous_action_is_read_only);
+    }
+}
+
+fn anonymous_command_is_demo_safe(command: &SemanticCommand) -> bool {
+    matches!(
+        command,
+        SemanticCommand::Look
+            | SemanticCommand::Map
+            | SemanticCommand::Inventory
+            | SemanticCommand::Help
+            | SemanticCommand::Move { .. }
+            | SemanticCommand::Inspect { .. }
+            | SemanticCommand::Read { .. }
+    )
+}
+
+fn anonymous_action_is_read_only(action: &ActionKind) -> bool {
+    matches!(action, ActionKind::Inspect | ActionKind::Read)
 }
 
 #[derive(Debug)]
@@ -211,6 +312,13 @@ impl ApiError {
             message: error.to_string(),
         }
     }
+
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            message: message.into(),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -219,5 +327,135 @@ impl IntoResponse for ApiError {
             error: self.message,
         });
         (self.status, body).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use axum::extract::{Path as AxumPath, State};
+    use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
+    use hinemos_core::{Direction, EntityRef, ObservationEvent};
+
+    use super::*;
+
+    fn test_state() -> AppState {
+        let world_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../worlds/sample");
+        let world = load_world_from_dir(world_dir).expect("sample world should load");
+        AppState {
+            runtime: Arc::new(GameRuntime::new(world)),
+        }
+    }
+
+    #[tokio::test]
+    async fn anonymous_observe_returns_sanitized_demo_snapshot() {
+        let Json(observation) = observe_anonymous(State(test_state()))
+            .await
+            .expect("anonymous observation should be available");
+
+        assert_eq!(observation.player_id, ANONYMOUS_DEMO_PLAYER_ID);
+        assert!(observation.events.is_empty());
+        assert!(
+            observation
+                .available_commands
+                .iter()
+                .all(anonymous_command_is_demo_safe)
+        );
+        assert!(
+            observation
+                .entities
+                .iter()
+                .flat_map(|entity| entity.actions.iter())
+                .all(anonymous_action_is_read_only)
+        );
+    }
+
+    #[tokio::test]
+    async fn player_observe_and_commands_are_forbidden_over_http() {
+        let observe_error = reject_player_observe(AxumPath("local_player".to_owned()))
+            .await
+            .expect_err("direct player observation should be rejected");
+        assert_eq!(observe_error.status, StatusCode::FORBIDDEN);
+
+        let command_error =
+            reject_player_command(State(test_state()), AxumPath("local_player".to_owned()))
+                .await
+                .expect_err("HTTP commands should be rejected");
+        assert_eq!(command_error.status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn anonymous_demo_safe_commands_are_allowed() {
+        let Json(observation) = execute_anonymous_command(
+            State(test_state()),
+            Json(AnonymousCommandRequest {
+                command: SemanticCommand::Read {
+                    target: EntityRef::new("cyber_scroll_board"),
+                },
+                view_id: None,
+            }),
+        )
+        .await
+        .expect("demo-safe command should be allowed");
+
+        assert_eq!(observation.player_id, ANONYMOUS_DEMO_PLAYER_ID);
+        assert!(observation.events.iter().any(|event| matches!(
+            event,
+            ObservationEvent::Message { text } if text.contains("Admission Agreement")
+        )));
+        assert!(
+            observation
+                .available_commands
+                .iter()
+                .all(anonymous_command_is_demo_safe)
+        );
+    }
+
+    #[tokio::test]
+    async fn anonymous_move_is_stateless() {
+        let state = test_state();
+        let Json(observation) = execute_anonymous_command(
+            State(state.clone()),
+            Json(AnonymousCommandRequest {
+                command: SemanticCommand::Move {
+                    direction: Direction::West,
+                },
+                view_id: Some("arrival_street".to_owned()),
+            }),
+        )
+        .await
+        .expect("demo movement should be allowed");
+
+        assert_eq!(observation.view_id, "west_main_street");
+        assert!(observation.events.iter().any(|event| matches!(
+            event,
+            ObservationEvent::Move { from, to, direction }
+                if from == "arrival_street" && to == "west_main_street" && *direction == Direction::West
+        )));
+
+        let local_observation = state
+            .runtime
+            .observe_json(LOCAL_PLAYER_ID, Vec::new())
+            .expect("local player should remain observable");
+        assert_eq!(local_observation.view_id, "arrival_street");
+    }
+
+    #[tokio::test]
+    async fn anonymous_mutating_commands_are_forbidden() {
+        let error = execute_anonymous_command(
+            State(test_state()),
+            Json(AnonymousCommandRequest {
+                command: SemanticCommand::Say {
+                    text: "hello".to_owned(),
+                },
+                view_id: None,
+            }),
+        )
+        .await
+        .expect_err("mutating command should be rejected");
+
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
     }
 }

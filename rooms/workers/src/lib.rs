@@ -12,6 +12,19 @@ struct Position {
     wage: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WagePayment {
+    pub recipient_user: String,
+    pub recipient_player_id: String,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkersReply {
+    pub mail: OutgoingMail,
+    pub wage_payment: Option<WagePayment>,
+}
+
 #[derive(Debug, Clone, Default)]
 struct WorkerState {
     applied: HashSet<String>,
@@ -46,8 +59,12 @@ impl WorkersSociety {
     }
 
     pub fn handle(&mut self, item: &IncomingMail) -> OutgoingMail {
-        let body = if item.body.len() > MAX_BODY_BYTES {
-            "The clerk refuses a work order that large.".to_owned()
+        self.handle_with_payment(item).mail
+    }
+
+    pub fn handle_with_payment(&mut self, item: &IncomingMail) -> WorkersReply {
+        let reply = if item.body.len() > MAX_BODY_BYTES {
+            ReplyBody::text("The clerk refuses a work order that large.")
         } else {
             self.reply_body(item)
         };
@@ -57,8 +74,9 @@ impl WorkersSociety {
             sender_user: ROOM_USER.to_owned(),
             sender_player_id: ROOM_PLAYER_ID.to_owned(),
             subject: "Workers Society reply".to_owned(),
-            body,
+            body: reply.body,
         }
+        .with_payment(reply.wage_payment)
     }
 
     pub fn status_text(&self) -> String {
@@ -71,28 +89,28 @@ impl WorkersSociety {
         lines.join("\n")
     }
 
-    fn reply_body(&mut self, item: &IncomingMail) -> String {
+    fn reply_body(&mut self, item: &IncomingMail) -> ReplyBody {
         let body = item.body.trim();
         if body == "/position list" {
-            return position_list_reply();
+            return ReplyBody::text(position_list_reply());
         }
         if let Some(reply) = self.position_apply_reply(item, body) {
-            return reply;
+            return ReplyBody::text(reply);
         }
         if let Some(reply) = self.position_start_reply(item, body) {
-            return reply;
+            return ReplyBody::text(reply);
         }
         if body == "/position finish" {
-            return self.position_finish_reply(item);
+            return ReplyBody::text(self.position_finish_reply(item));
         }
         if body == "/position claim" {
             return self.position_claim_reply(item);
         }
         if let Some(reply) = self.position_feedback_reply(item, body) {
-            return reply;
+            return ReplyBody::text(reply);
         }
 
-        format!("The clerk notes your message: {body}")
+        ReplyBody::text(format!("The clerk notes your message: {body}"))
     }
 
     fn position_apply_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
@@ -159,15 +177,22 @@ impl WorkersSociety {
         )
     }
 
-    fn position_claim_reply(&mut self, item: &IncomingMail) -> String {
+    fn position_claim_reply(&mut self, item: &IncomingMail) -> ReplyBody {
         let worker = self.worker_mut(&item.sender_user);
         if worker.owed == 0 {
-            return "No wages are ready to claim.".to_owned();
+            return ReplyBody::text("No wages are ready to claim.");
         }
         let amount = worker.owed;
         worker.owed = 0;
         worker.claimed += amount;
-        format!("Claimed {amount} MARK in wages.")
+        ReplyBody {
+            body: format!("Claimed {amount} MARK in wages."),
+            wage_payment: Some(WagePayment {
+                recipient_user: item.sender_user.clone(),
+                recipient_player_id: item.sender_player_id.clone(),
+                amount,
+            }),
+        }
     }
 
     fn position_feedback_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
@@ -190,6 +215,34 @@ impl WorkersSociety {
 
     fn worker_mut(&mut self, user: &str) -> &mut WorkerState {
         self.workers.entry(user.to_owned()).or_default()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReplyBody {
+    body: String,
+    wage_payment: Option<WagePayment>,
+}
+
+impl ReplyBody {
+    fn text(body: impl Into<String>) -> Self {
+        Self {
+            body: body.into(),
+            wage_payment: None,
+        }
+    }
+}
+
+trait OutgoingMailExt {
+    fn with_payment(self, wage_payment: Option<WagePayment>) -> WorkersReply;
+}
+
+impl OutgoingMailExt for OutgoingMail {
+    fn with_payment(self, wage_payment: Option<WagePayment>) -> WorkersReply {
+        WorkersReply {
+            mail: self,
+            wage_payment,
+        }
     }
 }
 
@@ -299,6 +352,30 @@ mod tests {
         assert!(started.contains("Started"));
         assert!(finished.contains("40 MARK"));
         assert!(claimed.contains("Claimed 40 MARK"));
+    }
+
+    #[test]
+    fn claim_returns_structured_wage_payment() {
+        let mut service = WorkersSociety::new();
+        let player_id = "player:alice";
+
+        service.handle(&mail(1, "alice", player_id, "/position apply dock-runner"));
+        service.handle(&mail(2, "alice", player_id, "/position start dock-runner"));
+        service.handle(&mail(3, "alice", player_id, "/position finish"));
+
+        let reply = service.handle_with_payment(&mail(4, "alice", player_id, "/position claim"));
+
+        assert!(reply.mail.body.contains("Claimed 40 MARK"));
+        assert_eq!(
+            reply.wage_payment,
+            Some(WagePayment {
+                recipient_user: "alice".to_owned(),
+                recipient_player_id: player_id.to_owned(),
+                amount: 40,
+            })
+        );
+        let second = service.handle_with_payment(&mail(5, "alice", player_id, "/position claim"));
+        assert_eq!(second.wage_payment, None);
     }
 
     #[test]
@@ -494,5 +571,14 @@ mod tests {
         assert_eq!(service.poll_once(&mut mailbox), 1);
         assert_eq!(mailbox.acked, vec![1]);
         assert!(mailbox.last_reply_to("alice").body.contains("Dock Runner"));
+    }
+
+    fn mail(id: i64, sender: &str, player_id: &str, body: &str) -> IncomingMail {
+        IncomingMail {
+            id,
+            sender_user: sender.to_owned(),
+            sender_player_id: player_id.to_owned(),
+            body: body.to_owned(),
+        }
     }
 }

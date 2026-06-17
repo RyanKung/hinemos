@@ -51,4 +51,17 @@
         custom_commands: Some("/bank balance\n/bank deposit <amount>\n/bank withdraw <amount>\n/bank borrow <amount>\n/bank loans\n/bank repay <loan_id> <amount>"),
         enabled: true,
     ),
+    (
+        view_id: "hinemos_daily_seer",
+        front_view_id: Some("official_street"),
+        front_entity_id: Some("daily_seer_front"),
+        address: Some("H5"),
+        label: Some("Hinemos Daily Seer"),
+        enter_aliases: Some("newspaper press paper daily seer prophet news report reports updates"),
+        room_user: "room-hinemos_daily_seer",
+        room_player_id: "room:hinemos_daily_seer",
+        status_text: Some("Room service is external. Newspaper requests and update reports are sent to the press service."),
+        custom_commands: Some("/paper today\n/paper latest\n/paper submit <note>\n/paper publish <headline> | <body>\n/paper report <headline> | <body>"),
+        enabled: true,
+    ),
 ]

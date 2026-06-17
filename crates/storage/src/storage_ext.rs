@@ -52,6 +52,59 @@ impl PgStorage {
         Ok(balance)
     }
 
+    /// Credits MARK to a player from a system source, using an idempotency key.
+    pub async fn credit_player_mark(
+        &self,
+        username: &str,
+        player_id: &str,
+        amount: i64,
+        reason: &str,
+        memo: &str,
+        idempotency_key: &str,
+    ) -> Result<StoredBalance, StorageError> {
+        if amount <= 0 {
+            return Err(StorageError::InvalidAmount(amount));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let account_id = player_account_id(player_id);
+        ensure_player_account(&mut tx, &account_id, username, player_id).await?;
+        ensure_balance_row(&mut tx, &account_id).await?;
+
+        let ledger_id = sqlx::query(
+            r#"
+            insert into world_ledger_entries (
+                asset, debit_account_id, credit_account_id, amount, reason, memo, idempotency_key
+            )
+            values ('MARK', null, $1, $2, $3, $4, $5)
+            on conflict (idempotency_key) do nothing
+            returning id
+            "#,
+        )
+        .bind(&account_id)
+        .bind(amount)
+        .bind(reason)
+        .bind(memo)
+        .bind(idempotency_key)
+        .fetch_optional(&mut *tx)
+        .await?
+        .map(|row| row.get::<i64, _>("id"));
+
+        if ledger_id.is_some() {
+            credit_balance(&mut tx, &account_id, amount).await?;
+        }
+
+        let balance = fetch_balance_tx(&mut tx, &account_id).await?;
+        tx.commit().await?;
+
+        if let Some(ledger_id) = ledger_id {
+            self.record_mark_credit_memory(username, player_id, amount, reason, memo, ledger_id)
+                .await?;
+        }
+
+        Ok(balance)
+    }
+
     /// Records the player's latest observed view for cross-session presence hints.
     pub async fn record_view_presence(
         &self,
@@ -187,6 +240,32 @@ impl PgStorage {
             .await?;
         self.record_received_mark_transfer_memory(sender_user, target_player_id, transfer)
             .await?;
+        Ok(())
+    }
+
+    async fn record_mark_credit_memory(
+        &self,
+        username: &str,
+        player_id: &str,
+        amount: i64,
+        reason: &str,
+        memo: &str,
+        ledger_id: i64,
+    ) -> Result<(), StorageError> {
+        self.append_memory_event(NewMemoryEvent {
+            agent_id: player_id.to_owned(),
+            source: "trade".to_owned(),
+            event_type: "mark_credit_received".to_owned(),
+            actors: json!([username]),
+            content: format!("Received {amount} MARK. Memo: {memo}"),
+            world_refs: json!({
+                "kind": "credit",
+                "ledger_id": ledger_id,
+                "reason": reason
+            }),
+            salience: 0.65,
+        })
+        .await?;
         Ok(())
     }
 

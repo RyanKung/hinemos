@@ -153,6 +153,31 @@ impl PgStorage {
         Ok(events)
     }
 
+    /// Loads recent public memory events suitable for newspaper summaries.
+    pub async fn recent_public_press_events(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<StoredMemoryEvent>, StorageError> {
+        let events = sqlx::query_as::<_, StoredMemoryEvent>(
+            r#"
+            select id, agent_id,
+                   to_char(occurred_at, 'YYYY-MM-DD HH24:MI:SS TZ') as occurred_at,
+                   source, event_type, actors, content, world_refs, salience,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from memory_events
+            where occurred_at >= now() - interval '24 hours'
+              and source in ('broadcast', 'chat')
+            order by salience desc, occurred_at desc, id desc
+            limit $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(events)
+    }
+
     /// Recalls memory atoms about a person or social identity.
     pub async fn recall_person_memory(
         &self,

@@ -105,6 +105,25 @@
         portable: false,
     ),
     (
+        id: "daily_seer_front",
+        kind: object,
+        name: "Hinemos Daily Seer front",
+        description: "A narrow newspaper office front with clipped notices, a brass owl bell, and a typesetter desk visible behind the glass.",
+        aliases: ["newspaper", "press", "paper", "daily", "seer", "prophet", "news"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "daily_seer_notice",
+                    title: "Hinemos Daily Seer",
+                    body: "Enter with /enter H5 or /enter newspaper. Inside, use /paper today for the daily public summary, /paper submit <note> to file a tip, and /paper publish <headline> | <body> to send an island update report.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
         id: "cyber_scroll_board",
         kind: object,
         name: "bulletin board",

@@ -14,9 +14,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 use hinemos_core::{
-    ActionKind, Entity, EntityCollection, EntityId, EntityObservation, EntityRef, ExitObservation,
-    JsonObservation, ObservationEvent, PlayerId, PlayerState, SemanticCommand, TextObservation,
-    View, ViewId, WorldDefinition, WorldState,
+    ActionKind, Direction, Entity, EntityCollection, EntityId, EntityObservation, EntityRef,
+    ExitObservation, JsonObservation, ObservationEvent, PlayerId, PlayerState, SemanticCommand,
+    TextObservation, View, ViewId, WorldDefinition, WorldState,
 };
 use thiserror::Error;
 
@@ -329,11 +329,21 @@ impl GameRuntime {
             .map_err(|_| RuntimeError::StatePoisoned)?
             .current_view
             .clone();
+        self.observe_view_json(player_id, &current_view, events)
+    }
+
+    /// Builds a structured observation at a view without changing player state.
+    pub fn observe_view_json(
+        &self,
+        player_id: &str,
+        view_id: &str,
+        events: Vec<ObservationEvent>,
+    ) -> Result<JsonObservation, RuntimeError> {
         let view = self
             .world
             .views
-            .get(&current_view)
-            .ok_or_else(|| RuntimeError::ViewNotFound(current_view.clone()))?;
+            .get(view_id)
+            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))?;
 
         let exits = view
             .exits
@@ -345,7 +355,7 @@ impl GameRuntime {
             })
             .collect();
 
-        let visible_entities = self.visible_entities(&current_view)?;
+        let visible_entities = self.visible_entities(view_id)?;
         let entities = visible_entities
             .iter()
             .map(|entity_id| entity_observation(&self.world, entity_id))
@@ -365,6 +375,20 @@ impl GameRuntime {
             available_commands: available_commands(&self.world, view, &visible_entities)?,
             events,
         })
+    }
+
+    /// Returns the target view for an exit without moving any player.
+    pub fn exit_target(&self, view_id: &str, direction: Direction) -> Result<ViewId, RuntimeError> {
+        let view = self
+            .world
+            .views
+            .get(view_id)
+            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))?;
+        view.exits
+            .iter()
+            .find(|exit| exit.direction == direction)
+            .map(|exit| exit.target.clone())
+            .ok_or_else(|| RuntimeError::ExitNotFound(direction.as_str().to_owned()))
     }
 
     /// Builds a human-oriented observation for CLI text mode.
@@ -412,22 +436,12 @@ impl GameRuntime {
     fn move_player(
         &self,
         player_id: &str,
-        direction: hinemos_core::Direction,
+        direction: Direction,
     ) -> Result<Vec<ObservationEvent>, RuntimeError> {
         let player = self.player(player_id)?;
         let mut player = player.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         let current_view = player.current_view.clone();
-        let view = self
-            .world
-            .views
-            .get(&current_view)
-            .ok_or_else(|| RuntimeError::ViewNotFound(current_view.clone()))?;
-        let exit = view
-            .exits
-            .iter()
-            .find(|exit| exit.direction == direction)
-            .ok_or_else(|| RuntimeError::ExitNotFound(direction.as_str().to_owned()))?;
-        let target = exit.target.clone();
+        let target = self.exit_target(&current_view, direction)?;
         player.current_view = target.clone();
 
         Ok(vec![ObservationEvent::Move {

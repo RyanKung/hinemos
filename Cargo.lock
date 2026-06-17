@@ -1253,6 +1253,7 @@ dependencies = [
  "hinemos-bank-room",
  "hinemos-core",
  "hinemos-http",
+ "hinemos-newspaper-room",
  "hinemos-runtime",
  "hinemos-school-room",
  "hinemos-ssh",
@@ -1285,6 +1286,13 @@ dependencies = [
  "serde",
  "tokio",
  "tower-http",
+]
+
+[[package]]
+name = "hinemos-newspaper-room"
+version = "0.1.0"
+dependencies = [
+ "libhinemos-room",
 ]
 
 [[package]]

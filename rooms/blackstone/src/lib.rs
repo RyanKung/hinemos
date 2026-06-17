@@ -6,6 +6,7 @@ use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox};
 const ROOM_USER: &str = "room-blackstone_izakaya";
 const ROOM_PLAYER_ID: &str = "room:blackstone_izakaya";
 const MAX_BODY_BYTES: usize = 4096;
+const MAX_GREP_RESULTS: usize = 5;
 
 #[derive(Debug)]
 pub struct BlackstoneIzakaya {
@@ -110,7 +111,7 @@ impl BlackstoneIzakaya {
         }
 
         if let Some(query) = body.strip_prefix("/grep ") {
-            return format!("The keeper checks the gossip for {query}.");
+            return self.grep_gossip(query);
         }
 
         format!("The keeper replies from the counter: {body}")
@@ -129,6 +130,41 @@ impl BlackstoneIzakaya {
             .map(|entry| format!(" Gossip says {entry}."))
             .unwrap_or_default()
     }
+
+    fn grep_gossip(&self, query: &str) -> String {
+        let query = query.trim();
+        let terms = search_terms(query);
+        if terms.is_empty() {
+            return "The keeper needs a search term after /grep.".to_owned();
+        }
+        if self.gossip.is_empty() {
+            return "The keeper has no gossip notes yet. Try /blame <complaint> first.".to_owned();
+        }
+
+        let matches = self
+            .gossip
+            .iter()
+            .filter(|entry| gossip_matches(entry, &terms))
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            return format!("The keeper finds no gossip matching {query}.");
+        }
+
+        let mut lines = vec![format!(
+            "The keeper finds {} gossip note(s) matching {query}:",
+            matches.len()
+        )];
+        for (index, entry) in matches.iter().take(MAX_GREP_RESULTS).enumerate() {
+            lines.push(format!("{}. {}", index + 1, entry));
+        }
+        if matches.len() > MAX_GREP_RESULTS {
+            lines.push(format!(
+                "...and {} more behind the counter.",
+                matches.len() - MAX_GREP_RESULTS
+            ));
+        }
+        lines.join("\n")
+    }
 }
 
 fn matches_gated_command(body: &str) -> bool {
@@ -144,6 +180,18 @@ fn normalize_question(question: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn search_terms(query: &str) -> Vec<String> {
+    normalize_question(query)
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect()
+}
+
+fn gossip_matches(entry: &str, terms: &[String]) -> bool {
+    let normalized = normalize_question(entry);
+    terms.iter().all(|term| normalized.contains(term))
 }
 
 #[cfg(test)]
@@ -267,6 +315,53 @@ mod tests {
         );
 
         assert!(bob.contains("lighthouse keeper"));
+    }
+
+    #[test]
+    fn grep_searches_gossip_notes_case_insensitively() {
+        let mut service = BlackstoneIzakaya::new();
+        let mut mailbox = FakeMailbox::default();
+
+        send_turn(&mut mailbox, &mut service, "alice", "/buy beer");
+        send_turn(
+            &mut mailbox,
+            &mut service,
+            "alice",
+            "/blame Harbor master hid the storm ledger",
+        );
+        send_turn(
+            &mut mailbox,
+            &mut service,
+            "alice",
+            "/blame lighthouse keeper took the last cup",
+        );
+
+        let reply = send_turn(&mut mailbox, &mut service, "alice", "/grep STORM ledger");
+        assert!(reply.contains("1 gossip note"));
+        assert!(reply.contains("Harbor master hid the storm ledger"));
+        assert!(!reply.contains("last cup"));
+    }
+
+    #[test]
+    fn grep_reports_empty_and_missing_results() {
+        let mut service = BlackstoneIzakaya::new();
+        let mut mailbox = FakeMailbox::default();
+
+        send_turn(&mut mailbox, &mut service, "alice", "/buy beer");
+        assert!(
+            send_turn(&mut mailbox, &mut service, "alice", "/grep harbor")
+                .contains("no gossip notes")
+        );
+        send_turn(
+            &mut mailbox,
+            &mut service,
+            "alice",
+            "/blame lighthouse keeper took the last cup",
+        );
+        assert!(
+            send_turn(&mut mailbox, &mut service, "alice", "/grep harbor")
+                .contains("no gossip matching")
+        );
     }
 
     #[test]
