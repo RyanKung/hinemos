@@ -3,7 +3,7 @@
 use sqlx::postgres::PgPool;
 
 use crate::StorageError;
-use crate::types::seed_commercial_parcels;
+use crate::parcels::seed_commercial_parcels;
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_player_profiles(pool).await?;

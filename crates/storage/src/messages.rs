@@ -7,7 +7,7 @@ use crate::{
     INBOX_FILTER_ALL, INBOX_FILTER_CLAIMED, INBOX_FILTER_DONE, INBOX_FILTER_OPEN,
     INBOX_FILTER_UNREAD, INBOX_STATUS_ACKED, INBOX_STATUS_ARCHIVED, INBOX_STATUS_CLAIMED,
     INBOX_STATUS_UNREAD, NewMemoryAtom, NewMemoryEvent, PgStorage, StorageError, StoredInboxItem,
-    StoredWorldMessage, room_reply_request_id,
+    StoredWorldMessage, room_mail::room_reply_request_id,
 };
 
 struct MailInboxRecord<'a> {

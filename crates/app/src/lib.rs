@@ -26,7 +26,7 @@ pub use account::*;
 pub use admission::*;
 pub use commerce::*;
 pub use config::*;
-pub use dispatch::AppViewCommandContext;
+pub use dispatch::{AppDispatchStore, AppViewCommandContext};
 pub use events::*;
 pub use identity::*;
 pub use inbox::*;

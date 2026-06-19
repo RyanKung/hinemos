@@ -2,10 +2,9 @@ use hinemos_app::RoomMailboxView;
 use serde_json::json;
 use sqlx::Row;
 
-use super::room_command_subject;
 use crate::{
     PgStorage, ServiceRoomUpsert, StorageError, StoredInboxItem, StoredMailAuthToken,
-    StoredRoomBinding, StoredServiceRoom,
+    StoredRoomBinding, StoredServiceRoom, room_mail::room_command_subject,
 };
 
 impl PgStorage {
