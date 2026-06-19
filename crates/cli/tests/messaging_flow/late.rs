@@ -94,6 +94,7 @@ fn wait_for_closed_room_escape(session: &mut SshSession, command: &str) {
 
 #[test]
 fn rooms_reload_with_missing_front_view_escapes_players_to_street() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -174,6 +175,7 @@ fn rooms_reload_with_missing_front_view_escapes_players_to_street() {
 
 #[test]
 fn invalid_or_disabled_room_registration_escapes_players_to_front_view() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -294,6 +296,7 @@ fn write_invalid_escape_rooms(
 
 #[test]
 fn reloaded_disabled_room_escapes_players_on_help() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -369,6 +372,7 @@ fn reloaded_disabled_room_escapes_players_on_help() {
 
 #[test]
 fn configured_mail_domain_addresses_deliver_to_local_user() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -443,6 +447,7 @@ fn configured_mail_domain_addresses_deliver_to_local_user() {
 
 #[test]
 fn ssh_mailbox_protocol_receives_newmail_without_polling() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -522,6 +527,7 @@ fn ssh_mailbox_protocol_receives_newmail_without_polling() {
 
 #[test]
 fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -605,6 +611,7 @@ fn online_agent_can_parse_live_inbox_notice_and_read_mail() {
 
 #[test]
 fn same_view_say_reaches_only_players_in_that_view() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -678,6 +685,7 @@ fn same_view_say_reaches_only_players_in_that_view() {
 
 #[test]
 fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -742,6 +750,7 @@ fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
 
 #[test]
 fn broadcast_reaches_all_online_players_and_persists_in_news() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);

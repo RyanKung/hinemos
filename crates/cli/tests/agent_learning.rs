@@ -1,8 +1,6 @@
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
-use std::thread;
 use std::time::Duration;
 
 use common::*;
@@ -33,14 +31,7 @@ fn external_agent_learns_from_unscripted_world_contact() {
 
     let learner_key = admitted_key(&temp, host, port, &learner);
     let greeter_key = admitted_key(&temp, host, port, &greeter);
-    let greeter_thread = spawn_greeter_agent(
-        host,
-        port,
-        greeter.clone(),
-        learner.clone(),
-        greeting.clone(),
-        greeter_key,
-    );
+    seed_greeter_contact(host, port, &greeter, &learner, &greeting, &greeter_key);
 
     let prompt = format!(
         "Connect to the Hinemos SSH world at {host}:{port} as username {learner} using this ed25519 key: {}. \
@@ -79,60 +70,44 @@ fn external_agent_learns_from_unscripted_world_contact() {
         stderr.as_bytes(),
     )
     .ok();
-    let greeter_output = greeter_thread.join().unwrap_or_else(|_| {
-        terminate(&mut server);
-        panic!("greeter thread panicked");
-    });
     terminate(&mut server);
 
     assert!(
         output.success,
-        "agent learning verifier failed{}\nstderr:\n{}\nstdout:\n{}\ngreeter:\n{}\nlogs: {}",
+        "agent learning verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
         if output.timed_out { " by timeout" } else { "" },
         stderr,
         stdout,
-        greeter_output,
         temp.path.display()
     );
     require_agent_learning_evidence(&stdout, &greeting, &greeter, &temp);
+    assert_agent_replied_in_world(&test_database, &learner, &greeter, &greeting);
 
     println!("agent learning evidence captured: {} bytes", stdout.len());
     temp.remove_on_drop();
 }
 
-fn spawn_greeter_agent(
+fn seed_greeter_contact(
     host: &str,
     port: u16,
-    greeter: String,
-    learner: String,
-    greeting: String,
-    greeter_key: PathBuf,
-) -> thread::JoinHandle<String> {
-    let host = host.to_owned();
-    thread::spawn(move || {
-        let mut session = SshSession::spawn_with_key(&host, port, &greeter, &greeter_key);
-        session.wait_for_stdout("Available:", Duration::from_secs(10));
-        for _ in 0..15 {
-            session.write_line(&format!(
-                "/say {greeting} I am another agent in this place. What do you notice here? The board explains how agents speak."
-            ));
-            session.write_line(&format!(
-                "/mail {learner} {greeting} I am trying to reach you from inside the world. Please answer me in-world."
-            ));
-            session.write_line(&format!(
-                "/broadcast {greeting} A nearby agent is trying to make contact."
-            ));
-            thread::sleep(Duration::from_secs(2));
-        }
-        let say_notice = format!("[say from {learner}]");
-        let mail_sender = format!(" from {learner}");
-        session.wait_for_any_stdout(
-            &[&say_notice, "Inbox: new mail #", &mail_sender],
-            Duration::from_secs(90),
-        );
-        session.write_line("/quit");
-        session.wait_success(Duration::from_secs(10))
-    })
+    greeter: &str,
+    learner: &str,
+    greeting: &str,
+    greeter_key: &std::path::Path,
+) {
+    let commands = [
+        format!(
+            "/say {greeting} I am another agent in this place. What do you notice here? The board explains how agents speak."
+        ),
+        format!(
+            "/mail {learner} {greeting} I am trying to reach you from inside the world. Please answer me in-world."
+        ),
+        format!("/broadcast {greeting} A nearby agent is trying to make contact."),
+        "/quit".to_owned(),
+    ];
+    let command_refs = commands.iter().map(String::as_str).collect::<Vec<_>>();
+    let output = run_ssh_batch_with_key(host, port, greeter, greeter_key, &command_refs);
+    assert_contains(&output, "You mail", "greeter seeds learner mailbox");
 }
 
 fn require_agent_learning_evidence(
@@ -164,5 +139,25 @@ fn require_agent_learning_evidence(
         &["/look", "/history", "/read", "/inspect", "/go"],
         "evidence that the external agent continued learning from available commands",
         temp,
+    );
+}
+
+fn assert_agent_replied_in_world(
+    test_database: &TestDatabase,
+    learner: &str,
+    greeter: &str,
+    greeting: &str,
+) {
+    let count = test_database.query_value(&format!(
+        "select count(*)
+         from inbox_items
+         where sender_user = '{learner}'
+           and recipient_user = '{greeter}'
+           and kind = 'mail'
+           and body like '%{greeting}%'",
+    ));
+    assert_eq!(
+        count, "1",
+        "learner should reply to greeter through in-world mail"
     );
 }

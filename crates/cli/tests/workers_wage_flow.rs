@@ -1,9 +1,5 @@
 mod common;
 
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::Duration;
-
 use common::*;
 
 #[test]
@@ -44,7 +40,7 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
         "workers room commands are queued for the room runner",
     );
 
-    let rooms_output = run_rooms_once(&root, &test_database.url);
+    let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
         "Processed 4 room request(s).",
@@ -124,22 +120,4 @@ async fn credit_player_mark_is_idempotent_by_key() {
         ledger, "1:25",
         "same idempotency key must not duplicate wage credit"
     );
-}
-
-fn run_rooms_once(root: &Path, database_url: &str) -> String {
-    let child = Command::new(env!("CARGO_BIN_EXE_hinemos"))
-        .current_dir(root)
-        .args(["serve", "rooms", "--database-url", database_url, "--once"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn room runner");
-    let output = wait_with_timeout(child, Duration::from_secs(30));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "room runner failed: {stderr}\nstdout:\n{stdout}"
-    );
-    stdout.into_owned()
 }

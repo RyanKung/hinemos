@@ -41,6 +41,7 @@ fn insert_service_room(test_database: &TestDatabase, room: &ServiceRoomFixture<'
 
 #[test]
 fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -127,6 +128,7 @@ fn direct_mail_reaches_only_target_and_persists_in_mailbox() {
 
 #[test]
 fn external_room_commands_are_data_registered_and_delivered_by_mail() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -324,6 +326,7 @@ fn assert_external_room_mail_rows(
 
 #[test]
 fn service_room_say_is_live_delivered_and_quit_closes_session() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -394,6 +397,7 @@ fn service_room_say_is_live_delivered_and_quit_closes_session() {
 
 #[test]
 fn room_service_reply_with_request_id_is_live_delivered_in_room() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -484,6 +488,7 @@ fn room_service_reply_with_request_id_is_live_delivered_in_room() {
 
 #[test]
 fn rooms_reload_disables_removed_room_and_escapes_players() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -688,6 +693,7 @@ fn assert_reload_conflict_rooms_disabled(
 
 #[test]
 fn rooms_reload_refreshes_service_room_observation_cache() {
+    let _serial = crate::serial_messaging_flow();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
