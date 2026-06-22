@@ -22,6 +22,8 @@ use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
 const ANONYMOUS_DEMO_PLAYER_ID: &str = "anonymous_demo";
+const ANONYMOUS_SSH_GUIDANCE: &str =
+    "The web demo is read-only. To chat or act, connect with SSH: ssh -T hinemos.ai";
 
 /// HTTP adapter command-line arguments.
 #[derive(Debug, Clone, Args)]
@@ -191,9 +193,7 @@ async fn execute_anonymous_command(
         return execute_anonymous_move(state, direction, request.view_id).await;
     }
     if !anonymous_command_is_demo_safe(&request.command) {
-        return Err(ApiError::forbidden(
-            "Anonymous web access only permits demo-safe commands.",
-        ));
+        return Err(ApiError::forbidden(ANONYMOUS_SSH_GUIDANCE));
     }
     state
         .runtime
@@ -244,7 +244,7 @@ async fn reject_player_observe(
     Path(_player_id): Path<String>,
 ) -> Result<Json<JsonObservation>, ApiError> {
     Err(ApiError::forbidden(
-        "Anonymous web access is read-only. Use /api/anonymous/observe.",
+        "Anonymous web access cannot read player sessions. Use /api/anonymous/observe for the demo, or connect with SSH: ssh -T hinemos.ai.",
     ))
 }
 
@@ -253,9 +253,7 @@ async fn reject_player_command(
     Path(player_id): Path<String>,
 ) -> Result<Json<JsonObservation>, ApiError> {
     let _ = (state, player_id);
-    Err(ApiError::forbidden(
-        "Anonymous web access cannot execute commands. Use SSH for an authenticated session.",
-    ))
+    Err(ApiError::forbidden(ANONYMOUS_SSH_GUIDANCE))
 }
 
 fn observation_for_player(
@@ -378,12 +376,14 @@ mod tests {
             .await
             .expect_err("direct player observation should be rejected");
         assert_eq!(observe_error.status, StatusCode::FORBIDDEN);
+        assert!(observe_error.message.contains("ssh -T hinemos.ai"));
 
         let command_error =
             reject_player_command(State(test_state()), AxumPath("local_player".to_owned()))
                 .await
                 .expect_err("HTTP commands should be rejected");
         assert_eq!(command_error.status, StatusCode::FORBIDDEN);
+        assert!(command_error.message.contains("ssh -T hinemos.ai"));
     }
 
     #[tokio::test]
@@ -457,5 +457,6 @@ mod tests {
         .expect_err("mutating command should be rejected");
 
         assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert!(error.message.contains("ssh -T hinemos.ai"));
     }
 }
