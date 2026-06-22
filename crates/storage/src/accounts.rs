@@ -9,6 +9,9 @@ pub(crate) struct PaymentTarget {
     pub(crate) player_id: String,
 }
 
+pub(crate) const SYSTEM_MARK_ACCOUNT_ID: &str = "system:mark";
+pub(crate) const SYSTEM_LEDGER_ADJUSTMENT_ACCOUNT_ID: &str = "system:ledger-adjustment";
+
 pub(crate) fn player_account_id(player_id: &str) -> String {
     format!("player:{player_id}")
 }
@@ -47,6 +50,23 @@ pub(crate) async fn ensure_player_account(
     .bind(account_id)
     .bind(player_id)
     .bind(username)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+pub(crate) async fn ensure_system_account(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+        insert into world_accounts (account_id, kind, owner_id, display_name)
+        values ($1, 'system', 'system', 'System MARK issuance')
+        on conflict (account_id) do update
+        set display_name = excluded.display_name
+        "#,
+    )
+    .bind(SYSTEM_MARK_ACCOUNT_ID)
     .execute(&mut **tx)
     .await?;
     Ok(())

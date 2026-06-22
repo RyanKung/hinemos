@@ -5,8 +5,9 @@ use sqlx::Row;
 use super::INITIAL_MARK_GRANT;
 use crate::StorageError;
 use crate::accounts::{
-    credit_balance, debit_balance, ensure_balance_row, ensure_player_account, fetch_balance_pool,
-    fetch_balance_tx, player_account_id, resolve_payment_target,
+    SYSTEM_MARK_ACCOUNT_ID, credit_balance, debit_balance, ensure_balance_row,
+    ensure_player_account, ensure_system_account, fetch_balance_pool, fetch_balance_tx,
+    player_account_id, resolve_payment_target,
 };
 use crate::parcels::fetch_parcel_by_id;
 use crate::room_mail::{room_mail_player_id, room_mail_user};
@@ -24,6 +25,7 @@ impl PgStorage {
     ) -> Result<StoredBalance, StorageError> {
         let mut tx = self.pool.begin().await?;
         let account_id = player_account_id(player_id);
+        ensure_system_account(&mut tx).await?;
         ensure_player_account(&mut tx, &account_id, username, player_id).await?;
         ensure_balance_row(&mut tx, &account_id).await?;
 
@@ -33,11 +35,12 @@ impl PgStorage {
             insert into world_ledger_entries (
                 asset, debit_account_id, credit_account_id, amount, reason, memo, idempotency_key
             )
-            values ('MARK', null, $1, $2, 'initial_grant', 'Initial MARK grant', $3)
+            values ('MARK', $1, $2, $3, 'initial_grant', 'Initial MARK grant', $4)
             on conflict (idempotency_key) do nothing
             returning id
             "#,
         )
+        .bind(SYSTEM_MARK_ACCOUNT_ID)
         .bind(&account_id)
         .bind(INITIAL_MARK_GRANT)
         .bind(&grant_key)
@@ -70,6 +73,7 @@ impl PgStorage {
 
         let mut tx = self.pool.begin().await?;
         let account_id = player_account_id(player_id);
+        ensure_system_account(&mut tx).await?;
         ensure_player_account(&mut tx, &account_id, username, player_id).await?;
         ensure_balance_row(&mut tx, &account_id).await?;
 
@@ -78,11 +82,12 @@ impl PgStorage {
             insert into world_ledger_entries (
                 asset, debit_account_id, credit_account_id, amount, reason, memo, idempotency_key
             )
-            values ('MARK', null, $1, $2, $3, $4, $5)
+            values ('MARK', $1, $2, $3, $4, $5, $6)
             on conflict (idempotency_key) do nothing
             returning id
             "#,
         )
+        .bind(SYSTEM_MARK_ACCOUNT_ID)
         .bind(&account_id)
         .bind(amount)
         .bind(reason)

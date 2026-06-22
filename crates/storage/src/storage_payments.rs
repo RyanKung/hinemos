@@ -331,6 +331,10 @@ impl PgStorage {
 
         let sender_account_id = player_account_id(payer_player_id);
         let target_account_id = player_account_id(&request.payee_player_id);
+        if sender_account_id == target_account_id {
+            return Err(StorageError::SelfPayment);
+        }
+
         ensure_player_account(&mut tx, &sender_account_id, payer_user, payer_player_id).await?;
         ensure_player_account(
             &mut tx,

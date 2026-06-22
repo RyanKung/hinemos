@@ -3,6 +3,7 @@
 use sqlx::postgres::PgPool;
 
 use crate::StorageError;
+use crate::accounts::{SYSTEM_LEDGER_ADJUSTMENT_ACCOUNT_ID, SYSTEM_MARK_ACCOUNT_ID};
 use crate::parcels::seed_commercial_parcels;
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
@@ -371,6 +372,17 @@ async fn migrate_inbox_items(pool: &PgPool) -> Result<(), StorageError> {
 }
 
 async fn migrate_ledger(pool: &PgPool) -> Result<(), StorageError> {
+    migrate_world_accounts(pool).await?;
+    migrate_world_balances(pool).await?;
+    migrate_world_ledger_entries(pool).await?;
+    backfill_legacy_ledger_edges(pool).await?;
+    normalize_legacy_self_payment_entries(pool).await?;
+    enforce_ledger_entry_constraints(pool).await?;
+    create_ledger_indexes(pool).await?;
+    Ok(())
+}
+
+async fn migrate_world_accounts(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists world_accounts (
@@ -387,6 +399,25 @@ async fn migrate_ledger(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
+            insert into world_accounts (account_id, kind, owner_id, display_name)
+            values
+                ($1, 'system', 'system', 'System MARK issuance'),
+                ($2, 'system', 'system', 'Legacy ledger adjustment')
+            on conflict (account_id) do update
+            set display_name = excluded.display_name
+            "#,
+    )
+    .bind(SYSTEM_MARK_ACCOUNT_ID)
+    .bind(SYSTEM_LEDGER_ADJUSTMENT_ACCOUNT_ID)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn migrate_world_balances(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
             create table if not exists world_balances (
                 account_id text not null references world_accounts(account_id) on delete cascade,
                 asset text not null check (asset = 'MARK'),
@@ -399,25 +430,137 @@ async fn migrate_ledger(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn migrate_world_ledger_entries(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists world_ledger_entries (
                 id bigserial primary key,
                 asset text not null check (asset = 'MARK'),
-                debit_account_id text references world_accounts(account_id),
-                credit_account_id text references world_accounts(account_id),
+                debit_account_id text not null references world_accounts(account_id),
+                credit_account_id text not null references world_accounts(account_id),
                 amount bigint not null check (amount > 0),
                 reason text not null,
                 memo text not null default '',
                 idempotency_key text unique,
                 created_at timestamptz not null default now(),
-                check (debit_account_id is not null or credit_account_id is not null)
+                constraint world_ledger_distinct_accounts
+                    check (debit_account_id <> credit_account_id)
             )
             "#,
     )
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn backfill_legacy_ledger_edges(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            update world_ledger_entries
+            set debit_account_id = $1
+            where debit_account_id is null
+              and credit_account_id is not null
+            "#,
+    )
+    .bind(SYSTEM_MARK_ACCOUNT_ID)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            update world_ledger_entries
+            set credit_account_id = $1
+            where credit_account_id is null
+              and debit_account_id is not null
+            "#,
+    )
+    .bind(SYSTEM_MARK_ACCOUNT_ID)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn normalize_legacy_self_payment_entries(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            insert into world_ledger_entries (
+                asset, debit_account_id, credit_account_id, amount,
+                reason, memo, idempotency_key, created_at
+            )
+            select asset,
+                   case when credit_account_id = $1 then $2 else $1 end,
+                   credit_account_id,
+                   amount,
+                   reason,
+                   memo,
+                   'system:migration:legacy_self_payment_offset:' || id,
+                   created_at
+            from world_ledger_entries
+            where debit_account_id = credit_account_id
+            on conflict (idempotency_key) do nothing
+            "#,
+    )
+    .bind(SYSTEM_LEDGER_ADJUSTMENT_ACCOUNT_ID)
+    .bind(SYSTEM_MARK_ACCOUNT_ID)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            update world_ledger_entries
+            set credit_account_id = case when credit_account_id = $1 then $2 else $1 end
+            where debit_account_id = credit_account_id
+            "#,
+    )
+    .bind(SYSTEM_LEDGER_ADJUSTMENT_ACCOUNT_ID)
+    .bind(SYSTEM_MARK_ACCOUNT_ID)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn enforce_ledger_entry_constraints(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            alter table world_ledger_entries
+            alter column debit_account_id set not null,
+            alter column credit_account_id set not null
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            do $$
+            begin
+                if not exists (
+                    select 1
+                    from pg_constraint
+                    where conrelid = 'world_ledger_entries'::regclass
+                      and conname = 'world_ledger_distinct_accounts'
+                ) then
+                    alter table world_ledger_entries
+                    add constraint world_ledger_distinct_accounts
+                    check (debit_account_id <> credit_account_id);
+                end if;
+            end
+            $$;
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn create_ledger_indexes(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create index if not exists world_ledger_account_idx
