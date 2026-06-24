@@ -43,6 +43,22 @@ fn sample_service_rooms_are_not_static_views() {
     );
 }
 
+#[test]
+fn sample_service_rooms_define_builtin_handlers() {
+    let registrations = load_sample_room_registrations();
+    let missing_handlers = registrations
+        .iter()
+        .filter(|registration| registration.builtin_handler.is_none())
+        .map(|registration| registration.view_id.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        missing_handlers.is_empty(),
+        "sample service rooms must declare builtin_handler for the built-in runner: {}",
+        missing_handlers.join(", ")
+    );
+}
+
 fn write_registration_fixture() -> std::path::PathBuf {
     let temp_root = std::env::temp_dir().join(format!(
         "hinemos-app-room-reg-load-{}-{}",

@@ -55,6 +55,7 @@ impl RoomRegistrationStore for PgStorage {
                 room_player_id: registration.room_player_id,
                 status_text: registration.status_text,
                 custom_commands: registration.custom_commands,
+                builtin_handler: registration.builtin_handler,
                 enabled: registration.enabled,
             },
         )

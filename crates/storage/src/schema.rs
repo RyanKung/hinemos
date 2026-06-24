@@ -815,6 +815,7 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
                 room_player_id text not null unique,
                 status_text text,
                 custom_commands text,
+                builtin_handler text,
                 enabled boolean not null default true,
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now()
@@ -832,6 +833,7 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
         "enter_aliases text",
         "status_text text",
         "custom_commands text",
+        "builtin_handler text",
         "enabled boolean not null default true",
     ] {
         sqlx::query(&format!(
@@ -840,6 +842,16 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
         .execute(pool)
         .await?;
     }
+
+    sqlx::query(
+        r#"
+            create unique index if not exists service_rooms_builtin_handler_idx
+            on service_rooms (builtin_handler)
+            where builtin_handler is not null
+            "#,
+    )
+    .execute(pool)
+    .await?;
 
     Ok(())
 }

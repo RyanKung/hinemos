@@ -247,6 +247,8 @@ pub struct StoredServiceRoom {
     pub status_text: Option<String>,
     /// Data-authored command help, one command per line or semicolon.
     pub custom_commands: Option<String>,
+    /// Optional built-in handler key consumed by the built-in room runner.
+    pub builtin_handler: Option<String>,
     /// Whether this registration is active.
     pub enabled: bool,
 }

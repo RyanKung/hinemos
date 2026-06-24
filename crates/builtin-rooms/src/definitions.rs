@@ -1,42 +1,67 @@
-#[derive(Debug, Clone, Copy)]
-pub(super) struct RoomDefinition {
-    pub(super) view_id: &'static str,
-    pub(super) room_user: &'static str,
-    pub(super) room_player_id: &'static str,
+use std::collections::HashMap;
+
+use anyhow::{Context, Result};
+use hinemos_storage::{PgStorage, StoredServiceRoom};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum BuiltinHandler {
+    Blackstone,
+    Bank,
+    Newspaper,
+    Registry,
+    School,
+    Workers,
 }
 
-pub(super) const BLACKSTONE: RoomDefinition = RoomDefinition {
-    view_id: "blackstone_izakaya",
-    room_user: "room-blackstone_izakaya",
-    room_player_id: "room:blackstone_izakaya",
-};
+impl BuiltinHandler {
+    fn from_key(key: &str) -> Option<Self> {
+        Some(match key {
+            "blackstone_izakaya" => Self::Blackstone,
+            "hinemos_bank" => Self::Bank,
+            "hinemos_daily_seer" => Self::Newspaper,
+            "hinemos_registry" => Self::Registry,
+            "hinemos_school" => Self::School,
+            "workers_society" => Self::Workers,
+            _ => return None,
+        })
+    }
+}
 
-pub(super) const BANK: RoomDefinition = RoomDefinition {
-    view_id: "hinemos_bank",
-    room_user: "room-hinemos_bank",
-    room_player_id: "room:hinemos_bank",
-};
+pub(super) type BuiltinRoomDefinitions = HashMap<BuiltinHandler, RoomDefinition>;
 
-pub(super) const NEWSPAPER: RoomDefinition = RoomDefinition {
-    view_id: "hinemos_daily_seer",
-    room_user: "room-hinemos_daily_seer",
-    room_player_id: "room:hinemos_daily_seer",
-};
+#[derive(Debug, Clone)]
+pub(super) struct RoomDefinition {
+    pub(super) view_id: String,
+    pub(super) room_user: String,
+    pub(super) room_player_id: String,
+}
 
-pub(super) const REGISTRY: RoomDefinition = RoomDefinition {
-    view_id: "hinemos_registry",
-    room_user: "room-hinemos_registry",
-    room_player_id: "room:hinemos_registry",
-};
+impl From<&StoredServiceRoom> for RoomDefinition {
+    fn from(room: &StoredServiceRoom) -> Self {
+        Self {
+            view_id: room.view_id.clone(),
+            room_user: room.room_user.clone(),
+            room_player_id: room.room_player_id.clone(),
+        }
+    }
+}
 
-pub(super) const SCHOOL: RoomDefinition = RoomDefinition {
-    view_id: "hinemos_school",
-    room_user: "room-hinemos_school",
-    room_player_id: "room:hinemos_school",
-};
-
-pub(super) const WORKERS: RoomDefinition = RoomDefinition {
-    view_id: "workers_society",
-    room_user: "room-workers_society",
-    room_player_id: "room:workers_society",
-};
+pub(super) async fn load_builtin_room_definitions(
+    storage: &PgStorage,
+) -> Result<BuiltinRoomDefinitions> {
+    let mut definitions = HashMap::new();
+    for room in storage.builtin_service_rooms().await? {
+        let handler_key = room
+            .builtin_handler
+            .as_deref()
+            .context("builtin_service_rooms returned a room without builtin_handler")?;
+        let handler = BuiltinHandler::from_key(handler_key).with_context(|| {
+            format!(
+                "unknown built-in room handler `{}` for {}",
+                handler_key, room.view_id
+            )
+        })?;
+        definitions.insert(handler, RoomDefinition::from(&room));
+    }
+    Ok(definitions)
+}

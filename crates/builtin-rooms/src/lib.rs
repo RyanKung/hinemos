@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use blackstone_izakaya::BlackstoneIzakaya;
-use definitions::{BANK, BLACKSTONE, SCHOOL};
+use definitions::{BuiltinHandler, BuiltinRoomDefinitions, load_builtin_room_definitions};
 use hinemos_bank_room::HinemosBank;
 use hinemos_newspaper_room::HinemosDailySeer;
 use hinemos_school_room::HinemosSchool;
@@ -72,13 +72,34 @@ struct BuiltinRooms {
 
 impl BuiltinRooms {
     async fn poll_once(&mut self, storage: &PgStorage, batch_size: i64) -> Result<usize> {
+        let definitions = load_builtin_room_definitions(storage).await?;
         let mut handled = 0;
-        handled += poll_room(storage, &BLACKSTONE, &mut self.blackstone, batch_size).await?;
-        handled += poll_room(storage, &BANK, &mut self.bank, batch_size).await?;
-        handled += poll_newspaper_room(storage, &mut self.newspaper, batch_size).await?;
-        handled += polling::poll_registry_room(storage, &mut self.registry, batch_size).await?;
-        handled += poll_room(storage, &SCHOOL, &mut self.school, batch_size).await?;
-        handled += poll_workers_room(storage, &mut self.workers, batch_size).await?;
+        if let Some(room) = room(&definitions, BuiltinHandler::Blackstone) {
+            handled += poll_room(storage, room, &mut self.blackstone, batch_size).await?;
+        }
+        if let Some(room) = room(&definitions, BuiltinHandler::Bank) {
+            handled += poll_room(storage, room, &mut self.bank, batch_size).await?;
+        }
+        if let Some(room) = room(&definitions, BuiltinHandler::Newspaper) {
+            handled += poll_newspaper_room(storage, room, &mut self.newspaper, batch_size).await?;
+        }
+        if let Some(room) = room(&definitions, BuiltinHandler::Registry) {
+            handled +=
+                polling::poll_registry_room(storage, room, &mut self.registry, batch_size).await?;
+        }
+        if let Some(room) = room(&definitions, BuiltinHandler::School) {
+            handled += poll_room(storage, room, &mut self.school, batch_size).await?;
+        }
+        if let Some(room) = room(&definitions, BuiltinHandler::Workers) {
+            handled += poll_workers_room(storage, room, &mut self.workers, batch_size).await?;
+        }
         Ok(handled)
     }
+}
+
+fn room(
+    definitions: &BuiltinRoomDefinitions,
+    handler: BuiltinHandler,
+) -> Option<&definitions::RoomDefinition> {
+    definitions.get(&handler)
 }

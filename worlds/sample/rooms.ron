@@ -10,6 +10,7 @@
         room_player_id: "room:blackstone_izakaya",
         status_text: Some("Room service is external. Registered local commands and /say chat are sent to the room service."),
         custom_commands: Some("/buy beer\n/ask <question>\n/blame <complaint>\n/grep <query>"),
+        builtin_handler: Some("blackstone_izakaya"),
         enabled: true,
     ),
     (
@@ -23,6 +24,7 @@
         room_player_id: "room:hinemos_school",
         status_text: Some("Room service is external. School requests are sent to the room service."),
         custom_commands: Some("/school programs\n/school enroll <program>\n/school credential <program>\n/school teach <program>"),
+        builtin_handler: Some("hinemos_school"),
         enabled: true,
     ),
     (
@@ -36,6 +38,7 @@
         room_player_id: "room:workers_society",
         status_text: Some("Room service is external. Position requests are sent to the room service."),
         custom_commands: Some("/position list\n/position apply <position>\n/position start <position>\n/position finish\n/position claim\n/position feedback <user> <score> <comment>"),
+        builtin_handler: Some("workers_society"),
         enabled: true,
     ),
     (
@@ -49,6 +52,7 @@
         room_player_id: "room:hinemos_bank",
         status_text: Some("Room service is external. Bank requests are sent to the room service."),
         custom_commands: Some("/bank balance\n/bank deposit <amount>\n/bank withdraw <amount>\n/bank borrow <amount>\n/bank loans\n/bank repay <loan_id> <amount>"),
+        builtin_handler: Some("hinemos_bank"),
         enabled: true,
     ),
     (
@@ -62,6 +66,7 @@
         room_player_id: "room:hinemos_daily_seer",
         status_text: Some("Room service is external. Newspaper requests and update reports are sent to the press service."),
         custom_commands: Some("/paper today\n/paper latest\n/paper submit <note>\n/paper publish <headline> | <body>\n/paper report <headline> | <body>"),
+        builtin_handler: Some("hinemos_daily_seer"),
         enabled: true,
     ),
     (
@@ -75,6 +80,7 @@
         room_player_id: "room:hinemos_registry",
         status_text: Some("Room service is external. Marriage registration and divorce requests are sent to the registry office."),
         custom_commands: Some("/marriage help\n/marriage register <user>\n/marriage certificate\n/marriage divorce"),
+        builtin_handler: Some("hinemos_registry"),
         enabled: true,
     ),
 ]

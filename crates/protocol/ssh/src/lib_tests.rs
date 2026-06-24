@@ -62,6 +62,7 @@ fn service_room(
         room_player_id: "room-player".to_owned(),
         status_text: None,
         custom_commands: None,
+        builtin_handler: None,
         enabled: true,
     }
 }
@@ -314,6 +315,7 @@ fn room_directory_cache_invalidates_commercial_parcel_scopes() {
                 room_player_id: "room-player".to_owned(),
                 status_text: None,
                 custom_commands: None,
+                builtin_handler: None,
                 enabled: true,
             }),
         },
@@ -351,6 +353,7 @@ fn room_directory_cache_caches_service_rooms_by_room_user() {
                 room_player_id: "room-player".to_owned(),
                 status_text: None,
                 custom_commands: None,
+                builtin_handler: None,
                 enabled: true,
             }],
         },
@@ -381,6 +384,7 @@ fn room_directory_cache_caches_room_contexts_by_view() {
                     room_player_id: "room-player".to_owned(),
                     status_text: None,
                     custom_commands: None,
+                    builtin_handler: None,
                     enabled: true,
                 }),
                 front_bindings: Vec::new(),
@@ -509,6 +513,7 @@ fn service_room_enter_tokens_normalize_and_dedupe_aliases() {
         room_player_id: "room-player".to_owned(),
         status_text: None,
         custom_commands: None,
+        builtin_handler: None,
         enabled: true,
     };
 
@@ -541,6 +546,7 @@ fn service_room_alias_conflict_rejects_same_front_view_tokens() {
         room_player_id: "room-player-1".to_owned(),
         status_text: None,
         custom_commands: None,
+        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();
@@ -584,6 +590,7 @@ fn service_room_alias_conflict_rejects_address_conflict() {
         room_player_id: "room-player-1".to_owned(),
         status_text: None,
         custom_commands: None,
+        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();
@@ -643,6 +650,7 @@ fn service_room_alias_conflict_rejects_parcel_id() {
         room_player_id: "room-player-2".to_owned(),
         status_text: None,
         custom_commands: None,
+        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();
