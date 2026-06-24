@@ -278,7 +278,7 @@ where
 
 impl<S, E> AppService<S>
 where
-    S: InboxStore<Error = E> + MailStore<Error = E> + RoomStore<Error = E> + ShopStore<Error = E>,
+    S: MailStore<Error = E> + RoomStore<Error = E>,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding:
         RoomBindingKindView + RoomMailboxView + ServiceRoomView + RoomCommandPolicyView + Sync,
@@ -314,12 +314,6 @@ where
                 self.handle_service_room_say(identity, current_view, binding, text)
                     .await?
             }
-            SemanticCommand::Inbox { action } => {
-                vec![UiEvent::Text(
-                    self.handle_service_room_inbox_action(identity, action, None)
-                        .await?,
-                )]
-            }
             SemanticCommand::Help => {
                 vec![UiEvent::Text(self.service_room_help_text(binding))]
             }
@@ -344,48 +338,6 @@ where
             }
             _ => vec![UiEvent::Text(service_room_unavailable_text().to_owned())],
         })
-    }
-
-    async fn handle_service_room_inbox_action(
-        &self,
-        identity: &AppIdentity,
-        action: &InboxAction,
-        mail_domain: Option<&str>,
-    ) -> Result<String, E> {
-        let text = match action {
-            InboxAction::List { filter } => {
-                self.list_inbox(
-                    "Inbox",
-                    &identity.user,
-                    &identity.player_id,
-                    filter,
-                    mail_domain,
-                )
-                .await?
-                .text
-            }
-            InboxAction::Read { item_id } => {
-                self.read_inbox(&identity.user, &identity.player_id, *item_id, mail_domain)
-                    .await?
-                    .text
-            }
-            InboxAction::Claim { item_id } => {
-                self.claim_inbox(&identity.user, &identity.player_id, *item_id)
-                    .await?
-                    .text
-            }
-            InboxAction::Ack { item_id } => {
-                self.ack_inbox(&identity.user, &identity.player_id, *item_id)
-                    .await?
-                    .text
-            }
-            InboxAction::Archive { item_id } => {
-                self.archive_inbox(&identity.user, &identity.player_id, *item_id)
-                    .await?
-                    .text
-            }
-        };
-        Ok(text)
     }
 }
 

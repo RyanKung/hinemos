@@ -25,131 +25,25 @@ impl PgStorage {
         }
 
         let mut tx = self.pool.begin().await?;
-        let target = resolve_payment_target(&mut tx, target).await?;
-        if target.player_id == requester_player_id {
-            return Err(StorageError::SelfMarriage);
+        let result = register_marriage_tx(
+            &mut tx,
+            requester_user,
+            requester_player_id,
+            target,
+            fee_amount,
+            registry_view_id,
+        )
+        .await;
+        match result {
+            Ok(certificate) => {
+                tx.commit().await?;
+                Ok(certificate)
+            }
+            Err(error) => {
+                tx.rollback().await?;
+                Err(error)
+            }
         }
-
-        require_recent_presence(
-            &mut tx,
-            requester_player_id,
-            registry_view_id,
-            requester_user,
-        )
-        .await?;
-        require_recent_presence(
-            &mut tx,
-            &target.player_id,
-            registry_view_id,
-            &target.username,
-        )
-        .await?;
-        ensure_no_active_marriage(&mut tx, requester_player_id, &target.player_id).await?;
-
-        let requester_account_id = player_account_id(requester_player_id);
-        let target_account_id = player_account_id(&target.player_id);
-        ensure_player_account(
-            &mut tx,
-            &requester_account_id,
-            requester_user,
-            requester_player_id,
-        )
-        .await?;
-        ensure_player_account(
-            &mut tx,
-            &target_account_id,
-            &target.username,
-            &target.player_id,
-        )
-        .await?;
-        ensure_registry_account(&mut tx).await?;
-        ensure_balance_row(&mut tx, &requester_account_id).await?;
-        ensure_balance_row(&mut tx, &target_account_id).await?;
-        ensure_balance_row(&mut tx, REGISTRY_ACCOUNT_ID).await?;
-
-        debit_balance(&mut tx, &requester_account_id, fee_amount).await?;
-        credit_registry_balance(&mut tx, fee_amount).await?;
-        let requester_ledger_id = insert_fee_ledger(
-            &mut tx,
-            &requester_account_id,
-            fee_amount,
-            &format!(
-                "Marriage registry fee for {requester_user} and {}",
-                target.username
-            ),
-        )
-        .await?;
-
-        debit_balance(&mut tx, &target_account_id, fee_amount).await?;
-        credit_registry_balance(&mut tx, fee_amount).await?;
-        let target_ledger_id = insert_fee_ledger(
-            &mut tx,
-            &target_account_id,
-            fee_amount,
-            &format!(
-                "Marriage registry fee for {requester_user} and {}",
-                target.username
-            ),
-        )
-        .await?;
-
-        let ((party_a_user, party_a_player_id), (party_b_user, party_b_player_id)) =
-            canonical_parties(
-                (requester_user.to_owned(), requester_player_id.to_owned()),
-                (target.username.clone(), target.player_id.clone()),
-            );
-        let certificate_text = render_certificate(
-            &party_a_user,
-            &party_b_user,
-            fee_amount,
-            requester_ledger_id,
-            target_ledger_id,
-        );
-        let certificate = sqlx::query_as::<_, StoredMarriageCertificate>(
-            r#"
-            insert into marriage_certificates (
-                party_a_user, party_a_player_id, party_b_user, party_b_player_id,
-                status, fee_amount, fee_ledger_ids, certificate_text
-            )
-            values ($1, $2, $3, $4, 'active', $5, $6, $7)
-            returning id, party_a_user, party_a_player_id, party_b_user, party_b_player_id,
-                      status, fee_amount, fee_ledger_ids, certificate_text,
-                      to_char(issued_at, 'YYYY-MM-DD HH24:MI:SS TZ') as issued_at
-            "#,
-        )
-        .bind(&party_a_user)
-        .bind(&party_a_player_id)
-        .bind(&party_b_user)
-        .bind(&party_b_player_id)
-        .bind(fee_amount)
-        .bind(vec![requester_ledger_id, target_ledger_id])
-        .bind(&certificate_text)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        create_certificate_inbox_item(&mut tx, &certificate, requester_user, requester_player_id)
-            .await?;
-        create_certificate_inbox_item(&mut tx, &certificate, &target.username, &target.player_id)
-            .await?;
-        insert_certificate_participant(
-            &mut tx,
-            certificate.id,
-            requester_player_id,
-            requester_user,
-        )
-        .await?;
-        insert_certificate_participant(
-            &mut tx,
-            certificate.id,
-            &target.player_id,
-            &target.username,
-        )
-        .await?;
-
-        let _requester_balance = fetch_balance_tx(&mut tx, &requester_account_id).await?;
-        let _target_balance = fetch_balance_tx(&mut tx, &target_account_id).await?;
-        tx.commit().await?;
-        Ok(certificate)
     }
 
     /// Loads the active marriage certificate for a player.
@@ -182,8 +76,128 @@ impl PgStorage {
         requester_player_id: &str,
     ) -> Result<StoredMarriageCertificate, StorageError> {
         let mut tx = self.pool.begin().await?;
-        let active = sqlx::query_as::<_, StoredMarriageCertificate>(
-            r#"
+        let result = divorce_marriage_tx(&mut tx, requester_user, requester_player_id).await;
+        match result {
+            Ok(certificate) => {
+                tx.commit().await?;
+                Ok(certificate)
+            }
+            Err(error) => {
+                tx.rollback().await?;
+                Err(error)
+            }
+        }
+    }
+}
+
+async fn register_marriage_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    requester_user: &str,
+    requester_player_id: &str,
+    target: &str,
+    fee_amount: i64,
+    registry_view_id: &str,
+) -> Result<StoredMarriageCertificate, StorageError> {
+    let target = resolve_payment_target(tx, target).await?;
+    if target.player_id == requester_player_id {
+        return Err(StorageError::SelfMarriage);
+    }
+
+    require_recent_presence(tx, requester_player_id, registry_view_id, requester_user).await?;
+    require_recent_presence(tx, &target.player_id, registry_view_id, &target.username).await?;
+    ensure_no_active_marriage(tx, requester_player_id, &target.player_id).await?;
+
+    let requester_account_id = player_account_id(requester_player_id);
+    let target_account_id = player_account_id(&target.player_id);
+    ensure_player_account(
+        tx,
+        &requester_account_id,
+        requester_user,
+        requester_player_id,
+    )
+    .await?;
+    ensure_player_account(tx, &target_account_id, &target.username, &target.player_id).await?;
+    ensure_registry_account(tx).await?;
+    ensure_balance_row(tx, &requester_account_id).await?;
+    ensure_balance_row(tx, &target_account_id).await?;
+    ensure_balance_row(tx, REGISTRY_ACCOUNT_ID).await?;
+
+    debit_balance(tx, &requester_account_id, fee_amount).await?;
+    credit_registry_balance(tx, fee_amount).await?;
+    let requester_ledger_id = insert_fee_ledger(
+        tx,
+        &requester_account_id,
+        fee_amount,
+        &format!(
+            "Marriage registry fee for {requester_user} and {}",
+            target.username
+        ),
+    )
+    .await?;
+
+    debit_balance(tx, &target_account_id, fee_amount).await?;
+    credit_registry_balance(tx, fee_amount).await?;
+    let target_ledger_id = insert_fee_ledger(
+        tx,
+        &target_account_id,
+        fee_amount,
+        &format!(
+            "Marriage registry fee for {requester_user} and {}",
+            target.username
+        ),
+    )
+    .await?;
+
+    let ((party_a_user, party_a_player_id), (party_b_user, party_b_player_id)) = canonical_parties(
+        (requester_user.to_owned(), requester_player_id.to_owned()),
+        (target.username.clone(), target.player_id.clone()),
+    );
+    let certificate_text = render_certificate(
+        &party_a_user,
+        &party_b_user,
+        fee_amount,
+        requester_ledger_id,
+        target_ledger_id,
+    );
+    let certificate = sqlx::query_as::<_, StoredMarriageCertificate>(
+        r#"
+            insert into marriage_certificates (
+                party_a_user, party_a_player_id, party_b_user, party_b_player_id,
+                status, fee_amount, fee_ledger_ids, certificate_text
+            )
+            values ($1, $2, $3, $4, 'active', $5, $6, $7)
+            returning id, party_a_user, party_a_player_id, party_b_user, party_b_player_id,
+                      status, fee_amount, fee_ledger_ids, certificate_text,
+                      to_char(issued_at, 'YYYY-MM-DD HH24:MI:SS TZ') as issued_at
+            "#,
+    )
+    .bind(&party_a_user)
+    .bind(&party_a_player_id)
+    .bind(&party_b_user)
+    .bind(&party_b_player_id)
+    .bind(fee_amount)
+    .bind(vec![requester_ledger_id, target_ledger_id])
+    .bind(&certificate_text)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    create_certificate_inbox_item(tx, &certificate, requester_user, requester_player_id).await?;
+    create_certificate_inbox_item(tx, &certificate, &target.username, &target.player_id).await?;
+    insert_certificate_participant(tx, certificate.id, requester_player_id, requester_user).await?;
+    insert_certificate_participant(tx, certificate.id, &target.player_id, &target.username).await?;
+
+    let _requester_balance = fetch_balance_tx(tx, &requester_account_id).await?;
+    let _target_balance = fetch_balance_tx(tx, &target_account_id).await?;
+    Ok(certificate)
+}
+
+async fn divorce_marriage_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    requester_user: &str,
+    requester_player_id: &str,
+) -> Result<StoredMarriageCertificate, StorageError> {
+    let active = sqlx::query_as::<_, StoredMarriageCertificate>(
+        r#"
             select id, party_a_user, party_a_player_id, party_b_user, party_b_player_id,
                    status, fee_amount, fee_ledger_ids, certificate_text,
                    to_char(issued_at, 'YYYY-MM-DD HH24:MI:SS TZ') as issued_at
@@ -194,17 +208,17 @@ impl PgStorage {
             limit 1
             for update
             "#,
-        )
-        .bind(requester_player_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let active = match active {
-            Some(active) => active,
-            None => return Err(StorageError::NoActiveMarriage(requester_user.to_owned())),
-        };
+    )
+    .bind(requester_player_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let active = match active {
+        Some(active) => active,
+        None => return Err(StorageError::NoActiveMarriage(requester_user.to_owned())),
+    };
 
-        let certificate = sqlx::query_as::<_, StoredMarriageCertificate>(
-            r#"
+    let certificate = sqlx::query_as::<_, StoredMarriageCertificate>(
+        r#"
             update marriage_certificates
             set status = 'divorced',
                 divorced_at = now()
@@ -214,41 +228,39 @@ impl PgStorage {
                       status, fee_amount, fee_ledger_ids, certificate_text,
                       to_char(issued_at, 'YYYY-MM-DD HH24:MI:SS TZ') as issued_at
             "#,
-        )
-        .bind(active.id)
-        .fetch_one(&mut *tx)
-        .await?;
+    )
+    .bind(active.id)
+    .fetch_one(&mut **tx)
+    .await?;
 
-        sqlx::query(
-            r#"
+    sqlx::query(
+        r#"
             update marriage_certificate_participants
             set status = 'divorced'
             where certificate_id = $1
             "#,
-        )
-        .bind(certificate.id)
-        .execute(&mut *tx)
-        .await?;
+    )
+    .bind(certificate.id)
+    .execute(&mut **tx)
+    .await?;
 
-        create_divorce_inbox_item(
-            &mut tx,
-            &certificate,
-            &certificate.party_a_user,
-            &certificate.party_a_player_id,
-            requester_user,
-        )
-        .await?;
-        create_divorce_inbox_item(
-            &mut tx,
-            &certificate,
-            &certificate.party_b_user,
-            &certificate.party_b_player_id,
-            requester_user,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(certificate)
-    }
+    create_divorce_inbox_item(
+        tx,
+        &certificate,
+        &certificate.party_a_user,
+        &certificate.party_a_player_id,
+        requester_user,
+    )
+    .await?;
+    create_divorce_inbox_item(
+        tx,
+        &certificate,
+        &certificate.party_b_user,
+        &certificate.party_b_player_id,
+        requester_user,
+    )
+    .await?;
+    Ok(certificate)
 }
 
 async fn insert_certificate_participant(
