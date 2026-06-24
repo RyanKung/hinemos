@@ -41,6 +41,7 @@ impl Default for BuiltinRoomsConfig {
 /// Connect to storage and run the built-in room service loop.
 pub async fn run_builtin_rooms(database_url: &str, config: BuiltinRoomsConfig) -> Result<()> {
     let storage = PgStorage::connect(database_url).await?;
+    storage.migrate().await?;
     let mut rooms = BuiltinRooms::default();
     let interval = Duration::from_millis(config.poll_interval_ms);
 

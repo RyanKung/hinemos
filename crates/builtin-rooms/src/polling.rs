@@ -164,7 +164,7 @@ async fn handle_registry_item(
 ) -> Result<()> {
     let claimed = claim_room_item(storage, room, item).await?;
     let reply = service.handle(&incoming_mail(&claimed));
-    let reply = save_registry_effect(storage, &claimed, reply).await?;
+    let reply = save_registry_effect(storage, room, &claimed, reply).await?;
     let reply = registered_room_reply(room, reply);
     save_room_reply(storage, &claimed, &reply).await?;
     ack_room_item(storage, room, &claimed).await?;

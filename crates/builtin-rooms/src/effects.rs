@@ -31,6 +31,7 @@ pub(super) async fn save_worker_payment(
 
 pub(super) async fn save_registry_effect(
     storage: &PgStorage,
+    room: &RoomDefinition,
     request: &StoredInboxItem,
     reply: RegistryReply,
 ) -> Result<OutgoingMail> {
@@ -44,7 +45,7 @@ pub(super) async fn save_registry_effect(
                     &request.sender_player_id,
                     &target,
                     25,
-                    "hinemos_registry",
+                    &room.view_id,
                 )
                 .await
             {
