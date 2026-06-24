@@ -6,7 +6,7 @@ pub fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
-        .expect("crate should live under workspace/crates/cli")
+        .expect("crate should live under workspace/crates/test-support")
         .to_path_buf()
 }
 
@@ -81,7 +81,7 @@ pub fn assert_provider_env(values: &HashMap<String, String>) {
     );
 }
 
-pub(super) fn assert_database_env(values: &HashMap<String, String>) -> String {
+pub(crate) fn assert_database_env(values: &HashMap<String, String>) -> String {
     values
         .get("DATABASE_URL")
         .filter(|value| !value.is_empty())

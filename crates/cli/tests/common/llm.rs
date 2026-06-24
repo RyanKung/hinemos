@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::process::{collect_pipe, join_reader, take_buffer};
+use hinemos_test_support::{collect_pipe, join_reader, take_buffer};
 
 pub struct AgentRun {
     pub success: bool,

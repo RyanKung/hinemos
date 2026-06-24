@@ -46,7 +46,7 @@ pub fn copy_dir_recursive(source: &Path, target: &Path) {
     }
 }
 
-pub(super) fn collect_pipe<T: Read + Send + 'static>(
+pub fn collect_pipe<T: Read + Send + 'static>(
     mut pipe: T,
     target: &Arc<Mutex<Vec<u8>>>,
 ) -> thread::JoinHandle<()> {
@@ -66,13 +66,13 @@ pub(super) fn collect_pipe<T: Read + Send + 'static>(
     })
 }
 
-pub(super) fn join_reader(handle: Option<thread::JoinHandle<()>>) {
+pub fn join_reader(handle: Option<thread::JoinHandle<()>>) {
     if let Some(handle) = handle {
         handle.join().ok();
     }
 }
 
-pub(super) fn take_buffer(buffer: Arc<Mutex<Vec<u8>>>) -> Vec<u8> {
+pub fn take_buffer(buffer: Arc<Mutex<Vec<u8>>>) -> Vec<u8> {
     Arc::try_unwrap(buffer)
         .expect("pipe buffer should have no readers")
         .into_inner()
@@ -99,7 +99,7 @@ pub fn wait_with_timeout(mut child: Child, timeout: Duration) -> Output {
     );
 }
 
-pub(super) fn wait_child_success(child: &mut Child, timeout: Duration, label: &str) -> bool {
+pub fn wait_child_success(child: &mut Child, timeout: Duration, label: &str) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if let Some(status) = child.try_wait().expect("poll child") {
@@ -119,6 +119,6 @@ pub fn terminate(child: &mut Child) {
     }
 }
 
-pub(super) fn read_lossy(path: &Path) -> String {
+pub fn read_lossy(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|_| String::new())
 }

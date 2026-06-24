@@ -14,3 +14,7 @@ registry-room = { path = "../../rooms/registry" }
 workers-society-room = { path = "../../rooms/workers" }
 anyhow = "1.0.102"
 tokio = { version = "1.52.3", features = ["time"] }
+
+[dev-dependencies]
+hinemos-test-support = { version = "0.1.0", path = "../test-support" }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }

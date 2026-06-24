@@ -9,7 +9,7 @@ pub fn epoch_seconds() -> u64 {
         .as_secs()
 }
 
-pub(super) fn epoch_nanos() -> u128 {
+pub fn epoch_nanos() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before unix epoch")

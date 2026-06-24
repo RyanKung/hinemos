@@ -1252,6 +1252,7 @@ dependencies = [
  "hinemos-newspaper-room",
  "hinemos-school-room",
  "hinemos-storage",
+ "hinemos-test-support",
  "libhinemos-room",
  "registry-room",
  "tokio",
@@ -1271,6 +1272,7 @@ dependencies = [
  "hinemos-runtime",
  "hinemos-ssh",
  "hinemos-storage",
+ "hinemos-test-support",
  "rustls",
  "serde_json",
  "tokio",
@@ -1359,6 +1361,10 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
 ]
+
+[[package]]
+name = "hinemos-test-support"
+version = "0.1.0"
 
 [[package]]
 name = "hkdf"

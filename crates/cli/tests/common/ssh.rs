@@ -5,11 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::assertions::assert_contains;
-use super::process::{
-    collect_pipe, join_reader, take_buffer, wait_child_success, wait_with_timeout,
+use hinemos_test_support::{
+    TestTempDir, assert_contains, collect_pipe, join_reader, take_buffer, wait_child_success,
+    wait_with_timeout,
 };
-use super::temp::TestTempDir;
 
 pub fn run_ssh_batch<const N: usize>(
     host: &str,

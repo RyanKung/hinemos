@@ -5,8 +5,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::process::{read_lossy, wait_with_timeout};
-use super::temp::epoch_nanos;
+use hinemos_test_support::{epoch_nanos, read_lossy, wait_with_timeout};
 
 pub fn spawn_hinemos_server(
     root: &Path,

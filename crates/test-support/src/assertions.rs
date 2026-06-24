@@ -1,4 +1,4 @@
-use super::temp::TestTempDir;
+use crate::TestTempDir;
 
 pub fn assert_contains(output: &str, needle: &str, description: &str) {
     assert!(
