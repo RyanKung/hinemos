@@ -27,6 +27,15 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
         .set_mail_auth_token("mail_user", "player_mail_user", "mail-token")
         .await
         .expect("seed mail auth token");
+    let _seed_uid = test_database.query_value(
+        "insert into inbox_items (
+             kind, recipient_user, recipient_player_id,
+             sender_user, sender_player_id, subject, body
+         ) values (
+             'mail', 'other_user', 'player_other_user',
+             'seed', 'player_seed', 'Seed', 'not visible to mail_user'
+         ) returning id",
+    );
     let temp = TestTempDir::new("hinemos-mail-sidecar");
     let smtp_port = free_local_port();
     let imap_port = free_local_port();
@@ -45,12 +54,18 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
 
     let mut imap = ProtocolClient::connect(("127.0.0.1", imap_port));
     imap.expect_contains("OK Hinemos IMAP4rev1 ready");
-    imap.send("a1 LOGIN mail_user wrong-token");
-    imap.expect_contains("a1 NO authentication failed");
-    imap.send("a2 LOGIN mail_user mail-token");
-    imap.expect_contains("a2 OK LOGIN completed");
-    imap.send("a3 LOGOUT");
-    imap.expect_contains("a3 OK LOGOUT completed");
+    imap.send("a1 CAPABILITY");
+    imap.expect_contains("IDLE");
+    imap.expect_contains("a1 OK CAPABILITY completed");
+    imap.send("a2 ID NIL");
+    imap.expect_contains("* ID");
+    imap.expect_contains("a2 OK ID completed");
+    imap.send("a3 LOGIN mail_user wrong-token");
+    imap.expect_contains("a3 NO authentication failed");
+    imap.send("a4 LOGIN mail_user mail-token");
+    imap.expect_contains("a4 OK LOGIN completed");
+    imap.send("a5 LOGOUT");
+    imap.expect_contains("a5 OK LOGOUT completed");
 
     let mut smtp = ProtocolClient::connect(("127.0.0.1", smtp_port));
     smtp.expect_contains("220 hinemos ESMTP ready");
@@ -68,34 +83,61 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     smtp.send("DATA");
     smtp.expect_contains("354 End data");
     smtp.send("Subject: Sidecar smoke");
+    smtp.send("Content-Transfer-Encoding: base64");
     smtp.send("");
-    smtp.send("hello from smtp");
+    smtp.send("aGVsbG8gZnJvbSBzbXRw");
     smtp.send(".");
     smtp.expect_contains("250 2.0.0 Message accepted");
     smtp.send("QUIT");
     smtp.expect_contains("221 2.0.0 Bye");
+    let first_mail_uid = test_database.query_value(
+        "select id from inbox_items
+         where recipient_user = 'mail_user'
+           and subject = 'Sidecar smoke'",
+    );
 
     let mut imap = ProtocolClient::connect(("127.0.0.1", imap_port));
     imap.expect_contains("OK Hinemos IMAP4rev1 ready");
     imap.send("b1 LOGIN mail_user mail-token");
     imap.expect_contains("b1 OK LOGIN completed");
-    imap.send("b2 SELECT INBOX");
+    imap.send("b2 NAMESPACE");
+    imap.expect_contains("* NAMESPACE");
+    imap.expect_contains("b2 OK NAMESPACE completed");
+    imap.send("b3 LIST \"\" \"*\"");
+    imap.expect_contains(r#"* LIST (\HasNoChildren) "/" "INBOX""#);
+    imap.expect_contains("b3 OK LIST completed");
+    imap.send("b3x XLIST \"\" \"*\"");
+    imap.expect_contains(r#"* XLIST (\HasNoChildren) "/" "INBOX""#);
+    imap.expect_contains("b3x OK XLIST completed");
+    imap.send("b4 SELECT INBOX");
     imap.expect_contains("* 1 EXISTS");
-    imap.expect_contains("b2 OK SELECT completed");
-    imap.send("b3 SEARCH UNSEEN");
+    imap.expect_contains("b4 OK SELECT completed");
+    imap.send("b5 SEARCH UNSEEN");
     imap.expect_contains("* SEARCH 1");
-    imap.expect_contains("b3 OK SEARCH completed");
-    imap.send("b4 FETCH 1 (RFC822)");
+    imap.expect_contains("b5 OK SEARCH completed");
+    imap.send("b6 UID SEARCH UNSEEN");
+    imap.expect_contains(&format!("* SEARCH {first_mail_uid}"));
+    imap.expect_contains("b6 OK SEARCH completed");
+    imap.send(&format!("b7 UID FETCH {first_mail_uid} (BODY.PEEK[])"));
+    imap.expect_contains(&format!("* 1 FETCH (UID {first_mail_uid}"));
     imap.expect_contains("Subject: Sidecar smoke");
     imap.expect_contains("hello from smtp");
-    imap.expect_contains("b4 OK FETCH completed");
-    imap.send("b5 STORE 1 +FLAGS (\\Seen)");
-    imap.expect_contains("b5 OK STORE completed");
-    imap.send("b6 SEARCH UNSEEN");
+    imap.expect_contains("b7 OK FETCH completed");
+    imap.send(&format!("b8 UID STORE {first_mail_uid} +FLAGS (\\Seen)"));
+    imap.expect_contains("b8 OK STORE completed");
+    imap.send("b9 SEARCH UNSEEN");
     imap.expect_contains("* SEARCH ");
-    imap.expect_contains("b6 OK SEARCH completed");
-    imap.send("b7 LOGOUT");
-    imap.expect_contains("b7 OK LOGOUT completed");
+    imap.expect_contains("b9 OK SEARCH completed");
+    imap.send("b10 IDLE");
+    imap.expect_contains("+ idling");
+    send_smtp_message_as_mail_user(smtp_port, "Idle wake", "wake from smtp");
+    imap.expect_contains("* 2 EXISTS");
+    imap.send_raw(b"DO");
+    thread::sleep(Duration::from_millis(1_200));
+    imap.send_raw(b"NE\r\n");
+    imap.expect_contains("b10 OK IDLE completed");
+    imap.send("b11 LOGOUT");
+    imap.expect_contains("b11 OK LOGOUT completed");
 
     terminate(&mut server);
     temp.remove_on_drop();
@@ -296,6 +338,30 @@ fn send_smtp_message_as_room(smtp_port: u16, recipient: &str, subject: &str, bod
     smtp.send("MAIL FROM:<room@hinemos.local>");
     smtp.expect_contains("250 2.1.0 Sender OK");
     smtp.send(&format!("RCPT TO:<{recipient}@hinemos.local>"));
+    smtp.expect_contains("250 2.1.5 Recipient OK");
+    smtp.send("DATA");
+    smtp.expect_contains("354 End data");
+    smtp.send(&format!("Subject: {subject}"));
+    smtp.send("");
+    smtp.send(body);
+    smtp.send(".");
+    smtp.expect_contains("250 2.0.0 Message accepted");
+    smtp.send("QUIT");
+    smtp.expect_contains("221 2.0.0 Bye");
+}
+
+fn send_smtp_message_as_mail_user(smtp_port: u16, subject: &str, body: &str) {
+    let mut smtp = ProtocolClient::connect(("127.0.0.1", smtp_port));
+    smtp.expect_contains("220 hinemos ESMTP ready");
+    smtp.send("EHLO local");
+    smtp.expect_contains("250-AUTH PLAIN LOGIN");
+    smtp.send("AUTH LOGIN bWFpbF91c2Vy");
+    smtp.expect_contains("334 UGFzc3dvcmQ6");
+    smtp.send("bWFpbC10b2tlbg==");
+    smtp.expect_contains("235 2.7.0 Authentication successful");
+    smtp.send("MAIL FROM:<mail_user@hinemos.local>");
+    smtp.expect_contains("250 2.1.0 Sender OK");
+    smtp.send("RCPT TO:<mail_user@hinemos.local>");
     smtp.expect_contains("250 2.1.5 Recipient OK");
     smtp.send("DATA");
     smtp.expect_contains("354 End data");
@@ -699,6 +765,12 @@ impl ProtocolClient {
         stream.write_all(line.as_bytes()).expect("write command");
         stream.write_all(b"\r\n").expect("write newline");
         stream.flush().expect("flush command");
+    }
+
+    fn send_raw(&mut self, bytes: &[u8]) {
+        let stream = self.reader.get_mut();
+        stream.write_all(bytes).expect("write raw protocol bytes");
+        stream.flush().expect("flush raw protocol bytes");
     }
 
     fn expect_contains(&mut self, needle: &str) {

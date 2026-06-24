@@ -2,6 +2,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::Args;
@@ -10,8 +11,9 @@ use hinemos_storage::{
     INBOX_FILTER_ALL, INBOX_STATUS_ACKED, INBOX_STATUS_UNREAD, PgStorage, StoredInboxItem,
     StoredMailAuthToken,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::timeout;
 
 use crate::config::{mail_domain_from_env, mask_database_url, normalize_mail_target};
 use crate::mail_protocol::*;
@@ -181,6 +183,7 @@ where
         "DATA" => handle_smtp_data(reader, state, session).await?,
         "RSET" => handle_smtp_reset(reader, session).await?,
         "NOOP" => write_line(reader, "250 2.0.0 OK").await?,
+        "STARTTLS" => write_line(reader, "454 4.7.0 TLS not available").await?,
         "QUIT" => {
             write_line(reader, "221 2.0.0 Bye").await?;
             return Ok(true);
@@ -418,7 +421,9 @@ where
 {
     match command {
         "CAPABILITY" => handle_imap_capability(reader, tag).await?,
+        "ID" => handle_imap_id(reader, tag).await?,
         "NOOP" => tagged_ok(reader, tag, "NOOP completed").await?,
+        "STARTTLS" => tagged_no(reader, tag, "STARTTLS unavailable").await?,
         "LOGOUT" => {
             write_line(reader, "* BYE Hinemos IMAP logging out").await?;
             tagged_ok(reader, tag, "LOGOUT completed").await?;
@@ -429,19 +434,29 @@ where
         _ if session.identity.is_none() => {
             tagged_no(reader, tag, "authentication required").await?;
         }
-        "LIST" | "LSUB" => {
-            write_line(reader, r#"* LIST (\HasNoChildren) "/" "INBOX""#).await?;
-            tagged_ok(reader, tag, "LIST completed").await?;
+        "ENABLE" => tagged_ok(reader, tag, "ENABLE completed").await?,
+        "NAMESPACE" => handle_imap_namespace(reader, tag).await?,
+        "LIST" | "LSUB" | "XLIST" => handle_imap_list(reader, tag, command).await?,
+        "SUBSCRIBE" | "UNSUBSCRIBE" => tagged_ok(reader, tag, "subscription updated").await?,
+        "CHECK" => tagged_ok(reader, tag, "CHECK completed").await?,
+        "CLOSE" => {
+            session.selected.clear();
+            tagged_ok(reader, tag, "CLOSE completed").await?;
         }
+        "EXPUNGE" => tagged_ok(reader, tag, "EXPUNGE completed").await?,
         "SELECT" | "EXAMINE" => handle_imap_select(reader, state, session, tag).await?,
         "STATUS" => handle_imap_status(reader, state, session, tag).await?,
-        "SEARCH" | "UID SEARCH" => handle_imap_search(reader, state, session, tag, rest).await?,
+        "SEARCH" => handle_imap_search(reader, state, session, tag, rest, false).await?,
+        "UID SEARCH" => handle_imap_search(reader, state, session, tag, rest, true).await?,
         "FETCH" | "UID FETCH" => {
-            handle_imap_fetch_command(reader, state, session, tag, rest).await?
+            handle_imap_fetch_command(reader, state, session, tag, rest, command == "UID FETCH")
+                .await?
         }
         "STORE" | "UID STORE" => {
-            handle_imap_store_command(reader, state, session, tag, rest).await?
+            handle_imap_store_command(reader, state, session, tag, rest, command == "UID STORE")
+                .await?
         }
+        "IDLE" => handle_imap_idle(reader, state, session, tag).await?,
         "APPEND" => {
             handle_imap_append(reader, rest).await?;
             tagged_ok(reader, tag, "APPEND completed").await?;
@@ -452,8 +467,40 @@ where
 }
 
 async fn handle_imap_capability(reader: &mut BufReader<TcpStream>, tag: &str) -> Result<()> {
-    write_line(reader, "* CAPABILITY IMAP4rev1 AUTH=PLAIN LOGIN-REFERRALS").await?;
+    write_line(
+        reader,
+        "* CAPABILITY IMAP4rev1 ID IDLE NAMESPACE AUTH=PLAIN LOGIN-REFERRALS",
+    )
+    .await?;
     tagged_ok(reader, tag, "CAPABILITY completed").await
+}
+
+async fn handle_imap_id(reader: &mut BufReader<TcpStream>, tag: &str) -> Result<()> {
+    write_line(reader, r#"* ID ("name" "Hinemos" "vendor" "Hinemos")"#).await?;
+    tagged_ok(reader, tag, "ID completed").await
+}
+
+async fn handle_imap_namespace(reader: &mut BufReader<TcpStream>, tag: &str) -> Result<()> {
+    write_line(reader, r#"* NAMESPACE (("" "/")) NIL NIL"#).await?;
+    tagged_ok(reader, tag, "NAMESPACE completed").await
+}
+
+async fn handle_imap_list(
+    reader: &mut BufReader<TcpStream>,
+    tag: &str,
+    command: &str,
+) -> Result<()> {
+    let response = match command {
+        "LSUB" => "LSUB",
+        "XLIST" => "XLIST",
+        _ => "LIST",
+    };
+    write_line(
+        reader,
+        &format!(r#"* {response} (\HasNoChildren) "/" "INBOX""#),
+    )
+    .await?;
+    tagged_ok(reader, tag, &format!("{command} completed")).await
 }
 
 async fn handle_imap_login<S>(
@@ -578,13 +625,14 @@ async fn handle_imap_search<S>(
     session: &mut ImapSessionState,
     tag: &str,
     rest: &str,
+    use_uid: bool,
 ) -> Result<()>
 where
     S: MailDaemonStore<InboxItem = StoredInboxItem>,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
     ensure_imap_selected(state, session).await?;
-    let ids = imap_search_ids(&session.selected, rest);
+    let ids = imap_search_ids(&session.selected, rest, use_uid);
     write_line(reader, &format!("* SEARCH {}", ids.join(" "))).await?;
     tagged_ok(reader, tag, "SEARCH completed").await
 }
@@ -595,13 +643,14 @@ async fn handle_imap_fetch_command<S>(
     session: &mut ImapSessionState,
     tag: &str,
     rest: &str,
+    use_uid: bool,
 ) -> Result<()>
 where
     S: MailDaemonStore<InboxItem = StoredInboxItem>,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
     ensure_imap_selected(state, session).await?;
-    handle_imap_fetch(reader, &session.selected, rest).await?;
+    handle_imap_fetch(reader, &session.selected, rest, use_uid).await?;
     tagged_ok(reader, tag, "FETCH completed").await
 }
 
@@ -611,6 +660,7 @@ async fn handle_imap_store_command<S>(
     session: &mut ImapSessionState,
     tag: &str,
     rest: &str,
+    use_uid: bool,
 ) -> Result<()>
 where
     S: MailDaemonStore<InboxItem = StoredInboxItem>,
@@ -618,9 +668,64 @@ where
 {
     ensure_imap_selected(state, session).await?;
     let identity = session.identity.as_ref().expect("checked");
-    handle_imap_store(state, identity, &session.selected, rest).await?;
+    handle_imap_store(state, identity, &session.selected, rest, use_uid).await?;
     session.selected = load_imap_mailbox(state, identity).await?;
     tagged_ok(reader, tag, "STORE completed").await
+}
+
+async fn handle_imap_idle<S>(
+    reader: &mut BufReader<TcpStream>,
+    state: &MailState<S>,
+    session: &mut ImapSessionState,
+    tag: &str,
+) -> Result<()>
+where
+    S: MailDaemonStore<InboxItem = StoredInboxItem>,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    ensure_imap_selected(state, session).await?;
+    let mut known_exists = session.selected.len();
+    write_line(reader, "+ idling").await?;
+    let mut idle_line = Vec::new();
+    let mut client_closed = false;
+
+    loop {
+        match timeout(
+            Duration::from_secs(1),
+            reader.read_until(b'\n', &mut idle_line),
+        )
+        .await
+        {
+            Ok(Ok(0)) => {
+                client_closed = true;
+                break;
+            }
+            Ok(Ok(_)) => {
+                let line = String::from_utf8_lossy(&idle_line);
+                let line = line.trim_end_matches(['\r', '\n']);
+                if line.eq_ignore_ascii_case("DONE") {
+                    break;
+                }
+                idle_line.clear();
+            }
+            Ok(Err(error)) => return Err(error.into()),
+            Err(_) => {
+                let identity = session.identity.as_ref().expect("checked").clone();
+                let latest = load_imap_mailbox(state, &identity).await?;
+                if latest.len() != known_exists {
+                    known_exists = latest.len();
+                    write_line(reader, &format!("* {known_exists} EXISTS")).await?;
+                }
+                session.selected = latest;
+            }
+        }
+    }
+
+    if client_closed {
+        Ok(())
+    } else {
+        tagged_ok(reader, tag, "IDLE completed").await
+    }
 }
 
 async fn load_imap_mailbox<S>(
@@ -650,13 +755,19 @@ fn imap_visible_inbox_kind(kind: &str) -> bool {
     matches!(kind, "mail" | "shop_command")
 }
 
-fn imap_search_ids<I: InboxItemView>(items: &[I], query: &str) -> Vec<String> {
+fn imap_search_ids<I: InboxItemView>(items: &[I], query: &str, use_uid: bool) -> Vec<String> {
     let unseen_only = query.to_ascii_uppercase().contains("UNSEEN");
     items
         .iter()
         .enumerate()
         .filter(|(_, item)| !unseen_only || item.status() == INBOX_STATUS_UNREAD)
-        .map(|(index, _)| (index + 1).to_string())
+        .map(|(index, item)| {
+            if use_uid {
+                item.id().to_string()
+            } else {
+                (index + 1).to_string()
+            }
+        })
         .collect()
 }
 
@@ -664,12 +775,18 @@ async fn handle_imap_fetch<I>(
     reader: &mut BufReader<TcpStream>,
     selected: &[I],
     rest: &str,
+    use_uid: bool,
 ) -> Result<()>
 where
     I: InboxItemView,
 {
     let (set, _attributes) = split_first_token(rest);
-    for sequence in expand_imap_set(set, selected.len()) {
+    let sequences = if use_uid {
+        expand_imap_uid_set(set, selected)
+    } else {
+        expand_imap_set(set, selected.len())
+    };
+    for sequence in sequences {
         let Some(item) = selected.get(sequence - 1) else {
             continue;
         };
@@ -703,6 +820,7 @@ async fn handle_imap_store<S, I>(
     identity: &MailIdentity,
     selected: &[I],
     rest: &str,
+    use_uid: bool,
 ) -> Result<()>
 where
     S: MailDaemonStore<InboxItem = I>,
@@ -713,7 +831,12 @@ where
         return Ok(());
     }
     let (set, _rest) = split_first_token(rest);
-    for sequence in expand_imap_set(set, selected.len()) {
+    let sequences = if use_uid {
+        expand_imap_uid_set(set, selected)
+    } else {
+        expand_imap_set(set, selected.len())
+    };
+    for sequence in sequences {
         let Some(item) = selected.get(sequence - 1) else {
             continue;
         };
@@ -833,6 +956,54 @@ fn parse_imap_index(input: &str, len: usize) -> Option<usize> {
         Some(len)
     } else {
         input.parse::<usize>().ok()
+    }
+}
+
+fn expand_imap_uid_set<I: InboxItemView>(input: &str, selected: &[I]) -> Vec<usize> {
+    let max_uid = selected.iter().map(InboxItemView::id).max().unwrap_or(0);
+    let mut sequences = Vec::new();
+    for part in input.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if let Some((start, end)) = part.split_once(':') {
+            let Some(start) = parse_imap_uid(start, max_uid) else {
+                continue;
+            };
+            let Some(end) = parse_imap_uid(end, max_uid) else {
+                continue;
+            };
+            let lower = start.min(end);
+            let upper = start.max(end);
+            sequences.extend(
+                selected
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| item.id() >= lower && item.id() <= upper)
+                    .map(|(index, _)| index + 1),
+            );
+        } else if let Some(uid) = parse_imap_uid(part, max_uid) {
+            sequences.extend(
+                selected
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| item.id() == uid)
+                    .map(|(index, _)| index + 1),
+            );
+        }
+    }
+    sequences.sort_unstable();
+    sequences.dedup();
+    sequences
+}
+
+fn parse_imap_uid(input: &str, max_uid: i64) -> Option<i64> {
+    let input = input.trim();
+    if input == "*" {
+        (max_uid > 0).then_some(max_uid)
+    } else {
+        input.parse::<i64>().ok()
     }
 }
 
