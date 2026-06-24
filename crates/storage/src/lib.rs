@@ -11,6 +11,7 @@ mod parcels;
 mod room_mail;
 mod schema;
 mod storage_ext;
+mod storage_marriage;
 mod storage_memory;
 mod storage_payments;
 mod storage_rooms;
@@ -36,10 +37,11 @@ pub use hinemos_core::{
 pub(crate) use messages::NewInboxItem;
 pub use types::{
     NewMemoryAtom, NewMemoryEvent, StoredAccountSettings, StoredAdmission, StoredAgentSelfModel,
-    StoredBalance, StoredIdentity, StoredInboxItem, StoredMailAuthToken, StoredMemoryAtom,
-    StoredMemoryEvent, StoredOperatorCommand, StoredParcel, StoredPasswordIdentity,
-    StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind, StoredRoomCommandPolicy,
-    StoredServiceRoom, StoredSocialEdge, StoredTransfer, StoredWorldMessage,
+    StoredBalance, StoredIdentity, StoredInboxItem, StoredMailAuthToken, StoredMarriageCertificate,
+    StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
+    StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind,
+    StoredRoomCommandPolicy, StoredServiceRoom, StoredSocialEdge, StoredTransfer,
+    StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.

@@ -51,7 +51,7 @@
     (
         id: "official_street",
         title: "East Hinemos Blvd",
-        description: "East Hinemos Blvd is a hand-kept official street. H3, H4, and H5 stand along the civic side; farther east the boulevard fades into wilderness, beach, and sea.",
+        description: "East Hinemos Blvd is a hand-kept official street. H3, H4, H5, and H6 stand along the civic side; farther east the boulevard fades into wilderness, beach, and sea.",
         ascii_art: [
             "════════════════════════════════════════════════════════════",
             "                 ╡ EAST HINEMOS BLVD ╞",
@@ -61,12 +61,13 @@
             "          Harbor Square ════╣ <Me> ╠════ wilderness",
             "                              ║",
             "       H4 [Hinemos Bank]      H5 [Daily Seer]",
+            "                    H6 [Registry Office]",
         ],
         exits: [
             (direction: west, target: "arrival_street", label: Some("Harbor Square"), requirements: []),
             (direction: east, target: "east_wilderness", label: Some("wilderness"), requirements: []),
         ],
-        entities: ["workers_society_front", "bank_front", "daily_seer_front"],
+        entities: ["workers_society_front", "bank_front", "daily_seer_front", "registry_front"],
         layout: None,
     ),
     (

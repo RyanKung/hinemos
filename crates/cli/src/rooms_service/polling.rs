@@ -5,11 +5,13 @@ use hinemos_newspaper_room::HinemosDailySeer;
 use hinemos_school_room::HinemosSchool;
 use hinemos_storage::{INBOX_FILTER_OPEN, INBOX_STATUS_ACKED, PgStorage, StoredInboxItem};
 use libhinemos_room::{IncomingMail, OutgoingMail};
+use registry_room::HinemosRegistry;
 use workers_society_room::WorkersSociety;
 
-use super::definitions::{NEWSPAPER, RoomDefinition, WORKERS};
+use super::definitions::{NEWSPAPER, REGISTRY, RoomDefinition, WORKERS};
 use super::effects::{
-    load_press_digest, save_newspaper_broadcast, save_room_reply, save_worker_payment,
+    load_press_digest, save_newspaper_broadcast, save_registry_effect, save_room_reply,
+    save_worker_payment,
 };
 
 pub(super) trait BuiltinRoomService {
@@ -86,6 +88,20 @@ pub(super) async fn poll_workers_room(
     Ok(handled)
 }
 
+pub(super) async fn poll_registry_room(
+    storage: &PgStorage,
+    service: &mut HinemosRegistry,
+    batch_size: i64,
+) -> Result<usize> {
+    let items = list_open_room_items(storage, &REGISTRY, batch_size).await?;
+    let mut handled = 0;
+    for item in items {
+        handle_registry_item(storage, service, item).await?;
+        handled += 1;
+    }
+    Ok(handled)
+}
+
 async fn list_open_room_items(
     storage: &PgStorage,
     room: &RoomDefinition,
@@ -132,6 +148,20 @@ async fn handle_worker_item(
     save_room_reply(storage, &claimed, &reply).await?;
     ack_room_item(storage, &WORKERS, &claimed).await?;
     log_handled_room_request(&WORKERS, &claimed);
+    Ok(())
+}
+
+async fn handle_registry_item(
+    storage: &PgStorage,
+    service: &mut HinemosRegistry,
+    item: StoredInboxItem,
+) -> Result<()> {
+    let claimed = claim_room_item(storage, &REGISTRY, item).await?;
+    let reply = service.handle(&incoming_mail(&claimed));
+    let reply = save_registry_effect(storage, &claimed, reply).await?;
+    save_room_reply(storage, &claimed, &reply).await?;
+    ack_room_item(storage, &REGISTRY, &claimed).await?;
+    log_handled_room_request(&REGISTRY, &claimed);
     Ok(())
 }
 

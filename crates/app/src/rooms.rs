@@ -278,7 +278,7 @@ where
 
 impl<S, E> AppService<S>
 where
-    S: RoomStore<Error = E> + MailStore<Error = E>,
+    S: MailStore<Error = E> + RoomStore<Error = E>,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding:
         RoomBindingKindView + RoomMailboxView + ServiceRoomView + RoomCommandPolicyView + Sync,

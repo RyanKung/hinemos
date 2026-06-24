@@ -92,23 +92,28 @@ where
                     )
                     .await;
             }
-            _ if context
-                .room_binding
-                .is_some_and(RoomBindingKindView::is_service_room) =>
-            {
-                if let Some(binding) = context.room_binding {
-                    let events = self
-                        .handle_service_room_command_for_binding(
-                            identity,
-                            context.current_view,
-                            binding,
-                            command,
-                        )
-                        .await?;
-                    return Ok(Some(events));
-                }
-            }
             _ => {}
+        }
+        if matches!(command, SemanticCommand::Inbox { .. }) {
+            return self
+                .handle_semantic_business_command(identity, command, context.business)
+                .await;
+        }
+        if context
+            .room_binding
+            .is_some_and(RoomBindingKindView::is_service_room)
+        {
+            if let Some(binding) = context.room_binding {
+                let events = self
+                    .handle_service_room_command_for_binding(
+                        identity,
+                        context.current_view,
+                        binding,
+                        command,
+                    )
+                    .await?;
+                return Ok(Some(events));
+            }
         }
         self.handle_semantic_business_command(identity, command, context.business)
             .await

@@ -23,6 +23,12 @@ pub(super) const NEWSPAPER: RoomDefinition = RoomDefinition {
     room_player_id: "room:hinemos_daily_seer",
 };
 
+pub(super) const REGISTRY: RoomDefinition = RoomDefinition {
+    view_id: "hinemos_registry",
+    room_user: "room-hinemos_registry",
+    room_player_id: "room:hinemos_registry",
+};
+
 pub(super) const SCHOOL: RoomDefinition = RoomDefinition {
     view_id: "hinemos_school",
     room_user: "room-hinemos_school",

@@ -13,6 +13,7 @@ hinemos-storage = { version = "0.1.0", path = "../storage" }
 blackstone-izakaya = { path = "../../rooms/blackstone" }
 hinemos-bank-room = { path = "../../rooms/bank" }
 hinemos-newspaper-room = { path = "../../rooms/newspaper" }
+registry-room = { path = "../../rooms/registry" }
 hinemos-school-room = { path = "../../rooms/school" }
 libhinemos-room = { path = "../../rooms/libhinemos-room" }
 workers-society-room = { path = "../../rooms/workers" }

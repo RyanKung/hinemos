@@ -64,4 +64,17 @@
         custom_commands: Some("/paper today\n/paper latest\n/paper submit <note>\n/paper publish <headline> | <body>\n/paper report <headline> | <body>"),
         enabled: true,
     ),
+    (
+        view_id: "hinemos_registry",
+        front_view_id: Some("official_street"),
+        front_entity_id: Some("registry_front"),
+        address: Some("H6"),
+        label: Some("Hinemos Registry Office"),
+        enter_aliases: Some("registry marriage wedding certificate certificates office registrar"),
+        room_user: "room-hinemos_registry",
+        room_player_id: "room:hinemos_registry",
+        status_text: Some("Room service is external. Marriage registration and divorce requests are sent to the registry office."),
+        custom_commands: Some("/marriage help\n/marriage register <user>\n/marriage certificate\n/marriage divorce"),
+        enabled: true,
+    ),
 ]
