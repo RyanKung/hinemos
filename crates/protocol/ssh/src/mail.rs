@@ -11,7 +11,7 @@ use hinemos_storage::{
     INBOX_FILTER_ALL, INBOX_STATUS_ACKED, INBOX_STATUS_UNREAD, PgStorage, StoredInboxItem,
     StoredMailAuthToken,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
@@ -490,7 +490,11 @@ async fn handle_imap_list(
     tag: &str,
     command: &str,
 ) -> Result<()> {
-    let response = if command == "LSUB" { "LSUB" } else { "LIST" };
+    let response = match command {
+        "LSUB" => "LSUB",
+        "XLIST" => "XLIST",
+        _ => "LIST",
+    };
     write_line(
         reader,
         &format!(r#"* {response} (\HasNoChildren) "/" "INBOX""#),
@@ -682,20 +686,29 @@ where
     ensure_imap_selected(state, session).await?;
     let mut known_exists = session.selected.len();
     write_line(reader, "+ idling").await?;
+    let mut idle_line = Vec::new();
     let mut client_closed = false;
 
     loop {
-        match timeout(Duration::from_secs(1), read_protocol_line(reader)).await {
-            Ok(Ok(Some(line))) => {
-                if line.eq_ignore_ascii_case("DONE") {
-                    break;
-                }
-            }
-            Ok(Ok(None)) => {
+        match timeout(
+            Duration::from_secs(1),
+            reader.read_until(b'\n', &mut idle_line),
+        )
+        .await
+        {
+            Ok(Ok(0)) => {
                 client_closed = true;
                 break;
             }
-            Ok(Err(error)) => return Err(error),
+            Ok(Ok(_)) => {
+                let line = String::from_utf8_lossy(&idle_line);
+                let line = line.trim_end_matches(['\r', '\n']);
+                if line.eq_ignore_ascii_case("DONE") {
+                    break;
+                }
+                idle_line.clear();
+            }
+            Ok(Err(error)) => return Err(error.into()),
             Err(_) => {
                 let identity = session.identity.as_ref().expect("checked").clone();
                 let latest = load_imap_mailbox(state, &identity).await?;

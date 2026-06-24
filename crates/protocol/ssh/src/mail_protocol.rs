@@ -16,12 +16,13 @@ pub(super) fn parse_email_message(raw: &str) -> ParsedEmail {
     let normalized = raw.replace("\r\n", "\n");
     let (headers, body) = normalized.split_once("\n\n").unwrap_or(("", &normalized));
     let headers = parse_headers(headers);
+    let body = decode_message_body(body.trim_end_matches('\n'), &headers);
     ParsedEmail {
         subject: headers
             .get("subject")
             .cloned()
             .unwrap_or_else(|| "Private mail".to_owned()),
-        body: body.trim_end_matches('\n').to_owned(),
+        body,
     }
 }
 
@@ -43,6 +44,20 @@ fn parse_headers(input: &str) -> HashMap<String, String> {
         headers.insert(current_key.clone(), value.trim().to_owned());
     }
     headers
+}
+
+fn decode_message_body(body: &str, headers: &HashMap<String, String>) -> String {
+    let Some(encoding) = headers.get("content-transfer-encoding") else {
+        return body.to_owned();
+    };
+    if !encoding.trim().eq_ignore_ascii_case("base64") {
+        return body.to_owned();
+    }
+    let compact: String = body.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    let Some(decoded) = decode_base64_text(&compact) else {
+        return body.to_owned();
+    };
+    decoded.trim_end_matches(['\r', '\n']).to_owned()
 }
 
 pub(super) async fn read_smtp_data(reader: &mut BufReader<TcpStream>) -> Result<String> {
@@ -227,5 +242,15 @@ mod tests {
 
         assert_eq!(parsed.subject, "Hello");
         assert_eq!(parsed.body, "Body");
+    }
+
+    #[test]
+    fn decodes_base64_transfer_encoded_body() {
+        let parsed = parse_email_message(
+            "Subject: Tarot\r\nContent-Transfer-Encoding: base64\r\n\r\nSGVsbG8sIHNlZWtlci4=\r\n",
+        );
+
+        assert_eq!(parsed.subject, "Tarot");
+        assert_eq!(parsed.body, "Hello, seeker.");
     }
 }

@@ -83,8 +83,9 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     smtp.send("DATA");
     smtp.expect_contains("354 End data");
     smtp.send("Subject: Sidecar smoke");
+    smtp.send("Content-Transfer-Encoding: base64");
     smtp.send("");
-    smtp.send("hello from smtp");
+    smtp.send("aGVsbG8gZnJvbSBzbXRw");
     smtp.send(".");
     smtp.expect_contains("250 2.0.0 Message accepted");
     smtp.send("QUIT");
@@ -105,6 +106,9 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     imap.send("b3 LIST \"\" \"*\"");
     imap.expect_contains(r#"* LIST (\HasNoChildren) "/" "INBOX""#);
     imap.expect_contains("b3 OK LIST completed");
+    imap.send("b3x XLIST \"\" \"*\"");
+    imap.expect_contains(r#"* XLIST (\HasNoChildren) "/" "INBOX""#);
+    imap.expect_contains("b3x OK XLIST completed");
     imap.send("b4 SELECT INBOX");
     imap.expect_contains("* 1 EXISTS");
     imap.expect_contains("b4 OK SELECT completed");
@@ -128,7 +132,9 @@ async fn smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox() {
     imap.expect_contains("+ idling");
     send_smtp_message_as_mail_user(smtp_port, "Idle wake", "wake from smtp");
     imap.expect_contains("* 2 EXISTS");
-    imap.send("DONE");
+    imap.send_raw(b"DO");
+    thread::sleep(Duration::from_millis(1_200));
+    imap.send_raw(b"NE\r\n");
     imap.expect_contains("b10 OK IDLE completed");
     imap.send("b11 LOGOUT");
     imap.expect_contains("b11 OK LOGOUT completed");
@@ -759,6 +765,12 @@ impl ProtocolClient {
         stream.write_all(line.as_bytes()).expect("write command");
         stream.write_all(b"\r\n").expect("write newline");
         stream.flush().expect("flush command");
+    }
+
+    fn send_raw(&mut self, bytes: &[u8]) {
+        let stream = self.reader.get_mut();
+        stream.write_all(bytes).expect("write raw protocol bytes");
+        stream.flush().expect("flush raw protocol bytes");
     }
 
     fn expect_contains(&mut self, needle: &str) {
