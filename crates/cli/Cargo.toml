@@ -5,18 +5,12 @@ edition = "2024"
 
 [dependencies]
 hinemos-admin-protocol = { version = "0.1.0", path = "../admin-protocol" }
+hinemos-builtin-rooms = { version = "0.1.0", path = "../builtin-rooms" }
 hinemos-core = { version = "0.1.0", path = "../core" }
 hinemos-http = { version = "0.1.0", path = "../protocol/http" }
 hinemos-runtime = { version = "0.1.0", path = "../runtime" }
 hinemos-ssh = { version = "0.1.0", path = "../protocol/ssh" }
 hinemos-storage = { version = "0.1.0", path = "../storage" }
-blackstone-izakaya = { path = "../../rooms/blackstone" }
-hinemos-bank-room = { path = "../../rooms/bank" }
-hinemos-newspaper-room = { path = "../../rooms/newspaper" }
-registry-room = { path = "../../rooms/registry" }
-hinemos-school-room = { path = "../../rooms/school" }
-libhinemos-room = { path = "../../rooms/libhinemos-room" }
-workers-society-room = { path = "../../rooms/workers" }
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive"] }
 serde_json = "1.0.149"

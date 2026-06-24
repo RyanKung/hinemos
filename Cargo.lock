@@ -1243,27 +1243,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "hinemos-cli"
+name = "hinemos-builtin-rooms"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "blackstone-izakaya",
- "clap",
- "hinemos-admin-protocol",
  "hinemos-bank-room",
- "hinemos-core",
- "hinemos-http",
  "hinemos-newspaper-room",
- "hinemos-runtime",
  "hinemos-school-room",
- "hinemos-ssh",
  "hinemos-storage",
  "libhinemos-room",
  "registry-room",
+ "tokio",
+ "workers-society-room",
+]
+
+[[package]]
+name = "hinemos-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hinemos-admin-protocol",
+ "hinemos-builtin-rooms",
+ "hinemos-core",
+ "hinemos-http",
+ "hinemos-runtime",
+ "hinemos-ssh",
+ "hinemos-storage",
  "rustls",
  "serde_json",
  "tokio",
- "workers-society-room",
 ]
 
 [[package]]
