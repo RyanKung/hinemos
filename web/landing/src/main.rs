@@ -8,6 +8,8 @@ use yew::prelude::*;
 const PROMPT: &str = "anonymous@hinemos:~$";
 const DEFAULT_TERMINAL_COLS: u16 = 68;
 const DEFAULT_TERMINAL_ROWS: u16 = 18;
+const READONLY_SSH_GUIDANCE: &str =
+    "This web demo is read-only. To chat or act, connect with SSH: ssh -T hinemos.ai";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TerminalSize {
@@ -30,6 +32,11 @@ struct Observation {
     exits: Vec<Exit>,
     entities: Vec<Entity>,
     events: Vec<Event>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct ErrorResponse {
+    error: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -209,9 +216,7 @@ fn dispatch_command(
     let mut next_history = (**history).clone();
     next_history.push(TerminalLine::Prompt(format!("{PROMPT} {raw}")));
     let Some(command) = command else {
-        next_history.push(TerminalLine::Error(
-            "readonly command not available".to_owned(),
-        ));
+        next_history.push(TerminalLine::Error(READONLY_SSH_GUIDANCE.to_owned()));
         history.set(next_history);
         return;
     };
@@ -256,7 +261,12 @@ async fn fetch_observation(
     .map_err(|error| error.to_string())?;
 
     if !response.ok() {
-        return Err(format!("request failed: {}", response.status()));
+        let status = response.status();
+        return Err(response
+            .json::<ErrorResponse>()
+            .await
+            .map(|error| error.error)
+            .unwrap_or_else(|_| format!("request failed: {status}")));
     }
     response.json().await.map_err(|error| error.to_string())
 }
