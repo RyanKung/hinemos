@@ -322,6 +322,59 @@ fn service_room_command_for_binding_quit_closes_session() {
 }
 
 #[test]
+fn service_room_command_for_binding_allows_inbox_actions() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let store = TestServiceRoomCommandStore {
+            service_room: Some(TestServiceRoom {
+                view_id: "external_room",
+                label: Some("External Room"),
+                address: Some("ER1"),
+                front_view_id: Some("arrival_street"),
+                room_user: "room-user",
+                status_text: None,
+                custom_commands: Some("/room ask <question>;/room status"),
+            }),
+            calls: Mutex::new(Vec::new()),
+        };
+        let app = AppService::new(store);
+        let identity = AppIdentity::new("alice", "player-1");
+        let binding = TestServiceRoom {
+            view_id: "external_room",
+            label: Some("External Room"),
+            address: Some("ER1"),
+            front_view_id: Some("arrival_street"),
+            room_user: "room-user",
+            status_text: None,
+            custom_commands: Some("/room ask <question>;/room status"),
+        };
+
+        let events = app
+            .handle_service_room_command_for_binding(
+                &identity,
+                "external_room",
+                &binding,
+                &SemanticCommand::Inbox {
+                    action: InboxAction::Read { item_id: 9 },
+                },
+            )
+            .await
+            .expect("service room inbox read");
+
+        assert_eq!(
+            events,
+            vec![UiEvent::Text(
+                "Inbox #9\r\nKind: mail\r\nStatus: open\r\nFrom: alice\r\nSubject: hello\r\nCreated: created\r\nAttempts: 0\r\nBody: body\r\n\r\n"
+                    .to_owned()
+            )]
+        );
+    });
+}
+
+#[test]
 fn room_binding_enter_matching_uses_explicit_tokens_and_visibility() {
     let app = AppService::new(TestRoomStore { service_room: None });
     let binding = TestRoomBinding {

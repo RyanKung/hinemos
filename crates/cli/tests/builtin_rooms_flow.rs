@@ -34,7 +34,7 @@ fn built_in_rooms_reply_through_room_runner_end_to_end() {
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
-        "Processed 15 room request(s).",
+        "Processed 16 room request(s).",
         "room runner consumes all queued built-in room requests",
     );
 
@@ -67,6 +67,12 @@ fn built_in_rooms_reply_through_room_runner_end_to_end() {
         &user,
         "room-hinemos_daily_seer",
         "Printed update report: Room Tests.",
+    );
+    assert_room_reply(
+        &test_database,
+        &user,
+        "room-hinemos_registry",
+        "Registry commands:",
     );
 
     let balance = run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/quit"]);
@@ -129,6 +135,9 @@ fn queue_all_built_in_room_commands(
             "/enter H5",
             "/paper today",
             "/paper publish Room Tests | H1 through H5 replied.",
+            "/go south",
+            "/enter H6",
+            "/marriage help",
             "/quit",
         ],
     )

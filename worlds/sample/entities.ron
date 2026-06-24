@@ -124,6 +124,25 @@
         portable: false,
     ),
     (
+        id: "registry_front",
+        kind: object,
+        name: "Hinemos Registry Office front",
+        description: "A quiet civic counter with paired signature books, wax seals, and a framed notice about mutual presence.",
+        aliases: ["registry", "marriage", "wedding", "certificate", "certificates", "office", "registrar"],
+        actions: [inspect, read],
+        collection: Some((
+            kind: "bulletinBoard",
+            items: [
+                (
+                    id: "registry_notice",
+                    title: "Hinemos Registry Office",
+                    body: "Enter with /enter H6 or /enter registry. Inside, use /marriage help, /marriage register <user>, /marriage certificate, and /marriage divorce. Registration requires both players to be recently present in H6 and charges each party 25 MARK.",
+                ),
+            ],
+        )),
+        portable: false,
+    ),
+    (
         id: "cyber_scroll_board",
         kind: object,
         name: "bulletin board",

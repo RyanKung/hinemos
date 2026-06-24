@@ -12,6 +12,7 @@ members = [
     "rooms/blackstone",
     "rooms/libhinemos-room",
     "rooms/newspaper",
+    "rooms/registry",
     "rooms/school",
     "rooms/workers",
 ]

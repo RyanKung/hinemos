@@ -21,9 +21,21 @@ pub enum StorageError {
     /// Sender and target resolve to the same account.
     #[error("cannot pay yourself")]
     SelfPayment,
+    /// A player cannot marry themself.
+    #[error("cannot register marriage with yourself")]
+    SelfMarriage,
     /// Sender balance is too low.
     #[error("insufficient MARK balance")]
     InsufficientFunds,
+    /// Marriage partner is not present in the registry room.
+    #[error("marriage partner is not present in registry: {0}")]
+    MarriagePartnerNotPresent(String),
+    /// One of the players already has an active marriage.
+    #[error("active marriage already exists for: {0}")]
+    MarriageAlreadyActive(String),
+    /// Player has no active marriage certificate to dissolve.
+    #[error("no active marriage found for: {0}")]
+    NoActiveMarriage(String),
     /// Commercial parcel does not exist.
     #[error("parcel not found: {0}")]
     ParcelNotFound(String),

@@ -13,6 +13,7 @@ use hinemos_newspaper_room::HinemosDailySeer;
 use hinemos_school_room::HinemosSchool;
 use hinemos_storage::PgStorage;
 use polling::{poll_newspaper_room, poll_room, poll_workers_room};
+use registry_room::HinemosRegistry;
 use workers_society_room::WorkersSociety;
 
 #[derive(Debug, Clone, Args)]
@@ -60,6 +61,7 @@ struct BuiltinRooms {
     blackstone: BlackstoneIzakaya,
     bank: HinemosBank,
     newspaper: HinemosDailySeer,
+    registry: HinemosRegistry,
     school: HinemosSchool,
     workers: WorkersSociety,
 }
@@ -70,6 +72,7 @@ impl BuiltinRooms {
         handled += poll_room(storage, &BLACKSTONE, &mut self.blackstone, batch_size).await?;
         handled += poll_room(storage, &BANK, &mut self.bank, batch_size).await?;
         handled += poll_newspaper_room(storage, &mut self.newspaper, batch_size).await?;
+        handled += polling::poll_registry_room(storage, &mut self.registry, batch_size).await?;
         handled += poll_room(storage, &SCHOOL, &mut self.school, batch_size).await?;
         handled += poll_workers_room(storage, &mut self.workers, batch_size).await?;
         Ok(handled)

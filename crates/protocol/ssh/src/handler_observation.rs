@@ -57,6 +57,19 @@ impl ConnectionHandler {
             .lock()
             .await
             .update_view(self.connection_id, player.current_view.clone());
+        if let Some(identity) = self
+            .identity
+            .as_ref()
+            .filter(|identity| identity.player_id == player.id)
+        {
+            self.shared
+                .record_view_presence_throttled(
+                    &identity.user,
+                    &identity.player_id,
+                    &player.current_view,
+                )
+                .await?;
+        }
         let mut observation = self
             .observe_player_at_view_with_context(&player.id, room_context)
             .await?;
