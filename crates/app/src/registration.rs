@@ -53,6 +53,9 @@ pub struct ServiceRoomRegistration {
     /// Optional custom slash commands accepted inside the room.
     #[serde(default)]
     pub custom_commands: Option<String>,
+    /// Optional built-in handler key consumed by the built-in room runner.
+    #[serde(default)]
+    pub builtin_handler: Option<String>,
     /// Whether the room is enabled.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
@@ -81,6 +84,8 @@ pub struct ServiceRoomRegistrationUpsert<'a> {
     pub status_text: Option<&'a str>,
     /// Optional custom slash commands accepted inside the room.
     pub custom_commands: Option<&'a str>,
+    /// Optional built-in handler key consumed by the built-in room runner.
+    pub builtin_handler: Option<&'a str>,
     /// Whether the registration is enabled after validation.
     pub enabled: bool,
 }
@@ -284,6 +289,7 @@ impl<S> AppService<S> {
                 room_player_id: &registration.room_player_id,
                 status_text: registration.status_text.as_deref(),
                 custom_commands: registration.custom_commands.as_deref(),
+                builtin_handler: registration.builtin_handler.as_deref(),
                 enabled,
             })
             .await?;

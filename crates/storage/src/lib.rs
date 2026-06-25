@@ -72,6 +72,8 @@ pub struct ServiceRoomUpsert<'a> {
     pub status_text: Option<&'a str>,
     /// Optional command list supplied by the room service.
     pub custom_commands: Option<&'a str>,
+    /// Optional built-in handler key consumed by the built-in room runner.
+    pub builtin_handler: Option<&'a str>,
     /// Whether the room is currently enabled.
     pub enabled: bool,
 }

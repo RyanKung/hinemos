@@ -47,6 +47,7 @@ fn h6_registry_registers_present_players_and_issues_certificate() {
         "Sent to room service room-hinemos_registry",
         Duration::from_secs(10),
     );
+    let register_request_id = latest_room_request_id(&alice_session);
 
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
@@ -55,7 +56,7 @@ fn h6_registry_registers_present_players_and_issues_certificate() {
         "registry room runner handles one marriage request",
     );
 
-    alice_session.write_line("/mailbox");
+    read_room_reply(&mut alice_session, register_request_id);
     alice_session.wait_for_stdout("Marriage registered", Duration::from_secs(10));
     alice_session.wait_for_stdout("Marriage Certificate", Duration::from_secs(10));
     alice_session.write_line("/marriage certificate");
@@ -63,13 +64,14 @@ fn h6_registry_registers_present_players_and_issues_certificate() {
         "Sent to room service room-hinemos_registry",
         Duration::from_secs(10),
     );
+    let certificate_request_id = latest_room_request_id(&alice_session);
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
         "Processed 1 room request(s).",
         "registry room runner handles certificate lookup",
     );
-    alice_session.write_line("/mailbox");
+    read_room_reply(&mut alice_session, certificate_request_id);
     alice_session.wait_for_stdout("Issued:", Duration::from_secs(10));
     alice_session.write_line("/balance");
     alice_session.wait_for_stdout("Balance: 975 MARK", Duration::from_secs(10));
@@ -78,26 +80,28 @@ fn h6_registry_registers_present_players_and_issues_certificate() {
         "Sent to room service room-hinemos_registry",
         Duration::from_secs(10),
     );
+    let divorce_request_id = latest_room_request_id(&alice_session);
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
         "Processed 1 room request(s).",
         "registry room runner handles divorce filing",
     );
-    alice_session.write_line("/mailbox");
+    read_room_reply(&mut alice_session, divorce_request_id);
     alice_session.wait_for_stdout("Marriage dissolved", Duration::from_secs(10));
     alice_session.write_line("/marriage certificate");
     alice_session.wait_for_stdout(
         "Sent to room service room-hinemos_registry",
         Duration::from_secs(10),
     );
+    let post_divorce_certificate_request_id = latest_room_request_id(&alice_session);
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
         "Processed 1 room request(s).",
         "registry room runner handles post-divorce certificate lookup",
     );
-    alice_session.write_line("/mailbox");
+    read_room_reply(&mut alice_session, post_divorce_certificate_request_id);
     alice_session.wait_for_stdout(
         "No active marriage certificate on file.",
         Duration::from_secs(10),
@@ -151,13 +155,43 @@ fn h6_registry_registers_present_players_and_issues_certificate() {
     temp.remove_on_drop();
 }
 
-fn latest_mailbox_item_id(session: &SshSession, kind: &str) -> i64 {
+fn read_room_reply(session: &mut SshSession, request_id: i64) {
+    let needle = format!("Re: #{request_id}");
+    session.write_line("/mailbox");
+    session.wait_for_stdout(&needle, Duration::from_secs(10));
+    let item_id = newest_mailbox_item_id(session, needle);
+    session.write_line(&format!("/mail read {item_id}"));
+}
+
+fn latest_room_request_id(session: &SshSession) -> i64 {
     session
         .stdout_text()
         .lines()
         .rev()
         .find_map(|line| {
-            if !line.contains(kind) {
+            let request = line.rsplit_once("request #")?.1;
+            request
+                .chars()
+                .take_while(|character| character.is_ascii_digit())
+                .collect::<String>()
+                .parse()
+                .ok()
+        })
+        .unwrap_or_else(|| panic!("expected room request id in SSH output"))
+}
+
+fn latest_mailbox_item_id(session: &SshSession, kind: &str) -> i64 {
+    newest_mailbox_item_id(session, kind)
+}
+
+fn newest_mailbox_item_id(session: &SshSession, needle: impl AsRef<str>) -> i64 {
+    let needle = needle.as_ref();
+    let stdout = session.stdout_text();
+    let mailbox_block = stdout.rsplit("Mailbox").next().unwrap_or(&stdout);
+    mailbox_block
+        .lines()
+        .find_map(|line| {
+            if !line.contains(needle) {
                 return None;
             }
             line.split_once('#')?
@@ -167,7 +201,7 @@ fn latest_mailbox_item_id(session: &SshSession, kind: &str) -> i64 {
                 .parse()
                 .ok()
         })
-        .unwrap_or_else(|| panic!("expected mailbox item kind {kind} in SSH output"))
+        .unwrap_or_else(|| panic!("expected mailbox item containing {needle} in SSH output"))
 }
 
 fn enter_registry(session: &mut SshSession) {

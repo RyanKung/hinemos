@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::env::assert_database_env;
-use super::process::assert_command_exists;
-use super::temp::epoch_nanos;
+use crate::{assert_command_exists, env::assert_database_env, epoch_nanos};
 
 static TEST_DATABASE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -113,6 +111,8 @@ impl Drop for TestDatabase {
                         admin_url,
                         &self.name,
                     ])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
                     .status();
             }
             TestDatabaseIsolation::Schema { base_url } => {
@@ -122,8 +122,13 @@ impl Drop for TestDatabase {
                         "--no-align",
                         "--tuples-only",
                         "--command",
-                        &format!("drop schema if exists {} cascade;", self.name),
+                        &format!(
+                            "set client_min_messages = warning; drop schema if exists {} cascade;",
+                            self.name
+                        ),
                     ])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
                     .status();
             }
         }

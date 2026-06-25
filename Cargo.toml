@@ -2,10 +2,12 @@
 members = [
     "crates/admin-protocol",
     "crates/app",
+    "crates/builtin-rooms",
     "crates/cli",
     "crates/core",
     "crates/runtime",
     "crates/storage",
+    "crates/test-support",
     "crates/protocol/http",
     "crates/protocol/ssh",
     "rooms/bank",

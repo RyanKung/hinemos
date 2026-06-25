@@ -8,7 +8,7 @@ use libhinemos_room::OutgoingMail;
 use registry_room::{RegistryAction, RegistryReply};
 use workers_society_room::{WagePayment, WorkersReply};
 
-use super::definitions::NEWSPAPER;
+use super::definitions::RoomDefinition;
 
 pub(super) async fn save_worker_payment(
     storage: &PgStorage,
@@ -31,6 +31,7 @@ pub(super) async fn save_worker_payment(
 
 pub(super) async fn save_registry_effect(
     storage: &PgStorage,
+    room: &RoomDefinition,
     request: &StoredInboxItem,
     reply: RegistryReply,
 ) -> Result<OutgoingMail> {
@@ -44,7 +45,7 @@ pub(super) async fn save_registry_effect(
                     &request.sender_player_id,
                     &target,
                     25,
-                    "hinemos_registry",
+                    &room.view_id,
                 )
                 .await
             {
@@ -159,11 +160,12 @@ fn press_event_from_storage(event: StoredMemoryEvent) -> PressEvent {
 
 pub(super) async fn save_newspaper_broadcast(
     storage: &PgStorage,
+    room: &RoomDefinition,
     reply: &NewspaperReply,
 ) -> Result<()> {
     if let Some(broadcast) = &reply.broadcast {
         storage
-            .save_broadcast_message(NEWSPAPER.room_user, NEWSPAPER.room_player_id, broadcast)
+            .save_broadcast_message(&room.room_user, &room.room_player_id, broadcast)
             .await
             .context("failed to save newspaper broadcast")?;
     }

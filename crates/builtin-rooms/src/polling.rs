@@ -8,7 +8,7 @@ use libhinemos_room::{IncomingMail, OutgoingMail};
 use registry_room::HinemosRegistry;
 use workers_society_room::WorkersSociety;
 
-use super::definitions::{NEWSPAPER, REGISTRY, RoomDefinition, WORKERS};
+use super::definitions::RoomDefinition;
 use super::effects::{
     load_press_digest, save_newspaper_broadcast, save_registry_effect, save_room_reply,
     save_worker_payment,
@@ -62,13 +62,14 @@ where
 
 pub(super) async fn poll_newspaper_room(
     storage: &PgStorage,
+    room: &RoomDefinition,
     service: &mut HinemosDailySeer,
     batch_size: i64,
 ) -> Result<usize> {
-    let items = list_open_room_items(storage, &NEWSPAPER, batch_size).await?;
+    let items = list_open_room_items(storage, room, batch_size).await?;
     let mut handled = 0;
     for item in items {
-        handle_newspaper_item(storage, service, item).await?;
+        handle_newspaper_item(storage, room, service, item).await?;
         handled += 1;
     }
     Ok(handled)
@@ -76,13 +77,14 @@ pub(super) async fn poll_newspaper_room(
 
 pub(super) async fn poll_workers_room(
     storage: &PgStorage,
+    room: &RoomDefinition,
     service: &mut WorkersSociety,
     batch_size: i64,
 ) -> Result<usize> {
-    let items = list_open_room_items(storage, &WORKERS, batch_size).await?;
+    let items = list_open_room_items(storage, room, batch_size).await?;
     let mut handled = 0;
     for item in items {
-        handle_worker_item(storage, service, item).await?;
+        handle_worker_item(storage, room, service, item).await?;
         handled += 1;
     }
     Ok(handled)
@@ -90,13 +92,14 @@ pub(super) async fn poll_workers_room(
 
 pub(super) async fn poll_registry_room(
     storage: &PgStorage,
+    room: &RoomDefinition,
     service: &mut HinemosRegistry,
     batch_size: i64,
 ) -> Result<usize> {
-    let items = list_open_room_items(storage, &REGISTRY, batch_size).await?;
+    let items = list_open_room_items(storage, room, batch_size).await?;
     let mut handled = 0;
     for item in items {
-        handle_registry_item(storage, service, item).await?;
+        handle_registry_item(storage, room, service, item).await?;
         handled += 1;
     }
     Ok(handled)
@@ -109,8 +112,8 @@ async fn list_open_room_items(
 ) -> Result<Vec<StoredInboxItem>> {
     let mut items = storage
         .list_inbox_items(
-            room.room_user,
-            room.room_player_id,
+            &room.room_user,
+            &room.room_player_id,
             Some(INBOX_FILTER_OPEN),
             batch_size,
         )
@@ -130,7 +133,7 @@ where
     S: BuiltinRoomService,
 {
     let claimed = claim_room_item(storage, room, item).await?;
-    let reply = service.handle_room_mail(&incoming_mail(&claimed));
+    let reply = registered_room_reply(room, service.handle_room_mail(&incoming_mail(&claimed)));
     save_room_reply(storage, &claimed, &reply).await?;
     ack_room_item(storage, room, &claimed).await?;
     log_handled_room_request(room, &claimed);
@@ -139,45 +142,57 @@ where
 
 async fn handle_worker_item(
     storage: &PgStorage,
+    room: &RoomDefinition,
     service: &mut WorkersSociety,
     item: StoredInboxItem,
 ) -> Result<()> {
-    let claimed = claim_room_item(storage, &WORKERS, item).await?;
+    let claimed = claim_room_item(storage, room, item).await?;
     let reply = service.handle_with_payment(&incoming_mail(&claimed));
     let reply = save_worker_payment(storage, &claimed, reply).await?;
+    let reply = registered_room_reply(room, reply);
     save_room_reply(storage, &claimed, &reply).await?;
-    ack_room_item(storage, &WORKERS, &claimed).await?;
-    log_handled_room_request(&WORKERS, &claimed);
+    ack_room_item(storage, room, &claimed).await?;
+    log_handled_room_request(room, &claimed);
     Ok(())
 }
 
 async fn handle_registry_item(
     storage: &PgStorage,
+    room: &RoomDefinition,
     service: &mut HinemosRegistry,
     item: StoredInboxItem,
 ) -> Result<()> {
-    let claimed = claim_room_item(storage, &REGISTRY, item).await?;
+    let claimed = claim_room_item(storage, room, item).await?;
     let reply = service.handle(&incoming_mail(&claimed));
-    let reply = save_registry_effect(storage, &claimed, reply).await?;
+    let reply = save_registry_effect(storage, room, &claimed, reply).await?;
+    let reply = registered_room_reply(room, reply);
     save_room_reply(storage, &claimed, &reply).await?;
-    ack_room_item(storage, &REGISTRY, &claimed).await?;
-    log_handled_room_request(&REGISTRY, &claimed);
+    ack_room_item(storage, room, &claimed).await?;
+    log_handled_room_request(room, &claimed);
     Ok(())
 }
 
 async fn handle_newspaper_item(
     storage: &PgStorage,
+    room: &RoomDefinition,
     service: &mut HinemosDailySeer,
     item: StoredInboxItem,
 ) -> Result<()> {
-    let claimed = claim_room_item(storage, &NEWSPAPER, item).await?;
+    let claimed = claim_room_item(storage, room, item).await?;
     let digest = load_press_digest(storage).await?;
     let reply = service.handle(&incoming_mail(&claimed), &digest);
-    save_newspaper_broadcast(storage, &reply).await?;
-    save_room_reply(storage, &claimed, &reply.mail).await?;
-    ack_room_item(storage, &NEWSPAPER, &claimed).await?;
-    log_handled_room_request(&NEWSPAPER, &claimed);
+    save_newspaper_broadcast(storage, room, &reply).await?;
+    let mail = registered_room_reply(room, reply.mail);
+    save_room_reply(storage, &claimed, &mail).await?;
+    ack_room_item(storage, room, &claimed).await?;
+    log_handled_room_request(room, &claimed);
     Ok(())
+}
+
+fn registered_room_reply(room: &RoomDefinition, mut reply: OutgoingMail) -> OutgoingMail {
+    reply.sender_user = room.room_user.clone();
+    reply.sender_player_id = room.room_player_id.clone();
+    reply
 }
 
 async fn claim_room_item(
@@ -186,7 +201,7 @@ async fn claim_room_item(
     item: StoredInboxItem,
 ) -> Result<StoredInboxItem> {
     storage
-        .claim_inbox_item(room.room_user, room.room_player_id, item.id)
+        .claim_inbox_item(&room.room_user, &room.room_player_id, item.id)
         .await
         .with_context(|| format!("failed to claim room inbox item {}", item.id))
 }
@@ -207,8 +222,8 @@ async fn ack_room_item(
 ) -> Result<()> {
     let _ = storage
         .finish_inbox_item(
-            room.room_user,
-            room.room_player_id,
+            &room.room_user,
+            &room.room_player_id,
             item.id,
             INBOX_STATUS_ACKED,
         )
