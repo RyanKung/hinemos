@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox};
+use libhinemos_room::{
+    CreditReason, IncomingMail, OutgoingMail, RoomEffect, RoomMailbox, RoomReply, RoomService,
+};
 
 const ROOM_USER: &str = "room-workers_society";
 const ROOM_PLAYER_ID: &str = "room:workers_society";
@@ -10,19 +12,6 @@ const MAX_BODY_BYTES: usize = 4096;
 struct Position {
     title: &'static str,
     wage: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WagePayment {
-    pub recipient_user: String,
-    pub recipient_player_id: String,
-    pub amount: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkersReply {
-    pub mail: OutgoingMail,
-    pub wage_payment: Option<WagePayment>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -47,22 +36,14 @@ impl WorkersSociety {
     }
 
     pub fn poll_once<M: RoomMailbox>(&mut self, mailbox: &mut M) -> usize {
-        let mut handled = 0;
-        for item in mailbox.unread() {
-            mailbox.ack(item.id);
-            let reply = self.handle(&item);
-            mailbox.send(reply);
-            handled += 1;
-        }
-        mailbox.update_status(self.status_text());
-        handled
+        <Self as RoomService>::poll_once(self, mailbox, &())
     }
 
     pub fn handle(&mut self, item: &IncomingMail) -> OutgoingMail {
-        self.handle_with_payment(item).mail
+        self.handle_reply(item).mail
     }
 
-    pub fn handle_with_payment(&mut self, item: &IncomingMail) -> WorkersReply {
+    pub fn handle_reply(&mut self, item: &IncomingMail) -> RoomReply {
         let reply = if item.body.len() > MAX_BODY_BYTES {
             ReplyBody::text("The clerk refuses a work order that large.")
         } else {
@@ -76,7 +57,7 @@ impl WorkersSociety {
             subject: "Workers Society reply".to_owned(),
             body: reply.body,
         }
-        .with_payment(reply.wage_payment)
+        .into_room_reply(reply.effects)
     }
 
     pub fn status_text(&self) -> String {
@@ -165,7 +146,12 @@ impl WorkersSociety {
         else {
             return "You have no active position to finish.".to_owned();
         };
-        let (_, position) = find_position(&active).expect("active position exists");
+        let Some((_, position)) = find_position(&active) else {
+            let worker = self.worker_mut(&item.sender_user);
+            worker.active = None;
+            self.active_by_position.remove(&active);
+            return "Your active position is no longer listed. It has been cleared.".to_owned();
+        };
         let worker = self.worker_mut(&item.sender_user);
         worker.active = None;
         worker.completed.push(active.clone());
@@ -187,11 +173,12 @@ impl WorkersSociety {
         worker.claimed += amount;
         ReplyBody {
             body: format!("Claimed {amount} MARK in wages."),
-            wage_payment: Some(WagePayment {
+            effects: vec![RoomEffect::CreditPlayerMark {
                 recipient_user: item.sender_user.clone(),
                 recipient_player_id: item.sender_player_id.clone(),
                 amount,
-            }),
+                reason: CreditReason::WorkerWage,
+            }],
         }
     }
 
@@ -218,30 +205,40 @@ impl WorkersSociety {
     }
 }
 
+impl RoomService for WorkersSociety {
+    fn handle(&mut self, item: &IncomingMail, _context: &()) -> RoomReply {
+        self.handle_reply(item)
+    }
+
+    fn status_text(&self) -> String {
+        Self::status_text(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReplyBody {
     body: String,
-    wage_payment: Option<WagePayment>,
+    effects: Vec<RoomEffect>,
 }
 
 impl ReplyBody {
     fn text(body: impl Into<String>) -> Self {
         Self {
             body: body.into(),
-            wage_payment: None,
+            effects: Vec::new(),
         }
     }
 }
 
 trait OutgoingMailExt {
-    fn with_payment(self, wage_payment: Option<WagePayment>) -> WorkersReply;
+    fn into_room_reply(self, effects: Vec<RoomEffect>) -> RoomReply;
 }
 
 impl OutgoingMailExt for OutgoingMail {
-    fn with_payment(self, wage_payment: Option<WagePayment>) -> WorkersReply {
-        WorkersReply {
+    fn into_room_reply(self, effects: Vec<RoomEffect>) -> RoomReply {
+        RoomReply {
             mail: self,
-            wage_payment,
+            effects,
         }
     }
 }
@@ -294,7 +291,7 @@ fn normalize(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libhinemos_room::FakeMailbox;
+    use libhinemos_room::{CreditReason, FakeMailbox, RoomEffect};
 
     fn send_turn(
         mailbox: &mut FakeMailbox,
@@ -352,6 +349,15 @@ mod tests {
         assert!(started.contains("Started"));
         assert!(finished.contains("40 MARK"));
         assert!(claimed.contains("Claimed 40 MARK"));
+        assert_eq!(
+            mailbox.effects,
+            vec![RoomEffect::CreditPlayerMark {
+                recipient_user: "alice".to_owned(),
+                recipient_player_id: "player:alice".to_owned(),
+                amount: 40,
+                reason: CreditReason::WorkerWage,
+            }]
+        );
     }
 
     #[test]
@@ -363,19 +369,20 @@ mod tests {
         service.handle(&mail(2, "alice", player_id, "/position start dock-runner"));
         service.handle(&mail(3, "alice", player_id, "/position finish"));
 
-        let reply = service.handle_with_payment(&mail(4, "alice", player_id, "/position claim"));
+        let reply = service.handle_reply(&mail(4, "alice", player_id, "/position claim"));
 
         assert!(reply.mail.body.contains("Claimed 40 MARK"));
         assert_eq!(
-            reply.wage_payment,
-            Some(WagePayment {
+            reply.effects,
+            vec![RoomEffect::CreditPlayerMark {
                 recipient_user: "alice".to_owned(),
                 recipient_player_id: player_id.to_owned(),
                 amount: 40,
-            })
+                reason: CreditReason::WorkerWage,
+            }]
         );
-        let second = service.handle_with_payment(&mail(5, "alice", player_id, "/position claim"));
-        assert_eq!(second.wage_payment, None);
+        let second = service.handle_reply(&mail(5, "alice", player_id, "/position claim"));
+        assert!(second.effects.is_empty());
     }
 
     #[test]

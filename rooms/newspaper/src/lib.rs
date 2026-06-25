@@ -1,4 +1,6 @@
-use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox};
+use libhinemos_room::{
+    IncomingMail, OutgoingMail, RoomEffect, RoomMailbox, RoomReply, RoomService,
+};
 
 const ROOM_USER: &str = "room-hinemos_daily_seer";
 const ROOM_PLAYER_ID: &str = "room:hinemos_daily_seer";
@@ -18,12 +20,6 @@ pub struct PressDigest {
     pub events: Vec<PressEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewspaperReply {
-    pub mail: OutgoingMail,
-    pub broadcast: Option<String>,
-}
-
 #[derive(Debug, Default)]
 pub struct HinemosDailySeer;
 
@@ -33,28 +29,26 @@ impl HinemosDailySeer {
     }
 
     pub fn poll_once<M: RoomMailbox>(&mut self, mailbox: &mut M, digest: &PressDigest) -> usize {
-        let mut handled = 0;
-        for item in mailbox.unread() {
-            mailbox.ack(item.id);
-            let reply = self.handle(&item, digest);
-            mailbox.send(reply.mail);
-            handled += 1;
-        }
-        mailbox.update_status(self.status_text());
-        handled
+        <Self as RoomService<PressDigest>>::poll_once(self, mailbox, digest)
     }
 
-    pub fn handle(&mut self, item: &IncomingMail, digest: &PressDigest) -> NewspaperReply {
+    pub fn handle(&mut self, item: &IncomingMail, digest: &PressDigest) -> RoomReply {
+        self.handle_reply(item, digest)
+    }
+
+    pub fn handle_reply(&mut self, item: &IncomingMail, digest: &PressDigest) -> RoomReply {
         let body = if item.body.len() > MAX_BODY_BYTES {
             ReplyBody::Mail("The editor refuses a submission that large.".to_owned())
         } else {
             self.reply_body(item, digest)
         };
-        let (body, broadcast) = match body {
-            ReplyBody::Mail(body) => (body, None),
-            ReplyBody::Publish { body, broadcast } => (body, Some(broadcast)),
+        let (body, effects) = match body {
+            ReplyBody::Mail(body) => (body, Vec::new()),
+            ReplyBody::Publish { body, broadcast } => {
+                (body, vec![RoomEffect::PublishBroadcast { body: broadcast }])
+            }
         };
-        NewspaperReply {
+        RoomReply {
             mail: OutgoingMail {
                 recipient_user: item.sender_user.clone(),
                 recipient_player_id: item.sender_player_id.clone(),
@@ -63,7 +57,7 @@ impl HinemosDailySeer {
                 subject: "Daily Seer reply".to_owned(),
                 body,
             },
-            broadcast,
+            effects,
         }
     }
 
@@ -95,6 +89,16 @@ impl HinemosDailySeer {
             "The editor cannot print that line yet.\n{}",
             help_text()
         ))
+    }
+}
+
+impl RoomService<PressDigest> for HinemosDailySeer {
+    fn handle(&mut self, item: &IncomingMail, context: &PressDigest) -> RoomReply {
+        self.handle_reply(item, context)
+    }
+
+    fn status_text(&self) -> String {
+        Self::status_text(self)
     }
 }
 
@@ -169,7 +173,7 @@ fn help_text() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libhinemos_room::FakeMailbox;
+    use libhinemos_room::{FakeMailbox, RoomEffect};
 
     fn digest() -> PressDigest {
         PressDigest {
@@ -191,7 +195,7 @@ mod tests {
         }
     }
 
-    fn send_turn(service: &mut HinemosDailySeer, body: &str) -> NewspaperReply {
+    fn send_turn(service: &mut HinemosDailySeer, body: &str) -> RoomReply {
         let item = IncomingMail {
             id: 1,
             sender_user: "alice".to_owned(),
@@ -207,7 +211,7 @@ mod tests {
         let reply = send_turn(&mut service, "/paper today");
         assert!(reply.mail.body.contains("The Hinemos Daily Seer"));
         assert!(reply.mail.body.contains("Update report"));
-        assert!(reply.broadcast.is_none());
+        assert!(reply.effects.is_empty());
     }
 
     #[test]
@@ -224,11 +228,12 @@ mod tests {
                 .contains("Printed update report: Room Services")
         );
         assert_eq!(
-            reply.broadcast,
-            Some(
-                "Daily Seer Update: Room Services\nH1 through H5 are staffed.\nFiled by alice."
-                    .to_owned()
-            )
+            reply.effects,
+            vec![RoomEffect::PublishBroadcast {
+                body:
+                    "Daily Seer Update: Room Services\nH1 through H5 are staffed.\nFiled by alice."
+                        .to_owned()
+            }]
         );
     }
 
@@ -237,7 +242,7 @@ mod tests {
         let mut service = HinemosDailySeer::new();
         let reply = send_turn(&mut service, "/paper publish missing separator");
         assert!(reply.mail.body.contains("Use /paper publish"));
-        assert!(reply.broadcast.is_none());
+        assert!(reply.effects.is_empty());
     }
 
     #[test]

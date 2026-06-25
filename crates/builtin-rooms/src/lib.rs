@@ -14,7 +14,7 @@ use hinemos_bank_room::HinemosBank;
 use hinemos_newspaper_room::HinemosDailySeer;
 use hinemos_school_room::HinemosSchool;
 use hinemos_storage::PgStorage;
-use polling::{poll_newspaper_room, poll_room, poll_workers_room};
+use polling::{poll_newspaper_room, poll_room};
 use registry_room::HinemosRegistry;
 use workers_society_room::WorkersSociety;
 
@@ -86,14 +86,13 @@ impl BuiltinRooms {
             handled += poll_newspaper_room(storage, room, &mut self.newspaper, batch_size).await?;
         }
         if let Some(room) = room(&definitions, BuiltinHandler::Registry) {
-            handled +=
-                polling::poll_registry_room(storage, room, &mut self.registry, batch_size).await?;
+            handled += poll_room(storage, room, &mut self.registry, batch_size).await?;
         }
         if let Some(room) = room(&definitions, BuiltinHandler::School) {
             handled += poll_room(storage, room, &mut self.school, batch_size).await?;
         }
         if let Some(room) = room(&definitions, BuiltinHandler::Workers) {
-            handled += poll_workers_room(storage, room, &mut self.workers, batch_size).await?;
+            handled += poll_room(storage, room, &mut self.workers, batch_size).await?;
         }
         Ok(handled)
     }

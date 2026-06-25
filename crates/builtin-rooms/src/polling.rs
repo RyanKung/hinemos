@@ -1,46 +1,10 @@
 use anyhow::{Context, Result};
-use blackstone_izakaya::BlackstoneIzakaya;
-use hinemos_bank_room::HinemosBank;
 use hinemos_newspaper_room::HinemosDailySeer;
-use hinemos_school_room::HinemosSchool;
 use hinemos_storage::{INBOX_FILTER_OPEN, INBOX_STATUS_ACKED, PgStorage, StoredInboxItem};
-use libhinemos_room::{IncomingMail, OutgoingMail};
-use registry_room::HinemosRegistry;
-use workers_society_room::WorkersSociety;
+use libhinemos_room::{IncomingMail, OutgoingMail, RoomService};
 
 use super::definitions::RoomDefinition;
-use super::effects::{
-    load_press_digest, save_newspaper_broadcast, save_registry_effect, save_room_reply,
-    save_worker_payment,
-};
-
-pub(super) trait BuiltinRoomService {
-    fn handle_room_mail(&mut self, item: &IncomingMail) -> OutgoingMail;
-}
-
-impl BuiltinRoomService for BlackstoneIzakaya {
-    fn handle_room_mail(&mut self, item: &IncomingMail) -> OutgoingMail {
-        self.handle(item)
-    }
-}
-
-impl BuiltinRoomService for HinemosBank {
-    fn handle_room_mail(&mut self, item: &IncomingMail) -> OutgoingMail {
-        self.handle(item)
-    }
-}
-
-impl BuiltinRoomService for HinemosSchool {
-    fn handle_room_mail(&mut self, item: &IncomingMail) -> OutgoingMail {
-        self.handle(item)
-    }
-}
-
-impl BuiltinRoomService for WorkersSociety {
-    fn handle_room_mail(&mut self, item: &IncomingMail) -> OutgoingMail {
-        self.handle(item)
-    }
-}
+use super::effects::{apply_room_effects, load_press_digest, save_room_reply};
 
 pub(super) async fn poll_room<S>(
     storage: &PgStorage,
@@ -49,7 +13,7 @@ pub(super) async fn poll_room<S>(
     batch_size: i64,
 ) -> Result<usize>
 where
-    S: BuiltinRoomService,
+    S: RoomService,
 {
     let items = list_open_room_items(storage, room, batch_size).await?;
     let mut handled = 0;
@@ -70,36 +34,6 @@ pub(super) async fn poll_newspaper_room(
     let mut handled = 0;
     for item in items {
         handle_newspaper_item(storage, room, service, item).await?;
-        handled += 1;
-    }
-    Ok(handled)
-}
-
-pub(super) async fn poll_workers_room(
-    storage: &PgStorage,
-    room: &RoomDefinition,
-    service: &mut WorkersSociety,
-    batch_size: i64,
-) -> Result<usize> {
-    let items = list_open_room_items(storage, room, batch_size).await?;
-    let mut handled = 0;
-    for item in items {
-        handle_worker_item(storage, room, service, item).await?;
-        handled += 1;
-    }
-    Ok(handled)
-}
-
-pub(super) async fn poll_registry_room(
-    storage: &PgStorage,
-    room: &RoomDefinition,
-    service: &mut HinemosRegistry,
-    batch_size: i64,
-) -> Result<usize> {
-    let items = list_open_room_items(storage, room, batch_size).await?;
-    let mut handled = 0;
-    for item in items {
-        handle_registry_item(storage, room, service, item).await?;
         handled += 1;
     }
     Ok(handled)
@@ -130,41 +64,11 @@ async fn handle_room_item<S>(
     item: StoredInboxItem,
 ) -> Result<()>
 where
-    S: BuiltinRoomService,
+    S: RoomService,
 {
     let claimed = claim_room_item(storage, room, item).await?;
-    let reply = registered_room_reply(room, service.handle_room_mail(&incoming_mail(&claimed)));
-    save_room_reply(storage, &claimed, &reply).await?;
-    ack_room_item(storage, room, &claimed).await?;
-    log_handled_room_request(room, &claimed);
-    Ok(())
-}
-
-async fn handle_worker_item(
-    storage: &PgStorage,
-    room: &RoomDefinition,
-    service: &mut WorkersSociety,
-    item: StoredInboxItem,
-) -> Result<()> {
-    let claimed = claim_room_item(storage, room, item).await?;
-    let reply = service.handle_with_payment(&incoming_mail(&claimed));
-    let reply = save_worker_payment(storage, &claimed, reply).await?;
-    let reply = registered_room_reply(room, reply);
-    save_room_reply(storage, &claimed, &reply).await?;
-    ack_room_item(storage, room, &claimed).await?;
-    log_handled_room_request(room, &claimed);
-    Ok(())
-}
-
-async fn handle_registry_item(
-    storage: &PgStorage,
-    room: &RoomDefinition,
-    service: &mut HinemosRegistry,
-    item: StoredInboxItem,
-) -> Result<()> {
-    let claimed = claim_room_item(storage, room, item).await?;
-    let reply = service.handle(&incoming_mail(&claimed));
-    let reply = save_registry_effect(storage, room, &claimed, reply).await?;
+    let reply = service.handle(&incoming_mail(&claimed), &());
+    let reply = apply_room_effects(storage, room, &claimed, reply).await?;
     let reply = registered_room_reply(room, reply);
     save_room_reply(storage, &claimed, &reply).await?;
     ack_room_item(storage, room, &claimed).await?;
@@ -181,8 +85,8 @@ async fn handle_newspaper_item(
     let claimed = claim_room_item(storage, room, item).await?;
     let digest = load_press_digest(storage).await?;
     let reply = service.handle(&incoming_mail(&claimed), &digest);
-    save_newspaper_broadcast(storage, room, &reply).await?;
-    let mail = registered_room_reply(room, reply.mail);
+    let mail = apply_room_effects(storage, room, &claimed, reply).await?;
+    let mail = registered_room_reply(room, mail);
     save_room_reply(storage, &claimed, &mail).await?;
     ack_room_item(storage, room, &claimed).await?;
     log_handled_room_request(room, &claimed);

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox};
+use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox, RoomReply, RoomService};
 
 const ROOM_USER: &str = "room-hinemos_bank";
 const ROOM_PLAYER_ID: &str = "room:hinemos_bank";
@@ -43,15 +43,7 @@ impl HinemosBank {
     }
 
     pub fn poll_once<M: RoomMailbox>(&mut self, mailbox: &mut M) -> usize {
-        let mut handled = 0;
-        for item in mailbox.unread() {
-            mailbox.ack(item.id);
-            let reply = self.handle(&item);
-            mailbox.send(reply);
-            handled += 1;
-        }
-        mailbox.update_status(self.status_text());
-        handled
+        <Self as RoomService>::poll_once(self, mailbox, &())
     }
 
     pub fn handle(&mut self, item: &IncomingMail) -> OutgoingMail {
@@ -220,6 +212,16 @@ impl HinemosBank {
 
     fn account_mut(&mut self, user: &str) -> &mut Account {
         self.accounts.entry(user.to_owned()).or_default()
+    }
+}
+
+impl RoomService for HinemosBank {
+    fn handle(&mut self, item: &IncomingMail, _context: &()) -> RoomReply {
+        RoomReply::mail(Self::handle(self, item))
+    }
+
+    fn status_text(&self) -> String {
+        Self::status_text(self)
     }
 }
 
