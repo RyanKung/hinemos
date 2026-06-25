@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox};
+use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox, RoomReply, RoomService};
 
 const ROOM_USER: &str = "room-blackstone_izakaya";
 const ROOM_PLAYER_ID: &str = "room:blackstone_izakaya";
@@ -37,15 +37,7 @@ impl BlackstoneIzakaya {
     }
 
     pub fn poll_once<M: RoomMailbox>(&mut self, mailbox: &mut M) -> usize {
-        let mut handled = 0;
-        for item in mailbox.unread() {
-            mailbox.ack(item.id);
-            let reply = self.handle(&item);
-            mailbox.send(reply);
-            handled += 1;
-        }
-        mailbox.update_status(self.status_text());
-        handled
+        <Self as RoomService>::poll_once(self, mailbox, &())
     }
 
     pub fn handle(&mut self, item: &IncomingMail) -> OutgoingMail {
@@ -164,6 +156,16 @@ impl BlackstoneIzakaya {
             ));
         }
         lines.join("\n")
+    }
+}
+
+impl RoomService for BlackstoneIzakaya {
+    fn handle(&mut self, item: &IncomingMail, _context: &()) -> RoomReply {
+        RoomReply::mail(Self::handle(self, item))
+    }
+
+    fn status_text(&self) -> String {
+        Self::status_text(self)
     }
 }
 

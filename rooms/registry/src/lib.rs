@@ -1,26 +1,15 @@
-use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox};
+use libhinemos_room::{
+    IncomingMail, MarriageRegistryAction, OutgoingMail, RoomEffect, RoomMailbox, RoomReply,
+    RoomService,
+};
 
 const ROOM_USER: &str = "room-hinemos_registry";
 const ROOM_PLAYER_ID: &str = "room:hinemos_registry";
 const MAX_BODY_BYTES: usize = 4096;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RegistryAction {
-    None,
-    RegisterMarriage { target: String },
-    ShowCertificate,
-    Divorce,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegistryReply {
-    pub mail: OutgoingMail,
-    pub action: RegistryAction,
-}
-
 #[derive(Debug, Default)]
 pub struct HinemosRegistry {
-    last_reply: Option<RegistryReply>,
+    last_reply: Option<RoomReply>,
 }
 
 impl HinemosRegistry {
@@ -32,7 +21,8 @@ impl HinemosRegistry {
         let mut handled = 0;
         for item in mailbox.unread() {
             mailbox.ack(item.id);
-            let reply = self.handle(&item);
+            let reply = self.handle_reply(&item);
+            mailbox.apply_effects(reply.effects.clone());
             mailbox.send(reply.mail.clone());
             self.last_reply = Some(reply);
             handled += 1;
@@ -41,13 +31,17 @@ impl HinemosRegistry {
         handled
     }
 
-    pub fn handle(&mut self, item: &IncomingMail) -> RegistryReply {
+    pub fn handle(&mut self, item: &IncomingMail) -> RoomReply {
+        self.handle_reply(item)
+    }
+
+    pub fn handle_reply(&mut self, item: &IncomingMail) -> RoomReply {
         let reply = if item.body.len() > MAX_BODY_BYTES {
             ReplyBody::text("The clerk refuses a registry request that large.")
         } else {
             reply_body(&item.body)
         };
-        RegistryReply {
+        RoomReply {
             mail: OutgoingMail {
                 recipient_user: item.sender_user.clone(),
                 recipient_player_id: item.sender_player_id.clone(),
@@ -56,11 +50,11 @@ impl HinemosRegistry {
                 subject: "Registry reply".to_owned(),
                 body: reply.body,
             },
-            action: reply.action,
+            effects: reply.effects,
         }
     }
 
-    pub fn last_reply(&self) -> Option<&RegistryReply> {
+    pub fn last_reply(&self) -> Option<&RoomReply> {
         self.last_reply.as_ref()
     }
 
@@ -70,17 +64,27 @@ impl HinemosRegistry {
     }
 }
 
+impl RoomService for HinemosRegistry {
+    fn handle(&mut self, item: &IncomingMail, _context: &()) -> RoomReply {
+        self.handle_reply(item)
+    }
+
+    fn status_text(&self) -> String {
+        Self::status_text(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReplyBody {
     body: String,
-    action: RegistryAction,
+    effects: Vec<RoomEffect>,
 }
 
 impl ReplyBody {
     fn text(body: impl Into<String>) -> Self {
         Self {
             body: body.into(),
-            action: RegistryAction::None,
+            effects: Vec::new(),
         }
     }
 }
@@ -93,13 +97,17 @@ fn reply_body(body: &str) -> ReplyBody {
     if body == "/marriage certificate" {
         return ReplyBody {
             body: "Looking up your marriage certificate.".to_owned(),
-            action: RegistryAction::ShowCertificate,
+            effects: vec![RoomEffect::MarriageRegistry {
+                action: MarriageRegistryAction::ShowCertificate,
+            }],
         };
     }
     if body == "/marriage divorce" {
         return ReplyBody {
             body: "Preparing your divorce filing.".to_owned(),
-            action: RegistryAction::Divorce,
+            effects: vec![RoomEffect::MarriageRegistry {
+                action: MarriageRegistryAction::Divorce,
+            }],
         };
     }
     if let Some(target) = body.strip_prefix("/marriage register ") {
@@ -109,9 +117,11 @@ fn reply_body(body: &str) -> ReplyBody {
         }
         return ReplyBody {
             body: format!("Checking H6 presence for {target}."),
-            action: RegistryAction::RegisterMarriage {
-                target: target.to_owned(),
-            },
+            effects: vec![RoomEffect::MarriageRegistry {
+                action: MarriageRegistryAction::RegisterMarriage {
+                    target: target.to_owned(),
+                },
+            }],
         };
     }
     ReplyBody::text(format!("Registry commands:\n{}", help_text()))
@@ -125,14 +135,14 @@ fn help_text() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libhinemos_room::FakeMailbox;
+    use libhinemos_room::{FakeMailbox, MarriageRegistryAction, RoomEffect};
 
     fn send_turn(
         mailbox: &mut FakeMailbox,
         service: &mut HinemosRegistry,
         sender: &str,
         body: &str,
-    ) -> RegistryReply {
+    ) -> RoomReply {
         let previous = mailbox.sent.len();
         mailbox.push(sender, body);
         assert_eq!(service.poll_once(mailbox), 1);
@@ -150,7 +160,7 @@ mod tests {
         assert!(reply.mail.body.contains("/marriage register <user>"));
         assert!(reply.mail.body.contains("/marriage certificate"));
         assert!(reply.mail.body.contains("/marriage divorce"));
-        assert_eq!(reply.action, RegistryAction::None);
+        assert!(reply.effects.is_empty());
     }
 
     #[test]
@@ -167,10 +177,20 @@ mod tests {
 
         assert!(reply.mail.body.contains("Checking H6 presence for bob"));
         assert_eq!(
-            reply.action,
-            RegistryAction::RegisterMarriage {
-                target: "bob".to_owned()
-            }
+            reply.effects,
+            vec![RoomEffect::MarriageRegistry {
+                action: MarriageRegistryAction::RegisterMarriage {
+                    target: "bob".to_owned()
+                }
+            }]
+        );
+        assert_eq!(
+            mailbox.effects,
+            vec![RoomEffect::MarriageRegistry {
+                action: MarriageRegistryAction::RegisterMarriage {
+                    target: "bob".to_owned()
+                }
+            }]
         );
     }
 
@@ -187,7 +207,12 @@ mod tests {
                 .body
                 .contains("Looking up your marriage certificate")
         );
-        assert_eq!(reply.action, RegistryAction::ShowCertificate);
+        assert_eq!(
+            reply.effects,
+            vec![RoomEffect::MarriageRegistry {
+                action: MarriageRegistryAction::ShowCertificate
+            }]
+        );
     }
 
     #[test]
@@ -198,7 +223,12 @@ mod tests {
         let reply = send_turn(&mut mailbox, &mut service, "alice", "/marriage divorce");
 
         assert!(reply.mail.body.contains("Preparing your divorce filing"));
-        assert_eq!(reply.action, RegistryAction::Divorce);
+        assert_eq!(
+            reply.effects,
+            vec![RoomEffect::MarriageRegistry {
+                action: MarriageRegistryAction::Divorce
+            }]
+        );
     }
 
     #[test]
@@ -215,7 +245,7 @@ mod tests {
                 .body
                 .contains("refuses a registry request that large")
         );
-        assert_eq!(reply.action, RegistryAction::None);
+        assert!(reply.effects.is_empty());
     }
 
     #[test]
@@ -226,6 +256,6 @@ mod tests {
         let reply = send_turn(&mut mailbox, &mut service, "alice", "/marriage dance");
 
         assert!(reply.mail.body.contains("Registry commands:"));
-        assert_eq!(reply.action, RegistryAction::None);
+        assert!(reply.effects.is_empty());
     }
 }

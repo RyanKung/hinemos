@@ -1,44 +1,68 @@
-use anyhow::{Context, Result};
-use hinemos_newspaper_room::{NewspaperReply, PressDigest, PressEvent};
+use anyhow::{Context, Result, bail};
+use hinemos_newspaper_room::{PressDigest, PressEvent};
 use hinemos_storage::{
     PgStorage, StorageError, StoredBalance, StoredInboxItem, StoredMarriageCertificate,
     StoredMemoryEvent,
 };
-use libhinemos_room::OutgoingMail;
-use registry_room::{RegistryAction, RegistryReply};
-use workers_society_room::{WagePayment, WorkersReply};
+use libhinemos_room::{CreditReason, MarriageRegistryAction, OutgoingMail, RoomEffect, RoomReply};
 
-use super::definitions::RoomDefinition;
+use super::definitions::{BuiltinHandler, RoomDefinition};
 
-pub(super) async fn save_worker_payment(
+pub(super) async fn apply_room_effects(
     storage: &PgStorage,
+    room: &RoomDefinition,
     request: &StoredInboxItem,
-    reply: WorkersReply,
+    reply: RoomReply,
 ) -> Result<OutgoingMail> {
-    let WorkersReply {
-        mut mail,
-        wage_payment,
-    } = reply;
-    if let Some(payment) = wage_payment {
-        let balance = credit_worker_wage(storage, request, &payment).await?;
-        mail.body.push_str(&format!(
-            "\nWallet credited. Balance: {} MARK.",
-            balance.amount
-        ));
+    let RoomReply { mut mail, effects } = reply;
+    for effect in effects {
+        match effect {
+            RoomEffect::CreditPlayerMark { amount, reason } => {
+                ensure_effect_allowed(room, BuiltinHandler::Workers, "credit MARK")?;
+                let balance = credit_player_mark(storage, request, amount, &reason).await?;
+                mail.body.push_str(&format!(
+                    "\nWallet credited. Balance: {} MARK.",
+                    balance.amount
+                ));
+            }
+            RoomEffect::PublishBroadcast { body } => {
+                ensure_effect_allowed(room, BuiltinHandler::Newspaper, "publish broadcasts")?;
+                save_broadcast(storage, room, &body).await?;
+            }
+            RoomEffect::MarriageRegistry { action } => {
+                ensure_effect_allowed(room, BuiltinHandler::Registry, "use registry actions")?;
+                apply_marriage_registry_action(storage, room, request, &mut mail, action).await?;
+            }
+        }
     }
     Ok(mail)
 }
 
-pub(super) async fn save_registry_effect(
+fn ensure_effect_allowed(
+    room: &RoomDefinition,
+    expected_handler: BuiltinHandler,
+    capability: &str,
+) -> Result<()> {
+    if room.handler == expected_handler {
+        return Ok(());
+    }
+    bail!(
+        "built-in room {} with handler {:?} is not allowed to {}",
+        room.view_id,
+        room.handler,
+        capability
+    )
+}
+
+async fn apply_marriage_registry_action(
     storage: &PgStorage,
     room: &RoomDefinition,
     request: &StoredInboxItem,
-    reply: RegistryReply,
-) -> Result<OutgoingMail> {
-    let RegistryReply { mut mail, action } = reply;
+    mail: &mut OutgoingMail,
+    action: MarriageRegistryAction,
+) -> Result<()> {
     match action {
-        RegistryAction::None => {}
-        RegistryAction::RegisterMarriage { target } => {
+        MarriageRegistryAction::RegisterMarriage { target } => {
             mail.body = match storage
                 .register_marriage(
                     &request.sender_user,
@@ -56,7 +80,7 @@ pub(super) async fn save_registry_effect(
                 Err(error) => registry_error_text(error),
             };
         }
-        RegistryAction::ShowCertificate => {
+        MarriageRegistryAction::ShowCertificate => {
             mail.body = match storage
                 .current_marriage_certificate(&request.sender_player_id)
                 .await
@@ -66,7 +90,7 @@ pub(super) async fn save_registry_effect(
                 Err(error) => registry_error_text(error),
             };
         }
-        RegistryAction::Divorce => {
+        MarriageRegistryAction::Divorce => {
             mail.body = match storage
                 .divorce_marriage(&request.sender_user, &request.sender_player_id)
                 .await
@@ -79,7 +103,7 @@ pub(super) async fn save_registry_effect(
             };
         }
     }
-    Ok(mail)
+    Ok(())
 }
 
 fn render_certificate_reply(certificate: &StoredMarriageCertificate) -> String {
@@ -111,23 +135,41 @@ fn registry_error_text(error: StorageError) -> String {
     }
 }
 
-async fn credit_worker_wage(
+async fn credit_player_mark(
     storage: &PgStorage,
     request: &StoredInboxItem,
-    payment: &WagePayment,
+    amount: i64,
+    reason: &CreditReason,
 ) -> Result<StoredBalance> {
-    let idempotency_key = format!("workers:wage:{}", request.id);
+    let metadata = credit_reason_metadata(reason);
+    let idempotency_key = format!("{}:{}", metadata.idempotency_prefix, request.id);
     storage
         .credit_player_mark(
-            &payment.recipient_user,
-            &payment.recipient_player_id,
-            payment.amount,
-            "room_wage",
-            &format!("Workers Society wage for request #{}", request.id),
+            &request.sender_user,
+            &request.sender_player_id,
+            amount,
+            metadata.ledger_kind,
+            &format!("{} for request #{}", metadata.memo_prefix, request.id),
             &idempotency_key,
         )
         .await
-        .with_context(|| format!("failed to credit worker wage for request {}", request.id))
+        .with_context(|| format!("failed to credit room MARK for request {}", request.id))
+}
+
+struct CreditReasonMetadata {
+    idempotency_prefix: &'static str,
+    ledger_kind: &'static str,
+    memo_prefix: &'static str,
+}
+
+fn credit_reason_metadata(reason: &CreditReason) -> CreditReasonMetadata {
+    match reason {
+        CreditReason::WorkerWage => CreditReasonMetadata {
+            idempotency_prefix: "workers:wage",
+            ledger_kind: "room_wage",
+            memo_prefix: "Workers Society wage",
+        },
+    }
 }
 
 pub(super) async fn load_press_digest(storage: &PgStorage) -> Result<PressDigest> {
@@ -158,17 +200,11 @@ fn press_event_from_storage(event: StoredMemoryEvent) -> PressEvent {
     }
 }
 
-pub(super) async fn save_newspaper_broadcast(
-    storage: &PgStorage,
-    room: &RoomDefinition,
-    reply: &NewspaperReply,
-) -> Result<()> {
-    if let Some(broadcast) = &reply.broadcast {
-        storage
-            .save_broadcast_message(&room.room_user, &room.room_player_id, broadcast)
-            .await
-            .context("failed to save newspaper broadcast")?;
-    }
+async fn save_broadcast(storage: &PgStorage, room: &RoomDefinition, broadcast: &str) -> Result<()> {
+    storage
+        .save_broadcast_message(&room.room_user, &room.room_player_id, broadcast)
+        .await
+        .context("failed to save room broadcast")?;
     Ok(())
 }
 
@@ -189,4 +225,35 @@ pub(super) async fn save_room_reply(
         .await
         .with_context(|| format!("failed to save room reply for request {}", request.id))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effect_capability_accepts_matching_builtin_handler() {
+        let room = room_definition(BuiltinHandler::Workers);
+
+        assert!(ensure_effect_allowed(&room, BuiltinHandler::Workers, "credit MARK").is_ok());
+    }
+
+    #[test]
+    fn effect_capability_rejects_non_matching_builtin_handler() {
+        let room = room_definition(BuiltinHandler::Bank);
+
+        let error = ensure_effect_allowed(&room, BuiltinHandler::Workers, "credit MARK")
+            .expect_err("bank room must not be allowed to credit MARK");
+
+        assert!(error.to_string().contains("is not allowed to credit MARK"));
+    }
+
+    fn room_definition(handler: BuiltinHandler) -> RoomDefinition {
+        RoomDefinition {
+            handler,
+            view_id: "test_room".to_owned(),
+            room_user: "room-test".to_owned(),
+            room_player_id: "room:test".to_owned(),
+        }
+    }
 }

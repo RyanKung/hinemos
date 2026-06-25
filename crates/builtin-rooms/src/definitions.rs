@@ -31,14 +31,16 @@ pub(super) type BuiltinRoomDefinitions = HashMap<BuiltinHandler, RoomDefinition>
 
 #[derive(Debug, Clone)]
 pub(super) struct RoomDefinition {
+    pub(super) handler: BuiltinHandler,
     pub(super) view_id: String,
     pub(super) room_user: String,
     pub(super) room_player_id: String,
 }
 
-impl From<&StoredServiceRoom> for RoomDefinition {
-    fn from(room: &StoredServiceRoom) -> Self {
+impl RoomDefinition {
+    fn from_service_room(handler: BuiltinHandler, room: &StoredServiceRoom) -> Self {
         Self {
+            handler,
             view_id: room.view_id.clone(),
             room_user: room.room_user.clone(),
             room_player_id: room.room_player_id.clone(),
@@ -61,7 +63,7 @@ pub(super) async fn load_builtin_room_definitions(
                 handler_key, room.view_id
             )
         })?;
-        definitions.insert(handler, RoomDefinition::from(&room));
+        definitions.insert(handler, RoomDefinition::from_service_room(handler, &room));
     }
     Ok(definitions)
 }
