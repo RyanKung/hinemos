@@ -138,9 +138,7 @@ pub trait RoomMailbox {
     /// Send one outgoing room mail reply.
     fn send(&mut self, mail: OutgoingMail);
     /// Apply host-side effects emitted by the room service.
-    fn apply_effects(&mut self, effects: Vec<RoomEffect>) {
-        drop(effects);
-    }
+    fn apply_effects(&mut self, effects: Vec<RoomEffect>);
     /// Update the status text shown by the host room.
     fn update_status(&mut self, status: String);
 }
