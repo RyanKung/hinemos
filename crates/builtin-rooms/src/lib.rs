@@ -1,4 +1,5 @@
 //! Built-in external room service runner.
+#![deny(missing_docs)]
 
 mod definitions;
 mod effects;

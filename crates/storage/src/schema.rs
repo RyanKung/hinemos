@@ -843,11 +843,15 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
         .await?;
     }
 
+    sqlx::query("drop index if exists service_rooms_builtin_handler_idx")
+        .execute(pool)
+        .await?;
+
     sqlx::query(
         r#"
-            create unique index if not exists service_rooms_builtin_handler_idx
+            create unique index if not exists service_rooms_enabled_builtin_handler_idx
             on service_rooms (builtin_handler)
-            where builtin_handler is not null
+            where builtin_handler is not null and enabled
             "#,
     )
     .execute(pool)

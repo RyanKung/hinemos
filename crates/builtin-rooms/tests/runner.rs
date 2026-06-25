@@ -96,6 +96,62 @@ async fn runner_processes_built_in_room_mail_without_cli_binary() {
 }
 
 #[tokio::test]
+async fn disabled_stale_builtin_handler_does_not_block_renamed_room() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    let storage = PgStorage::connect(&test_database.url)
+        .await
+        .expect("connect test database");
+    storage.migrate().await.expect("migrate test database");
+    storage
+        .upsert_service_room(ServiceRoomUpsert {
+            view_id: "hinemos_bank",
+            front_view_id: Some("test_street"),
+            front_entity_id: None,
+            address: Some("H4"),
+            label: Some("Hinemos Bank"),
+            enter_aliases: None,
+            room_user: "room-hinemos_bank",
+            room_player_id: "room:hinemos_bank",
+            status_text: None,
+            custom_commands: Some("/bank balance"),
+            builtin_handler: Some("hinemos_bank"),
+            enabled: true,
+        })
+        .await
+        .expect("register original bank room");
+    storage
+        .disable_service_rooms_except(["custom_bank"])
+        .await
+        .expect("disable stale bank room");
+    storage
+        .upsert_service_room(ServiceRoomUpsert {
+            view_id: "custom_bank",
+            front_view_id: Some("test_street"),
+            front_entity_id: None,
+            address: Some("T1"),
+            label: Some("Custom Bank"),
+            enter_aliases: None,
+            room_user: "room-custom_bank",
+            room_player_id: "room:custom_bank",
+            status_text: None,
+            custom_commands: Some("/bank balance"),
+            builtin_handler: Some("hinemos_bank"),
+            enabled: true,
+        })
+        .await
+        .expect("register renamed bank room");
+
+    let builtin_rooms = storage
+        .builtin_service_rooms()
+        .await
+        .expect("list built-in rooms");
+    assert_eq!(builtin_rooms.len(), 1);
+    assert_eq!(builtin_rooms[0].view_id, "custom_bank");
+}
+
+#[tokio::test]
 async fn registry_runner_uses_registered_room_view_for_presence() {
     let root = workspace_root();
     let env = load_local_env(&root);
