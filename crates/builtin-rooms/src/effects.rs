@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use hinemos_newspaper_room::{PressDigest, PressEvent};
 use hinemos_storage::{
     PgStorage, StorageError, StoredBalance, StoredInboxItem, StoredMarriageCertificate,
@@ -6,7 +6,7 @@ use hinemos_storage::{
 };
 use libhinemos_room::{CreditReason, MarriageRegistryAction, OutgoingMail, RoomEffect, RoomReply};
 
-use super::definitions::RoomDefinition;
+use super::definitions::{BuiltinHandler, RoomDefinition};
 
 pub(super) async fn apply_room_effects(
     storage: &PgStorage,
@@ -17,35 +17,41 @@ pub(super) async fn apply_room_effects(
     let RoomReply { mut mail, effects } = reply;
     for effect in effects {
         match effect {
-            RoomEffect::CreditPlayerMark {
-                recipient_user,
-                recipient_player_id,
-                amount,
-                reason,
-            } => {
-                let balance = credit_player_mark(
-                    storage,
-                    request,
-                    &recipient_user,
-                    &recipient_player_id,
-                    amount,
-                    &reason,
-                )
-                .await?;
+            RoomEffect::CreditPlayerMark { amount, reason } => {
+                ensure_effect_allowed(room, BuiltinHandler::Workers, "credit MARK")?;
+                let balance = credit_player_mark(storage, request, amount, &reason).await?;
                 mail.body.push_str(&format!(
                     "\nWallet credited. Balance: {} MARK.",
                     balance.amount
                 ));
             }
             RoomEffect::PublishBroadcast { body } => {
+                ensure_effect_allowed(room, BuiltinHandler::Newspaper, "publish broadcasts")?;
                 save_broadcast(storage, room, &body).await?;
             }
             RoomEffect::MarriageRegistry { action } => {
+                ensure_effect_allowed(room, BuiltinHandler::Registry, "use registry actions")?;
                 apply_marriage_registry_action(storage, room, request, &mut mail, action).await?;
             }
         }
     }
     Ok(mail)
+}
+
+fn ensure_effect_allowed(
+    room: &RoomDefinition,
+    expected_handler: BuiltinHandler,
+    capability: &str,
+) -> Result<()> {
+    if room.handler == expected_handler {
+        return Ok(());
+    }
+    bail!(
+        "built-in room {} with handler {:?} is not allowed to {}",
+        room.view_id,
+        room.handler,
+        capability
+    )
 }
 
 async fn apply_marriage_registry_action(
@@ -132,8 +138,6 @@ fn registry_error_text(error: StorageError) -> String {
 async fn credit_player_mark(
     storage: &PgStorage,
     request: &StoredInboxItem,
-    recipient_user: &str,
-    recipient_player_id: &str,
     amount: i64,
     reason: &CreditReason,
 ) -> Result<StoredBalance> {
@@ -141,8 +145,8 @@ async fn credit_player_mark(
     let idempotency_key = format!("{}:{}", metadata.idempotency_prefix, request.id);
     storage
         .credit_player_mark(
-            recipient_user,
-            recipient_player_id,
+            &request.sender_user,
+            &request.sender_player_id,
             amount,
             metadata.ledger_kind,
             &format!("{} for request #{}", metadata.memo_prefix, request.id),
@@ -221,4 +225,35 @@ pub(super) async fn save_room_reply(
         .await
         .with_context(|| format!("failed to save room reply for request {}", request.id))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effect_capability_accepts_matching_builtin_handler() {
+        let room = room_definition(BuiltinHandler::Workers);
+
+        assert!(ensure_effect_allowed(&room, BuiltinHandler::Workers, "credit MARK").is_ok());
+    }
+
+    #[test]
+    fn effect_capability_rejects_non_matching_builtin_handler() {
+        let room = room_definition(BuiltinHandler::Bank);
+
+        let error = ensure_effect_allowed(&room, BuiltinHandler::Workers, "credit MARK")
+            .expect_err("bank room must not be allowed to credit MARK");
+
+        assert!(error.to_string().contains("is not allowed to credit MARK"));
+    }
+
+    fn room_definition(handler: BuiltinHandler) -> RoomDefinition {
+        RoomDefinition {
+            handler,
+            view_id: "test_room".to_owned(),
+            room_user: "room-test".to_owned(),
+            room_player_id: "room:test".to_owned(),
+        }
+    }
 }

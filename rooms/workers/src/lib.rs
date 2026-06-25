@@ -174,8 +174,6 @@ impl WorkersSociety {
         ReplyBody {
             body: format!("Claimed {amount} MARK in wages."),
             effects: vec![RoomEffect::CreditPlayerMark {
-                recipient_user: item.sender_user.clone(),
-                recipient_player_id: item.sender_player_id.clone(),
                 amount,
                 reason: CreditReason::WorkerWage,
             }],
@@ -352,8 +350,6 @@ mod tests {
         assert_eq!(
             mailbox.effects,
             vec![RoomEffect::CreditPlayerMark {
-                recipient_user: "alice".to_owned(),
-                recipient_player_id: "player:alice".to_owned(),
                 amount: 40,
                 reason: CreditReason::WorkerWage,
             }]
@@ -375,8 +371,6 @@ mod tests {
         assert_eq!(
             reply.effects,
             vec![RoomEffect::CreditPlayerMark {
-                recipient_user: "alice".to_owned(),
-                recipient_player_id: player_id.to_owned(),
                 amount: 40,
                 reason: CreditReason::WorkerWage,
             }]

@@ -66,12 +66,8 @@ impl From<OutgoingMail> for RoomReply {
 /// Host-side action requested by pure room logic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoomEffect {
-    /// Credit MARK to a player account.
+    /// Credit MARK to the player who sent the room request.
     CreditPlayerMark {
-        /// User name receiving the MARK credit.
-        recipient_user: String,
-        /// Player identity receiving the MARK credit.
-        recipient_player_id: String,
         /// Positive MARK amount to credit.
         amount: i64,
         /// Domain reason for the credit.

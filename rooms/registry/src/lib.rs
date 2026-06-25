@@ -22,6 +22,7 @@ impl HinemosRegistry {
         for item in mailbox.unread() {
             mailbox.ack(item.id);
             let reply = self.handle_reply(&item);
+            mailbox.apply_effects(reply.effects.clone());
             mailbox.send(reply.mail.clone());
             self.last_reply = Some(reply);
             handled += 1;
@@ -177,6 +178,14 @@ mod tests {
         assert!(reply.mail.body.contains("Checking H6 presence for bob"));
         assert_eq!(
             reply.effects,
+            vec![RoomEffect::MarriageRegistry {
+                action: MarriageRegistryAction::RegisterMarriage {
+                    target: "bob".to_owned()
+                }
+            }]
+        );
+        assert_eq!(
+            mailbox.effects,
             vec![RoomEffect::MarriageRegistry {
                 action: MarriageRegistryAction::RegisterMarriage {
                     target: "bob".to_owned()
