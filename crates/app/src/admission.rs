@@ -19,8 +19,17 @@ where
     /// Returns the next-step text after reading the admission agreement, if needed.
     #[must_use]
     pub fn admission_next_step_after_read(&self, admission: &impl AdmissionView) -> Option<String> {
-        (!admission.is_agreed() && admission.has_read_version(&self.config.agreement_version))
-            .then(|| "\r\nNext step: type /agree to enter.\r\n".to_owned())
+        if admission.is_agreed() || !admission.has_read_version(&self.config.agreement_version) {
+            return None;
+        }
+        if admission.role_card_is_complete() {
+            Some("\r\nNext step: type /agree to enter.\r\n".to_owned())
+        } else {
+            Some(format!(
+                "\r\nNext step: {}, then type /agree to enter.\r\n",
+                admission_role_card_next_step(admission),
+            ))
+        }
     }
 
     /// Builds the successful admission text after wallet setup.
@@ -38,8 +47,22 @@ where
 
     /// Returns the player-facing guidance for a pending admission.
     #[must_use]
-    pub fn admission_guidance(&self, _admission: &impl AdmissionView) -> String {
-        let next_step = "Read the board agreement first: /read agreement";
+    pub fn admission_guidance(&self, admission: &impl AdmissionView) -> String {
+        let mut steps = Vec::new();
+        if !admission.has_read_version(&self.config.agreement_version) {
+            steps.push("Read the board agreement first: /read agreement");
+        }
+        if !admission.role_card_name_is_valid() {
+            steps.push("Choose a valid role-card name: /settings name <name>");
+        }
+        if !admission.role_card_has_mbti() {
+            steps.push("Complete your role card: /settings mbti <type>");
+        }
+        let next_step = if steps.is_empty() {
+            "Type /agree to enter".to_owned()
+        } else {
+            steps.join(". ")
+        };
         format!(
             "Admission pending. SSH authentication is complete, but this account is not admitted into the world yet.\n{next_step}. Until then, other commands are blocked."
         )
@@ -62,6 +85,9 @@ where
             SemanticCommand::Look,
             SemanticCommand::Read {
                 target: EntityRef::new(admission_board_entity_id),
+            },
+            SemanticCommand::Settings {
+                action: SettingsAction::Show,
             },
             SemanticCommand::Help,
             SemanticCommand::Quit,
@@ -111,6 +137,17 @@ pub trait AdmissionView {
 
     /// Returns true when the player has read the given agreement version.
     fn has_read_version(&self, version: &str) -> bool;
+
+    /// Returns true when the role-card name satisfies profile rules.
+    fn role_card_name_is_valid(&self) -> bool;
+
+    /// Returns true when the role-card has an MBTI type.
+    fn role_card_has_mbti(&self) -> bool;
+
+    /// Returns true when required role-card fields are complete.
+    fn role_card_is_complete(&self) -> bool {
+        self.role_card_name_is_valid() && self.role_card_has_mbti()
+    }
 }
 
 /// Result from attempting to accept admission.
@@ -126,6 +163,25 @@ pub enum AdmissionAcceptResult {
         /// Text to display to the player.
         text: String,
     },
+    /// Player must complete required role-card fields first.
+    NeedsRoleCard {
+        /// Text to display to the player.
+        text: String,
+    },
     /// Admission was accepted and caller should finish post-admission setup.
     Accepted,
+}
+
+fn admission_role_card_next_step(admission: &impl AdmissionView) -> &'static str {
+    match (
+        admission.role_card_name_is_valid(),
+        admission.role_card_has_mbti(),
+    ) {
+        (false, false) => {
+            "complete your role card with /settings name <name> and /settings mbti <type>"
+        }
+        (false, true) => "choose a valid role-card name with /settings name <name>",
+        (true, false) => "complete your role card with /settings mbti <type>",
+        (true, true) => "type /agree",
+    }
 }

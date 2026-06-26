@@ -43,6 +43,21 @@ pub(super) fn slash_parse_feedback(line: &str, error: &SlashParseError) -> Strin
         SlashParseError::InvalidJson => {
             "The build sheet could not be read as JSON. Check the braces and quotes.".to_owned()
         }
+        SlashParseError::InvalidRoleCardName => {
+            "Role-card name must be one non-empty line, at most 64 characters. Try /settings name <name>."
+                .to_owned()
+        }
+        SlashParseError::InvalidGender => {
+            "Gender must be male, female, or none. Try /settings gender none.".to_owned()
+        }
+        SlashParseError::InvalidMbti => {
+            "MBTI must be one of the 16 standard types, like INTJ, INFP, ESTP, or ESFJ. Try /settings mbti INTJ."
+                .to_owned()
+        }
+        SlashParseError::InvalidIntro => {
+            "Self introduction must be a single line at most 160 characters. Try /settings intro <one line> or /settings intro clear."
+                .to_owned()
+        }
         SlashParseError::UnknownCommand => {
             "That command is not on the town board. Choose one Available command.".to_owned()
         }

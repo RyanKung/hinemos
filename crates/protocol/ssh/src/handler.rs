@@ -456,7 +456,8 @@ impl ConnectionHandler {
             .handle_pending_admission_command(app_identity, command)
             .await?
         {
-            PendingAdmissionCommandOutcome::NotPending => Ok(false),
+            PendingAdmissionCommandOutcome::NotPending
+            | PendingAdmissionCommandOutcome::PassThrough => Ok(false),
             PendingAdmissionCommandOutcome::Allow(events) => {
                 self.send_ui_events(channel, session, events).await?;
                 Ok(true)

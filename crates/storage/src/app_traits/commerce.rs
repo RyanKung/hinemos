@@ -117,6 +117,18 @@ impl AccountSettingsView for StoredAccountSettings {
         &self.display_name
     }
 
+    fn gender(&self) -> &str {
+        &self.gender
+    }
+
+    fn mbti(&self) -> Option<&str> {
+        self.mbti.as_deref()
+    }
+
+    fn self_intro(&self) -> Option<&str> {
+        self.self_intro.as_deref()
+    }
+
     fn online_days(&self) -> i32 {
         self.online_days
     }
@@ -382,6 +394,14 @@ impl AccountStore for PgStorage {
         PgStorage::set_mail_auth_token(self, username, player_id, token)
             .await
             .map(|_| ())
+    }
+
+    async fn update_role_card(
+        &self,
+        player_id: &str,
+        update: RoleCardUpdate,
+    ) -> Result<(), Self::Error> {
+        PgStorage::update_role_card(self, player_id, update).await
     }
 
     async fn verify_mail_auth_token(

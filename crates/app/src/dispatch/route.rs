@@ -1,4 +1,4 @@
-use crate::{AppRequest, BuildSheet, WhoPopulation};
+use crate::{AppRequest, BuildSheet, RoleCardUpdate, WhoPopulation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum InboxMutation {
@@ -159,6 +159,10 @@ pub(super) enum SettingsAppRequest<'a> {
         mail_address: &'a str,
         token: &'a str,
     },
+    UpdateRoleCard {
+        mail_address: &'a str,
+        update: RoleCardUpdate,
+    },
 }
 
 impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
@@ -203,10 +207,9 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             request @ (AppRequest::AdmissionRead | AppRequest::AdmissionAccept) => {
                 route_admission(request)
             }
-            request
-            @ (AppRequest::Settings { .. } | AppRequest::SettingsRotateMailToken { .. }) => {
-                route_settings(request)
-            }
+            request @ (AppRequest::Settings { .. }
+            | AppRequest::SettingsRotateMailToken { .. }
+            | AppRequest::SettingsUpdateRoleCard { .. }) => route_settings(request),
         }
     }
 }
@@ -421,6 +424,13 @@ fn route_settings(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
         } => RoutedAppRequest::Settings(SettingsAppRequest::RotateMailToken {
             mail_address,
             token,
+        }),
+        AppRequest::SettingsUpdateRoleCard {
+            mail_address,
+            update,
+        } => RoutedAppRequest::Settings(SettingsAppRequest::UpdateRoleCard {
+            mail_address,
+            update,
         }),
         _ => unreachable!("settings request route called with non-settings request"),
     }

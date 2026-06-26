@@ -3,12 +3,62 @@ use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, Salt
 use rand_core::OsRng;
 use sqlx::Row;
 
+use hinemos_app::RoleCardUpdate;
+use hinemos_core::{role_card_intro_is_valid, role_card_name_is_valid};
+
 use crate::accounts::player_id_from_password_username;
 use crate::room_mail::{room_mail_player_id, room_mail_user};
 use crate::{
     PgStorage, StorageError, StoredAccountSettings, StoredAdmission, StoredIdentity,
     StoredMailAuthToken, StoredPasswordIdentity,
 };
+
+fn role_card_update_parts(
+    update: &RoleCardUpdate,
+) -> Result<(&'static str, Option<String>), StorageError> {
+    match update {
+        RoleCardUpdate::Name(name) => {
+            let name = validated_role_card_name(name)?;
+            Ok(("display_name", Some(name)))
+        }
+        RoleCardUpdate::Gender(gender) => Ok(("gender", Some(gender.as_str().to_owned()))),
+        RoleCardUpdate::Mbti(mbti) => Ok(("mbti", Some(mbti.as_str().to_owned()))),
+        RoleCardUpdate::Intro(Some(intro)) => {
+            let intro = validated_role_card_intro(intro)?;
+            Ok(("self_intro", Some(intro)))
+        }
+        RoleCardUpdate::Intro(None) => Ok(("self_intro", None)),
+    }
+}
+
+fn validated_role_card_name(name: &str) -> Result<String, StorageError> {
+    let name = name.trim();
+    if !role_card_name_is_valid(name) {
+        return Err(StorageError::InvalidAccountSetting(
+            "role-card name must be one non-empty line at most 64 characters".to_owned(),
+        ));
+    }
+    Ok(name.to_owned())
+}
+
+fn validated_role_card_intro(intro: &str) -> Result<String, StorageError> {
+    let intro = intro.trim();
+    if !role_card_intro_is_valid(intro) {
+        return Err(StorageError::InvalidAccountSetting(
+            "self introduction must be one line at most 160 characters".to_owned(),
+        ));
+    }
+    Ok(intro.to_owned())
+}
+
+fn map_display_name_update_error(error: sqlx::Error) -> StorageError {
+    if let sqlx::Error::Database(database_error) = &error
+        && database_error.constraint() == Some("player_profiles_display_name_unique_idx")
+    {
+        return StorageError::InvalidAccountSetting("role-card name is already taken".to_owned());
+    }
+    StorageError::from(error)
+}
 
 impl PgStorage {
     /// Adds an SSH public-key identity to an existing canonical account.
@@ -32,8 +82,7 @@ impl PgStorage {
             insert into player_profiles (player_id, display_name)
             values ($1, $2)
             on conflict (player_id) do update
-            set display_name = excluded.display_name,
-                updated_at = now()
+            set updated_at = now()
             "#,
         )
         .bind(player_id)
@@ -108,8 +157,7 @@ impl PgStorage {
             insert into player_profiles (player_id, display_name)
             values ($1, $2)
             on conflict (player_id) do update
-            set display_name = excluded.display_name,
-                updated_at = now()
+            set updated_at = now()
             "#,
         )
         .bind(player_id)
@@ -187,8 +235,7 @@ impl PgStorage {
             insert into player_profiles (player_id, display_name)
             values ($1, $2)
             on conflict (player_id) do update
-            set display_name = excluded.display_name,
-                updated_at = now()
+            set updated_at = now()
             "#,
         )
         .bind(player_id)
@@ -241,8 +288,7 @@ impl PgStorage {
             insert into player_profiles (player_id, display_name)
             values ($1, $2)
             on conflict (player_id) do update
-            set display_name = excluded.display_name,
-                updated_at = now()
+            set updated_at = now()
             "#,
         )
         .bind(player_id)
@@ -320,8 +366,7 @@ impl PgStorage {
             insert into player_profiles (player_id, display_name)
             values ($1, $2)
             on conflict (player_id) do update
-            set display_name = excluded.display_name,
-                updated_at = now()
+            set updated_at = now()
             "#,
         )
         .bind(&room_player_id)
@@ -411,6 +456,9 @@ impl PgStorage {
             select
                 profile.player_id,
                 profile.display_name,
+                profile.gender,
+                profile.mbti,
+                profile.self_intro,
                 greatest(1, floor(extract(epoch from (now() - profile.created_at)) / 86400)::int + 1) as online_days,
                 exists (
                     select 1 from password_identities password
@@ -458,7 +506,7 @@ impl PgStorage {
     pub async fn player_admission(&self, player_id: &str) -> Result<StoredAdmission, StorageError> {
         let admission = sqlx::query_as::<_, StoredAdmission>(
             r#"
-            select player_id, admission_state, agreement_version, agreement_read_version
+            select player_id, display_name, admission_state, agreement_version, agreement_read_version, mbti
             from player_profiles
             where player_id = $1
             "#,
@@ -497,6 +545,12 @@ impl PgStorage {
         player_id: &str,
         agreement_version: &str,
     ) -> Result<(), StorageError> {
+        let admission = self.player_admission(player_id).await?;
+        if !admission.has_read_version(agreement_version) || !admission.role_card_is_complete() {
+            return Err(StorageError::InvalidAccountSetting(
+                "read the current agreement and complete role card before agreeing".to_owned(),
+            ));
+        }
         let result = sqlx::query(
             r#"
             update player_profiles
@@ -506,6 +560,7 @@ impl PgStorage {
                 updated_at = now()
             where player_id = $1
               and agreement_read_version = $2
+              and mbti is not null
             "#,
         )
         .bind(player_id)
@@ -514,8 +569,85 @@ impl PgStorage {
         .await?;
         if result.rows_affected() == 0 {
             return Err(StorageError::InvalidAccountSetting(
-                "read the current agreement before agreeing".to_owned(),
+                "read the current agreement and complete role card before agreeing".to_owned(),
             ));
+        }
+        Ok(())
+    }
+
+    /// Updates one role-card field for a player profile.
+    pub async fn update_role_card(
+        &self,
+        player_id: &str,
+        update: RoleCardUpdate,
+    ) -> Result<(), StorageError> {
+        let (field, value) = role_card_update_parts(&update)?;
+        let result = match (field, value) {
+            ("display_name", Some(value)) => sqlx::query(
+                r#"
+                    update player_profiles
+                    set display_name = $2,
+                        updated_at = now()
+                    where player_id = $1
+                    "#,
+            )
+            .bind(player_id)
+            .bind(value)
+            .execute(&self.pool)
+            .await
+            .map_err(map_display_name_update_error)?,
+            ("gender", Some(value)) => {
+                sqlx::query(
+                    r#"
+                    update player_profiles
+                    set gender = $2,
+                        updated_at = now()
+                    where player_id = $1
+                    "#,
+                )
+                .bind(player_id)
+                .bind(value)
+                .execute(&self.pool)
+                .await?
+            }
+            ("mbti", Some(value)) => {
+                sqlx::query(
+                    r#"
+                    update player_profiles
+                    set mbti = $2,
+                        updated_at = now()
+                    where player_id = $1
+                    "#,
+                )
+                .bind(player_id)
+                .bind(value)
+                .execute(&self.pool)
+                .await?
+            }
+            ("self_intro", value) => {
+                sqlx::query(
+                    r#"
+                    update player_profiles
+                    set self_intro = $2,
+                        updated_at = now()
+                    where player_id = $1
+                    "#,
+                )
+                .bind(player_id)
+                .bind(value)
+                .execute(&self.pool)
+                .await?
+            }
+            _ => {
+                return Err(StorageError::InvalidAccountSetting(
+                    "unknown role-card field".to_owned(),
+                ));
+            }
+        };
+        if result.rows_affected() == 0 {
+            return Err(StorageError::InvalidAccountSetting(format!(
+                "player profile not found: {player_id}"
+            )));
         }
         Ok(())
     }
@@ -589,8 +721,7 @@ impl PgStorage {
             insert into player_profiles (player_id, display_name)
             values ($1, $2)
             on conflict (player_id) do update
-            set display_name = excluded.display_name,
-                updated_at = now()
+            set updated_at = now()
             "#,
         )
         .bind(&player_id)
@@ -659,8 +790,7 @@ impl PgStorage {
             insert into player_profiles (player_id, display_name)
             values ($1, $2)
             on conflict (player_id) do update
-            set display_name = excluded.display_name,
-                updated_at = now()
+            set updated_at = now()
             "#,
         )
         .bind(player_id)

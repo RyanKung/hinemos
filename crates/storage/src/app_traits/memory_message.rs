@@ -293,4 +293,12 @@ impl AdmissionView for StoredAdmission {
     fn has_read_version(&self, version: &str) -> bool {
         StoredAdmission::has_read_version(self, version)
     }
+
+    fn role_card_name_is_valid(&self) -> bool {
+        StoredAdmission::role_card_name_is_valid(self)
+    }
+
+    fn role_card_has_mbti(&self) -> bool {
+        StoredAdmission::role_card_has_mbti(self)
+    }
 }

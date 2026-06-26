@@ -7,6 +7,8 @@ pub(super) struct TestAdmission {
     pub(super) admission_state: String,
     pub(super) agreement_version: Option<String>,
     pub(super) agreement_read_version: Option<String>,
+    pub(super) role_card_name_valid: bool,
+    pub(super) role_card_has_mbti: bool,
 }
 
 impl AdmissionView for TestAdmission {
@@ -16,6 +18,14 @@ impl AdmissionView for TestAdmission {
 
     fn has_read_version(&self, version: &str) -> bool {
         self.agreement_read_version.as_deref() == Some(version)
+    }
+
+    fn role_card_name_is_valid(&self) -> bool {
+        self.role_card_name_valid
+    }
+
+    fn role_card_has_mbti(&self) -> bool {
+        self.role_card_has_mbti
     }
 }
 
@@ -564,6 +574,14 @@ impl AdmissionView for PendingAdmission {
     }
 
     fn has_read_version(&self, _version: &str) -> bool {
+        false
+    }
+
+    fn role_card_name_is_valid(&self) -> bool {
+        false
+    }
+
+    fn role_card_has_mbti(&self) -> bool {
         false
     }
 }

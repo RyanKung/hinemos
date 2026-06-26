@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use hinemos_core::{
-    ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef, InboxAction,
-    JsonObservation, ObservationEvent, SemanticCommand, SettingsAction,
+    ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef, Gender,
+    InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand, SettingsAction,
 };
 
 use super::{Chrome, SlashParseError, render_text_observation};
@@ -279,6 +279,62 @@ fn slash_parser_accepts_settings_actions() {
     assert_eq!(
         chrome.parse_command("/settings mail-token extra"),
         Err(SlashParseError::UnexpectedArgument)
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/settings name Ada Lovelace")
+            .expect("role-card name setting parses"),
+        SemanticCommand::Settings {
+            action: SettingsAction::Name {
+                name: "Ada Lovelace".to_owned()
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/settings gender Female")
+            .expect("role-card gender setting parses"),
+        SemanticCommand::Settings {
+            action: SettingsAction::Gender {
+                gender: Gender::Female
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/settings mbti infp")
+            .expect("role-card MBTI setting parses"),
+        SemanticCommand::Settings {
+            action: SettingsAction::Mbti {
+                mbti: MbtiType::Infp
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/settings intro Building quiet tools")
+            .expect("role-card intro setting parses"),
+        SemanticCommand::Settings {
+            action: SettingsAction::Intro {
+                intro: Some("Building quiet tools".to_owned())
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/settings intro clear")
+            .expect("role-card intro clear parses"),
+        SemanticCommand::Settings {
+            action: SettingsAction::Intro { intro: None }
+        }
+    );
+    assert_eq!(
+        chrome.parse_command("/settings gender robot"),
+        Err(SlashParseError::InvalidGender)
+    );
+    assert_eq!(
+        chrome.parse_command("/settings mbti ABCD"),
+        Err(SlashParseError::InvalidMbti)
     );
 }
 
