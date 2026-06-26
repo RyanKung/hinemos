@@ -20,7 +20,8 @@ where
             AdmissionAppRequest::Accept => {
                 match self.accept_admission(&identity.player_id).await? {
                     AdmissionAcceptResult::AlreadyAgreed { text }
-                    | AdmissionAcceptResult::NeedsRead { text } => Ok(text_events(text, None)),
+                    | AdmissionAcceptResult::NeedsRead { text }
+                    | AdmissionAcceptResult::NeedsRoleCard { text } => Ok(text_events(text, None)),
                     AdmissionAcceptResult::Accepted => Ok(vec![UiEvent::EnsureWalletAndEnter {
                         user: identity.user.clone(),
                         player_id: identity.player_id.clone(),
@@ -60,6 +61,14 @@ where
                 )
                 .await?
                 .text
+            }
+            SettingsAppRequest::UpdateRoleCard {
+                mail_address,
+                update,
+            } => {
+                self.update_role_card(&identity.user, &identity.player_id, update, mail_address)
+                    .await?
+                    .text
             }
         };
         Ok(text_events(text, None))

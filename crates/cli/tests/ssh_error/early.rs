@@ -97,6 +97,11 @@ fn assert_pending_admission_output(stdout: &str, test_database: &TestDatabase, u
     );
     assert_not_contains(
         stdout,
+        "Complete your role card: /settings mbti <type>",
+        "random default MBTI keeps normal admission focused on the agreement",
+    );
+    assert_not_contains(
+        stdout,
         "admission: /agree",
         "agree is not advertised as a room action before reading",
     );
@@ -113,7 +118,7 @@ fn assert_pending_admission_output(stdout: &str, test_database: &TestDatabase, u
     assert_contains(
         stdout,
         "Next step: type /agree to enter.",
-        "agreement read gives a clear next step",
+        "agreement read gives a clear admission next step",
     );
     assert_contains(
         stdout,
@@ -132,12 +137,98 @@ fn assert_pending_admission_output(stdout: &str, test_database: &TestDatabase, u
     );
     assert_eq!(
         test_database.query_value(&format!(
-            "select admission_state || ':' || agreement_version from player_profiles where display_name = '{}'",
+            "select admission_state || ':' || agreement_version || ':' || case when mbti is null then 'missing' else 'set' end from player_profiles where display_name = '{}'",
             sql_literal(user)
         )),
-        "agreed:2026-06-03",
-        "profile records accepted agreement version"
+        "agreed:2026-06-03:set",
+        "profile records accepted agreement version and random default MBTI"
     );
+}
+
+#[test]
+fn role_card_settings_default_mbti_and_remain_editable() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+    assert_command_exists("ssh-keygen");
+    assert_command_exists("psql");
+
+    let temp = TestTempDir::new("hinemos-role-card-settings");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("role_card_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+    let client_key = temp.path.join("client_ed25519");
+    generate_ed25519_key(&client_key);
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &client_key,
+        &[
+            "/read agreement",
+            "/settings",
+            "/agree",
+            "/settings name Ada Role",
+            "/settings gender female",
+            "/settings mbti INFP",
+            "/settings intro Building quiet tools",
+            "/settings",
+            "/settings intro clear",
+            "/settings",
+            "/quit",
+        ],
+    );
+
+    assert_contains(&output, "Role card:", "settings shows role-card section");
+    assert_contains(
+        &output,
+        &format!("Name: {user}"),
+        "role-card name defaults to authenticated username",
+    );
+    assert_contains(&output, "Gender: none", "role-card gender defaults to none");
+    assert_not_contains(
+        &output,
+        "MBTI: not set",
+        "role-card MBTI starts with a random default",
+    );
+    assert_contains(
+        &output,
+        "MBTI: INFP",
+        "role-card MBTI update is rendered normalized",
+    );
+    assert_contains(
+        &output,
+        "Agreement accepted: version 2026-06-03",
+        "random default MBTI permits admission after agreement",
+    );
+    assert_contains(&output, "Name: Ada Role", "role-card name can be edited");
+    assert_contains(&output, "Gender: female", "role-card gender can be edited");
+    assert_contains(
+        &output,
+        "Intro: Building quiet tools",
+        "role-card intro can be edited",
+    );
+    assert_contains(&output, "Intro: not set", "role-card intro can be cleared");
+    assert_eq!(
+        test_database.query_value(&format!(
+            "select profile.display_name || ':' || profile.gender || ':' || profile.mbti || ':' || coalesce(profile.self_intro, '')
+             from player_profiles profile
+             join ssh_identities ssh on ssh.player_id = profile.player_id
+             where ssh.username = '{}'",
+            sql_literal(&user)
+        )),
+        "Ada Role:female:INFP:",
+        "role-card settings persist in player profile"
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
 }
 
 #[test]

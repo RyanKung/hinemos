@@ -172,11 +172,34 @@ async fn repair_status_check_constraint(
 }
 
 async fn migrate_player_profiles(pool: &PgPool) -> Result<(), StorageError> {
-    sqlx::query(
+    const RANDOM_MBTI_SQL: &str = r#"
+        case floor(random() * 16)::int
+            when 0 then 'INTJ'
+            when 1 then 'INTP'
+            when 2 then 'ENTJ'
+            when 3 then 'ENTP'
+            when 4 then 'INFJ'
+            when 5 then 'INFP'
+            when 6 then 'ENFJ'
+            when 7 then 'ENFP'
+            when 8 then 'ISTJ'
+            when 9 then 'ISFJ'
+            when 10 then 'ESTJ'
+            when 11 then 'ESFJ'
+            when 12 then 'ISTP'
+            when 13 then 'ISFP'
+            when 14 then 'ESTP'
+            else 'ESFP'
+        end
+    "#;
+    let create_profiles_sql = format!(
         r#"
             create table if not exists player_profiles (
                 player_id text primary key,
                 display_name text not null,
+                gender text not null default 'none',
+                mbti text not null default ({RANDOM_MBTI_SQL}),
+                self_intro text,
                 admission_state text not null default 'pending',
                 agreement_version text,
                 agreement_read_version text,
@@ -185,12 +208,11 @@ async fn migrate_player_profiles(pool: &PgPool) -> Result<(), StorageError> {
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now()
             )
-            "#,
-    )
-    .execute(pool)
-    .await?;
+            "#
+    );
+    sqlx::query(&create_profiles_sql).execute(pool).await?;
 
-    sqlx::query(
+    let migrate_profiles_sql = format!(
         r#"
             do $$
             declare
@@ -204,6 +226,14 @@ async fn migrate_player_profiles(pool: &PgPool) -> Result<(), StorageError> {
                 );
 
                 alter table player_profiles add column if not exists admission_state text not null default 'pending';
+                alter table player_profiles add column if not exists gender text not null default 'none';
+                alter table player_profiles add column if not exists mbti text;
+                alter table player_profiles alter column mbti set default ({RANDOM_MBTI_SQL});
+                update player_profiles
+                set mbti = ({RANDOM_MBTI_SQL})
+                where mbti is null;
+                alter table player_profiles alter column mbti set not null;
+                alter table player_profiles add column if not exists self_intro text;
                 alter table player_profiles add column if not exists agreement_version text;
                 alter table player_profiles add column if not exists agreement_read_version text;
                 alter table player_profiles add column if not exists agreement_read_at timestamptz;
@@ -223,11 +253,41 @@ async fn migrate_player_profiles(pool: &PgPool) -> Result<(), StorageError> {
                 exception when duplicate_object then
                     null;
                 end;
+                begin
+                    alter table player_profiles
+                    add constraint player_profiles_gender_check
+                    check (gender in ('male', 'female', 'none'));
+                exception when duplicate_object then
+                    null;
+                end;
+
+                alter table player_profiles drop constraint if exists player_profiles_mbti_check;
+                begin
+                    alter table player_profiles
+                    add constraint player_profiles_mbti_check
+                    check (
+                        mbti in (
+                            'INTJ', 'INTP', 'ENTJ', 'ENTP',
+                            'INFJ', 'INFP', 'ENFJ', 'ENFP',
+                            'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ',
+                            'ISTP', 'ISFP', 'ESTP', 'ESFP'
+                        )
+                    );
+                exception when duplicate_object then
+                    null;
+                end;
+
+                begin
+                    alter table player_profiles
+                    add constraint player_profiles_self_intro_one_line_check
+                    check (self_intro is null or self_intro !~ '[\r\n]');
+                exception when duplicate_object then
+                    null;
+                end;
             end $$;
-            "#,
-    )
-    .execute(pool)
-    .await?;
+            "#
+    );
+    sqlx::query(&migrate_profiles_sql).execute(pool).await?;
 
     Ok(())
 }

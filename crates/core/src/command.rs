@@ -304,6 +304,173 @@ pub enum SettingsAction {
     Show,
     /// Generate or rotate the dedicated SMTP/IMAP mail auth token.
     MailToken,
+    /// Set the public role-card name.
+    Name {
+        /// Non-empty display name.
+        name: String,
+    },
+    /// Set the role-card gender.
+    Gender {
+        /// Normalized gender value.
+        gender: Gender,
+    },
+    /// Set the role-card MBTI type.
+    Mbti {
+        /// Normalized MBTI value.
+        mbti: MbtiType,
+    },
+    /// Set or clear the one-line role-card self introduction.
+    Intro {
+        /// One-line introduction, or `None` to clear it.
+        intro: Option<String>,
+    },
+}
+
+/// Maximum role-card name length, counted in Unicode scalar values.
+pub const ROLE_CARD_NAME_MAX_CHARS: usize = 64;
+
+/// Maximum role-card introduction length, counted in Unicode scalar values.
+pub const ROLE_CARD_INTRO_MAX_CHARS: usize = 160;
+
+/// Returns true when a role-card name is admissible.
+#[must_use]
+pub fn role_card_name_is_valid(name: &str) -> bool {
+    let name = name.trim();
+    !name.is_empty()
+        && name.chars().count() <= ROLE_CARD_NAME_MAX_CHARS
+        && !contains_line_break(name)
+}
+
+/// Returns true when a role-card introduction is admissible.
+#[must_use]
+pub fn role_card_intro_is_valid(intro: &str) -> bool {
+    intro.chars().count() <= ROLE_CARD_INTRO_MAX_CHARS && !contains_line_break(intro)
+}
+
+fn contains_line_break(value: &str) -> bool {
+    value.contains(['\r', '\n'])
+}
+
+/// Role-card gender.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Gender {
+    /// Male.
+    Male,
+    /// Female.
+    Female,
+    /// No gender value.
+    None,
+}
+
+impl Gender {
+    /// Returns the normalized storage/display value.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Male => "male",
+            Self::Female => "female",
+            Self::None => "none",
+        }
+    }
+
+    /// Parses a case-insensitive gender value.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "male" => Some(Self::Male),
+            "female" => Some(Self::Female),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+}
+
+/// One of the 16 standard Myers-Briggs type indicator values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum MbtiType {
+    /// INTJ.
+    Intj,
+    /// INTP.
+    Intp,
+    /// ENTJ.
+    Entj,
+    /// ENTP.
+    Entp,
+    /// INFJ.
+    Infj,
+    /// INFP.
+    Infp,
+    /// ENFJ.
+    Enfj,
+    /// ENFP.
+    Enfp,
+    /// ISTJ.
+    Istj,
+    /// ISFJ.
+    Isfj,
+    /// ESTJ.
+    Estj,
+    /// ESFJ.
+    Esfj,
+    /// ISTP.
+    Istp,
+    /// ISFP.
+    Isfp,
+    /// ESTP.
+    Estp,
+    /// ESFP.
+    Esfp,
+}
+
+impl MbtiType {
+    /// Returns the normalized storage/display value.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Intj => "INTJ",
+            Self::Intp => "INTP",
+            Self::Entj => "ENTJ",
+            Self::Entp => "ENTP",
+            Self::Infj => "INFJ",
+            Self::Infp => "INFP",
+            Self::Enfj => "ENFJ",
+            Self::Enfp => "ENFP",
+            Self::Istj => "ISTJ",
+            Self::Isfj => "ISFJ",
+            Self::Estj => "ESTJ",
+            Self::Esfj => "ESFJ",
+            Self::Istp => "ISTP",
+            Self::Isfp => "ISFP",
+            Self::Estp => "ESTP",
+            Self::Esfp => "ESFP",
+        }
+    }
+
+    /// Parses a case-insensitive MBTI value.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_uppercase().as_str() {
+            "INTJ" => Some(Self::Intj),
+            "INTP" => Some(Self::Intp),
+            "ENTJ" => Some(Self::Entj),
+            "ENTP" => Some(Self::Entp),
+            "INFJ" => Some(Self::Infj),
+            "INFP" => Some(Self::Infp),
+            "ENFJ" => Some(Self::Enfj),
+            "ENFP" => Some(Self::Enfp),
+            "ISTJ" => Some(Self::Istj),
+            "ISFJ" => Some(Self::Isfj),
+            "ESTJ" => Some(Self::Estj),
+            "ESFJ" => Some(Self::Esfj),
+            "ISTP" => Some(Self::Istp),
+            "ISFP" => Some(Self::Isfp),
+            "ESTP" => Some(Self::Estp),
+            "ESFP" => Some(Self::Esfp),
+            _ => None,
+        }
+    }
 }
 
 /// Build sheet actions for an owned parcel.

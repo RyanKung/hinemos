@@ -7,6 +7,8 @@ fn admission_guidance_points_to_agreement_board() {
             admission_state: ADMISSION_STATE_PENDING.to_owned(),
             agreement_version: None,
             agreement_read_version: None,
+            role_card_name_valid: true,
+            role_card_has_mbti: true,
         }),
     });
     let guidance = app.admission_guidance(&PendingAdmission);
@@ -39,6 +41,8 @@ fn pending_admission_observation_is_restricted_to_safe_commands() {
             admission_state: ADMISSION_STATE_PENDING.to_owned(),
             agreement_version: None,
             agreement_read_version: None,
+            role_card_name_valid: true,
+            role_card_has_mbti: true,
         }),
     });
 
@@ -58,6 +62,9 @@ fn pending_admission_observation_is_restricted_to_safe_commands() {
             SemanticCommand::Read {
                 target: EntityRef::new("agreement_board"),
             },
+            SemanticCommand::Settings {
+                action: SettingsAction::Show,
+            },
             SemanticCommand::Help,
             SemanticCommand::Quit,
         ]
@@ -76,6 +83,8 @@ fn pending_admission_read_returns_next_step_from_app() {
                 admission_state: ADMISSION_STATE_PENDING.to_owned(),
                 agreement_version: None,
                 agreement_read_version: None,
+                role_card_name_valid: true,
+                role_card_has_mbti: true,
             }),
         };
         let app = AppService::new(store);
@@ -99,6 +108,107 @@ fn pending_admission_read_returns_next_step_from_app() {
                 .agreement_read_version
                 .as_deref(),
             Some(hinemos_core::DEFAULT_AGREEMENT_VERSION)
+        );
+    });
+}
+
+#[test]
+fn pending_admission_read_points_to_role_card_when_mbti_is_missing() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let store = TestAdmissionStore {
+            admission: Mutex::new(TestAdmission {
+                admission_state: ADMISSION_STATE_PENDING.to_owned(),
+                agreement_version: None,
+                agreement_read_version: None,
+                role_card_name_valid: true,
+            role_card_has_mbti: false,
+            }),
+        };
+        let app = AppService::new(store);
+
+        let events = app
+            .handle_pending_admission_read("player")
+            .await
+            .expect("pending admission read");
+
+        assert_eq!(
+            events,
+            vec![UiEvent::Text(
+                "\r\nNext step: complete your role card with /settings mbti <type>, then type /agree to enter.\r\n"
+                    .to_owned()
+            )]
+        );
+    });
+}
+
+#[test]
+fn accept_admission_blocks_missing_role_card_mbti() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let store = TestAdmissionStore {
+            admission: Mutex::new(TestAdmission {
+                admission_state: ADMISSION_STATE_PENDING.to_owned(),
+                agreement_version: None,
+                agreement_read_version: Some(hinemos_core::DEFAULT_AGREEMENT_VERSION.to_owned()),
+                role_card_name_valid: true,
+                role_card_has_mbti: false,
+            }),
+        };
+        let app = AppService::new(store);
+
+        let result = app
+            .accept_admission("player")
+            .await
+            .expect("accept admission");
+
+        assert!(matches!(
+            result,
+            AdmissionAcceptResult::NeedsRoleCard { .. }
+        ));
+        assert_eq!(
+            app.store().admission.lock().unwrap().admission_state,
+            ADMISSION_STATE_PENDING
+        );
+    });
+}
+
+#[test]
+fn accept_admission_blocks_invalid_role_card_name() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let store = TestAdmissionStore {
+            admission: Mutex::new(TestAdmission {
+                admission_state: ADMISSION_STATE_PENDING.to_owned(),
+                agreement_version: None,
+                agreement_read_version: Some(hinemos_core::DEFAULT_AGREEMENT_VERSION.to_owned()),
+                role_card_name_valid: false,
+                role_card_has_mbti: true,
+            }),
+        };
+        let app = AppService::new(store);
+
+        let result = app
+            .accept_admission("player")
+            .await
+            .expect("accept admission");
+
+        assert!(matches!(
+            result,
+            AdmissionAcceptResult::NeedsRoleCard { .. }
+        ));
+        assert_eq!(
+            app.store().admission.lock().unwrap().admission_state,
+            ADMISSION_STATE_PENDING
         );
     });
 }

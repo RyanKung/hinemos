@@ -48,6 +48,15 @@ where
                 mail_address: &mail_address,
                 token: context.generated_token,
             },
+            SemanticCommand::Settings { action } => {
+                let Some(update) = RoleCardUpdate::from_settings_action(action) else {
+                    return Ok(None);
+                };
+                AppRequest::SettingsUpdateRoleCard {
+                    mail_address: &mail_address,
+                    update,
+                }
+            }
             SemanticCommand::Pay { action } => payment_request(action),
             SemanticCommand::Inbox { action } => inbox_request(action, context.mail_domain),
             SemanticCommand::Land { action } => land_request(action, context.generated_token),
@@ -230,6 +239,7 @@ where
             SemanticCommand::Look | SemanticCommand::Help | SemanticCommand::Quit => {
                 Ok(PendingAdmissionCommandOutcome::Allow(Vec::new()))
             }
+            SemanticCommand::Settings { .. } => Ok(PendingAdmissionCommandOutcome::PassThrough),
             SemanticCommand::Read { target }
                 if target.id == self.config.admission_board_entity_id =>
             {

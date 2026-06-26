@@ -3,9 +3,10 @@ use hinemos_app::{
     InboxItemView, InboxStore, LandStore, MailAuthTokenView, MailDaemonStore, MailStore,
     MemoryAtomView, MemoryEventView, MemoryStore, MessageStore, ParcelStore, ParcelView,
     PaymentRequestView, PaymentStore, PlayerStateStore as AppPlayerStateStore, RecentPresenceUser,
-    RoomBindingEntryView, RoomBindingKindView, RoomCommandPolicyView, RoomMailboxView,
-    RoomRegistrationStore, RoomStore, SelfModelView, ServiceRoomRegistrationUpsert,
-    ServiceRoomView, ShopStore, SocialEdgeView, TransferView, ViewPresenceStore, WorldMessageView,
+    RoleCardUpdate, RoomBindingEntryView, RoomBindingKindView, RoomCommandPolicyView,
+    RoomMailboxView, RoomRegistrationStore, RoomStore, SelfModelView,
+    ServiceRoomRegistrationUpsert, ServiceRoomView, ShopStore, SocialEdgeView, TransferView,
+    ViewPresenceStore, WorldMessageView,
 };
 use serde_json::Value;
 use std::future::Future;

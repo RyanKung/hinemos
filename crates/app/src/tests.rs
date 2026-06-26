@@ -8,6 +8,7 @@ mod fixtures_rooms;
 use fixtures_basic::*;
 use fixtures_rooms::*;
 
+mod account;
 mod admission;
 mod commerce;
 mod config;

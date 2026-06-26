@@ -1,6 +1,7 @@
 use hinemos_core::{
-    BuildAction, BuildSheet, Direction, EntityRef, InboxAction, JsonObservation, LandAction,
-    PayAction, SemanticCommand, SettingsAction, ShopAction,
+    BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction, JsonObservation,
+    LandAction, MbtiType, PayAction, SemanticCommand, SettingsAction, ShopAction,
+    role_card_intro_is_valid, role_card_name_is_valid,
 };
 
 use super::{ENTER_VERBS, INSPECT_VERBS, READ_VERBS, SlashParseError, TAKE_VERBS, TALK_VERBS};
@@ -395,7 +396,7 @@ pub(super) fn parse_pay_action<'a>(
 }
 
 pub(super) fn parse_settings_command<'a>(
-    _trimmed: &str,
+    trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<SemanticCommand, SlashParseError> {
     let Some(action) = tokens.next() else {
@@ -409,6 +410,44 @@ pub(super) fn parse_settings_command<'a>(
                 return Err(SlashParseError::UnexpectedArgument);
             }
             SettingsAction::MailToken
+        }
+        "name" => {
+            let name = rest_after_token(trimmed, action)?;
+            if !role_card_name_is_valid(&name) {
+                return Err(SlashParseError::InvalidRoleCardName);
+            }
+            SettingsAction::Name { name }
+        }
+        "gender" => {
+            let gender = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            if tokens.next().is_some() {
+                return Err(SlashParseError::UnexpectedArgument);
+            }
+            SettingsAction::Gender {
+                gender: Gender::parse(gender).ok_or(SlashParseError::InvalidGender)?,
+            }
+        }
+        "mbti" => {
+            let mbti = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            if tokens.next().is_some() {
+                return Err(SlashParseError::UnexpectedArgument);
+            }
+            SettingsAction::Mbti {
+                mbti: MbtiType::parse(mbti).ok_or(SlashParseError::InvalidMbti)?,
+            }
+        }
+        "intro" => {
+            let first = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let intro = if first.eq_ignore_ascii_case("clear") && tokens.next().is_none() {
+                None
+            } else {
+                let intro = rest_after_token(trimmed, action)?;
+                if !role_card_intro_is_valid(&intro) {
+                    return Err(SlashParseError::InvalidIntro);
+                }
+                Some(intro)
+            };
+            SettingsAction::Intro { intro }
         }
         _ => {
             return Err(SlashParseError::UnknownCommand);

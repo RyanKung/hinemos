@@ -9,8 +9,10 @@ pub mod observation;
 pub mod sample_world;
 
 pub use command::{
-    BuildAction, BuildSheet, Direction, EntityRef, InboxAction, LandAction, PayAction,
-    SemanticCommand, SettingsAction, ShopAction, extension_commands,
+    BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction, LandAction, MbtiType,
+    PayAction, ROLE_CARD_INTRO_MAX_CHARS, ROLE_CARD_NAME_MAX_CHARS, SemanticCommand,
+    SettingsAction, ShopAction, extension_commands, role_card_intro_is_valid,
+    role_card_name_is_valid,
 };
 pub use ids::{EntityId, PlayerId, ViewId};
 pub use model::{

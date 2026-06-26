@@ -2,7 +2,7 @@
 
 use hinemos_core::{
     ADMISSION_STATE_AGREED, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT,
-    PlayerState,
+    PlayerState, role_card_name_is_valid,
 };
 use serde_json::Value;
 
@@ -48,6 +48,12 @@ pub struct StoredAccountSettings {
     pub player_id: String,
     /// Profile display name.
     pub display_name: String,
+    /// Role-card gender.
+    pub gender: String,
+    /// Role-card MBTI type, if set.
+    pub mbti: Option<String>,
+    /// Optional one-line self introduction.
+    pub self_intro: Option<String>,
     /// Full days since the profile was created.
     pub online_days: i32,
     /// True when a password identity exists.
@@ -63,12 +69,16 @@ pub struct StoredAccountSettings {
 pub struct StoredAdmission {
     /// Stable player id used by the runtime.
     pub player_id: String,
+    /// Profile display name.
+    pub display_name: String,
     /// Admission state: pending or agreed.
     pub admission_state: String,
     /// Agreement version accepted by the player, if any.
     pub agreement_version: Option<String>,
     /// Agreement version most recently read by the player, if any.
     pub agreement_read_version: Option<String>,
+    /// Role-card MBTI type, if set.
+    pub mbti: Option<String>,
 }
 
 impl StoredAdmission {
@@ -82,6 +92,24 @@ impl StoredAdmission {
     #[must_use]
     pub fn has_read_version(&self, version: &str) -> bool {
         self.agreement_read_version.as_deref() == Some(version)
+    }
+
+    /// Returns true when required role-card fields are complete.
+    #[must_use]
+    pub fn role_card_is_complete(&self) -> bool {
+        self.role_card_name_is_valid() && self.role_card_has_mbti()
+    }
+
+    /// Returns true when the role-card display name is valid.
+    #[must_use]
+    pub fn role_card_name_is_valid(&self) -> bool {
+        role_card_name_is_valid(&self.display_name)
+    }
+
+    /// Returns true when the role-card has an MBTI value.
+    #[must_use]
+    pub fn role_card_has_mbti(&self) -> bool {
+        self.mbti.is_some()
     }
 }
 

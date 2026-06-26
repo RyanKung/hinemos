@@ -68,6 +68,8 @@ fn maybe_database_url() -> Option<String> {
         .ok()
         .or_else(|| read_env_value(".env.test", "DATABASE_URL"))
         .or_else(|| read_env_value(".env", "DATABASE_URL"))
+        .or_else(|| read_env_value("../.env", "DATABASE_URL"))
+        .or_else(|| read_env_value("../../.env", "DATABASE_URL"))
 }
 
 fn read_env_value(path: &str, key: &str) -> Option<String> {

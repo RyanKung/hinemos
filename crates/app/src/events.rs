@@ -98,6 +98,8 @@ pub enum PendingAdmissionCommandOutcome {
     /// The player is already admitted; normal command handling should continue.
     NotPending,
     /// The pending player may continue through normal command handling.
+    PassThrough,
+    /// The pending command is allowed and has been handled by the admission gate.
     Allow(Vec<UiEvent>),
     /// The command was handled and normal command handling should stop.
     Block(Vec<UiEvent>),

@@ -78,7 +78,7 @@ impl Chrome {
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
         Memory: /memory, /memory self, /memory commitments, /memory recall <person>, /memory search <query>\n\
-        Settings: /settings, /settings mail-token\n\
+        Settings: /settings, /settings name <name>, /settings gender <male|female|none>, /settings mbti <type>, /settings intro <one line>, /settings intro clear, /settings mail-token\n\
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land token <parcel>, /land transfer <parcel> <user>\n\
@@ -584,6 +584,18 @@ pub enum SlashParseError {
     /// Invalid JSON payload.
     #[error("invalid JSON")]
     InvalidJson,
+    /// Invalid role-card name.
+    #[error("invalid role-card name")]
+    InvalidRoleCardName,
+    /// Invalid role-card gender.
+    #[error("invalid role-card gender")]
+    InvalidGender,
+    /// Invalid role-card MBTI.
+    #[error("invalid role-card MBTI")]
+    InvalidMbti,
+    /// Invalid role-card introduction.
+    #[error("invalid role-card introduction")]
+    InvalidIntro,
 }
 
 fn parse_direction(token: &str) -> Option<Direction> {
