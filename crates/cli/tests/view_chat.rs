@@ -271,6 +271,63 @@ fn who_excludes_stale_disconnected_agents_from_online() {
     temp.remove_on_drop();
 }
 
+#[test]
+fn observation_summary_caps_by_recent_activity_before_name_order() {
+    let _serial = serial_view_chat();
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-online-summary-recency-cap");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let old_recent = format!("a{port}");
+    let observer = format!("o{port}");
+    let server_log = temp.path.join("hinemos-server.log");
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+
+    let old_recent_key = admitted_key(&temp, host, port, &old_recent);
+    let observer_key = admitted_key(&temp, host, port, &observer);
+    let _ = run_ssh_batch_with_key(
+        host,
+        port,
+        &old_recent,
+        &old_recent_key,
+        &["/look", "/quit"],
+    );
+
+    let mut live_sessions = Vec::new();
+    for index in 0..10 {
+        let live_user = format!("z{index}{port}");
+        let live_key = admitted_key(&temp, host, port, &live_user);
+        let live_session = SshSession::spawn_with_key(host, port, &live_user, &live_key);
+        live_session.wait_for_stdout("Available:", Duration::from_secs(10));
+        live_sessions.push(live_session);
+    }
+
+    let mut observer_session = SshSession::spawn_with_key(host, port, &observer, &observer_key);
+    observer_session.wait_for_stdout("Online here:", Duration::from_secs(10));
+    observer_session.wait_for_stdout("+1 more (use /who)", Duration::from_secs(10));
+    observer_session.write_line("/quit");
+    let observer_output = observer_session.wait_success(Duration::from_secs(10));
+    assert_not_contains(
+        &observer_output,
+        &old_recent,
+        "older disconnected user appears inside capped online summary",
+    );
+
+    for mut live_session in live_sessions {
+        live_session.write_line("/quit");
+        let _ = live_session.wait_success(Duration::from_secs(10));
+    }
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
 fn assert_same_view_presence(
     session: &mut SshSession,
     expected_total: usize,

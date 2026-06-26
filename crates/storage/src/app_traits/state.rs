@@ -30,7 +30,10 @@ impl ViewPresenceStore for PgStorage {
         PgStorage::record_view_presence(self, username, player_id, view_id).await
     }
 
-    async fn recent_active_users(&self, within_seconds: i64) -> Result<Vec<String>, Self::Error> {
+    async fn recent_active_users(
+        &self,
+        within_seconds: i64,
+    ) -> Result<Vec<RecentPresenceUser>, Self::Error> {
         PgStorage::recent_active_users(self, within_seconds).await
     }
 
@@ -39,7 +42,7 @@ impl ViewPresenceStore for PgStorage {
         view_id: &str,
         excluded_player_id: &str,
         within_seconds: i64,
-    ) -> Result<Vec<String>, Self::Error> {
+    ) -> Result<Vec<RecentPresenceUser>, Self::Error> {
         PgStorage::recent_active_view_users(self, view_id, excluded_player_id, within_seconds).await
     }
 }

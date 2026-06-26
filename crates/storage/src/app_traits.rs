@@ -2,7 +2,7 @@ use hinemos_app::{
     AccountSettingsView, AccountStore, AdmissionStore, AdmissionView, BalanceView, BuildStore,
     InboxItemView, InboxStore, LandStore, MailAuthTokenView, MailDaemonStore, MailStore,
     MemoryAtomView, MemoryEventView, MemoryStore, MessageStore, ParcelStore, ParcelView,
-    PaymentRequestView, PaymentStore, PlayerStateStore as AppPlayerStateStore,
+    PaymentRequestView, PaymentStore, PlayerStateStore as AppPlayerStateStore, RecentPresenceUser,
     RoomBindingEntryView, RoomBindingKindView, RoomCommandPolicyView, RoomMailboxView,
     RoomRegistrationStore, RoomStore, SelfModelView, ServiceRoomRegistrationUpsert,
     ServiceRoomView, ShopStore, SocialEdgeView, TransferView, ViewPresenceStore, WorldMessageView,

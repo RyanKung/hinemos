@@ -191,7 +191,7 @@ pub(crate) fn render_inventory(items: &[String]) -> String {
 pub struct WhoPopulation {
     /// Total admitted players in the world.
     pub total: usize,
-    /// Unique users currently connected.
+    /// Unique users connected or active within the online window.
     pub online: usize,
 }
 

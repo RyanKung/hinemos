@@ -181,7 +181,10 @@ impl ViewPresenceStore for TestPresenceStore {
         Ok(())
     }
 
-    async fn recent_active_users(&self, _within_seconds: i64) -> Result<Vec<String>, Self::Error> {
+    async fn recent_active_users(
+        &self,
+        _within_seconds: i64,
+    ) -> Result<Vec<RecentPresenceUser>, Self::Error> {
         Ok(Vec::new())
     }
 
@@ -190,7 +193,7 @@ impl ViewPresenceStore for TestPresenceStore {
         _view_id: &str,
         _excluded_player_id: &str,
         _within_seconds: i64,
-    ) -> Result<Vec<String>, Self::Error> {
+    ) -> Result<Vec<RecentPresenceUser>, Self::Error> {
         Ok(Vec::new())
     }
 }

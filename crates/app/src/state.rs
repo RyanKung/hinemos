@@ -1,5 +1,14 @@
 use crate::*;
 
+/// User presence with relative recency for online summaries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecentPresenceUser {
+    /// Display username.
+    pub user: String,
+    /// Milliseconds since this user was last observed.
+    pub age_millis: u64,
+}
+
 impl<S, E> AppService<S>
 where
     S: PlayerStateStore<Error = E>,
@@ -32,7 +41,10 @@ where
     }
 
     /// Lists users with recent activity in any world view.
-    pub async fn recent_active_users(&self, within_seconds: i64) -> Result<Vec<String>, E> {
+    pub async fn recent_active_users(
+        &self,
+        within_seconds: i64,
+    ) -> Result<Vec<RecentPresenceUser>, E> {
         self.store.recent_active_users(within_seconds).await
     }
 
@@ -42,7 +54,7 @@ where
         view_id: &str,
         excluded_player_id: &str,
         within_seconds: i64,
-    ) -> Result<Vec<String>, E> {
+    ) -> Result<Vec<RecentPresenceUser>, E> {
         self.store
             .recent_active_view_users(view_id, excluded_player_id, within_seconds)
             .await
@@ -63,7 +75,10 @@ pub trait ViewPresenceStore {
     ) -> Result<(), Self::Error>;
 
     /// Lists admitted usernames with recent activity in any world view.
-    async fn recent_active_users(&self, within_seconds: i64) -> Result<Vec<String>, Self::Error>;
+    async fn recent_active_users(
+        &self,
+        within_seconds: i64,
+    ) -> Result<Vec<RecentPresenceUser>, Self::Error>;
 
     /// Lists admitted usernames with recent activity in the given world view.
     async fn recent_active_view_users(
@@ -71,7 +86,7 @@ pub trait ViewPresenceStore {
         view_id: &str,
         excluded_player_id: &str,
         within_seconds: i64,
-    ) -> Result<Vec<String>, Self::Error>;
+    ) -> Result<Vec<RecentPresenceUser>, Self::Error>;
 }
 
 /// Storage boundary for persisted player state.

@@ -19,12 +19,12 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use handler_helpers::*;
 use hinemos_app::{
     AppCommandContext, AppIdentity, AppRequest, AppViewCommandContext,
-    PendingAdmissionCommandOutcome, RoomBindingKindView, UiEvent, WhoPopulation,
-    service_room_unavailable_text,
+    PendingAdmissionCommandOutcome, RecentPresenceUser, RoomBindingKindView, UiEvent,
+    WhoPopulation, service_room_unavailable_text,
 };
 use hinemos_core::{JsonObservation, ObservationEvent, PlayerState, SemanticCommand};
 use rand::Rng;
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConnectionMode {
@@ -474,7 +474,7 @@ impl ConnectionHandler {
         app: &AppService<PgStorage>,
         view_id: &str,
         excluded_player_id: &str,
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<RecentPresenceUser>> {
         let connected_users = self
             .shared
             .presence
@@ -482,11 +482,11 @@ impl ConnectionHandler {
             .await
             .view_users(self.connection_id, view_id)
             .into_iter()
-            .map(|user| user.user);
+            .map(|user| user.into_recent_presence_user());
         let recent_users = app
             .recent_active_view_users(view_id, excluded_player_id, RECENT_ONLINE_WINDOW_SECONDS)
             .await?;
-        Ok(merge_usernames(connected_users, recent_users))
+        Ok(merge_presence_users(connected_users, recent_users))
     }
 
     async fn who_population(&self, app: &AppService<PgStorage>) -> Result<WhoPopulation> {
@@ -495,11 +495,13 @@ impl ConnectionHandler {
             .presence
             .lock()
             .await
-            .users_outside_view(PENDING_PRESENCE_VIEW_ID);
+            .users_outside_view(PENDING_PRESENCE_VIEW_ID)
+            .into_iter()
+            .map(|user| user.into_recent_presence_user());
         let recent_users = app
             .recent_active_users(RECENT_ONLINE_WINDOW_SECONDS)
             .await?;
-        let online = merge_usernames(connected_users, recent_users).len();
+        let online = merge_presence_users(connected_users, recent_users).len();
         let total = app.admitted_player_count().await?;
         Ok(WhoPopulation { total, online })
     }
@@ -511,7 +513,7 @@ impl ConnectionHandler {
         request: HandlerViewCommand<'_>,
     ) -> Result<bool> {
         let app = self.shared.app_service().await;
-        let (users, who_population) = if matches!(request.command, SemanticCommand::Who) {
+        let (presence_users, who_population) = if matches!(request.command, SemanticCommand::Who) {
             (
                 self.online_view_users(
                     &app,
@@ -530,6 +532,7 @@ impl ConnectionHandler {
                 },
             )
         };
+        let users = presence_usernames(&presence_users);
         let visible_entity_ids = request
             .current_observation
             .entities
@@ -652,18 +655,32 @@ impl ConnectionHandler {
     }
 }
 
-fn merge_usernames(
-    first: impl IntoIterator<Item = String>,
-    second: impl IntoIterator<Item = String>,
-) -> Vec<String> {
-    let mut users = first
+fn merge_presence_users(
+    first: impl IntoIterator<Item = RecentPresenceUser>,
+    second: impl IntoIterator<Item = RecentPresenceUser>,
+) -> Vec<RecentPresenceUser> {
+    let mut by_user = HashMap::<String, u64>::new();
+    for RecentPresenceUser { user, age_millis } in first.into_iter().chain(second) {
+        by_user
+            .entry(user)
+            .and_modify(|current_age| *current_age = (*current_age).min(age_millis))
+            .or_insert(age_millis);
+    }
+
+    let mut users = by_user
         .into_iter()
-        .chain(second)
-        .collect::<HashSet<_>>()
-        .into_iter()
+        .map(|(user, age_millis)| RecentPresenceUser { user, age_millis })
         .collect::<Vec<_>>();
-    users.sort();
+    users.sort_by(|left, right| {
+        left.age_millis
+            .cmp(&right.age_millis)
+            .then_with(|| left.user.cmp(&right.user))
+    });
     users
+}
+
+fn presence_usernames(users: &[RecentPresenceUser]) -> Vec<String> {
+    users.iter().map(|user| user.user.clone()).collect()
 }
 
 fn observation_contains_room_escape(observation: &JsonObservation) -> bool {
