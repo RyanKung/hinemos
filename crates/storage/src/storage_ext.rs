@@ -140,6 +140,54 @@ impl PgStorage {
         Ok(())
     }
 
+    /// Lists admitted users that were active within the given window.
+    pub async fn recent_active_users(
+        &self,
+        within_seconds: i64,
+    ) -> Result<Vec<String>, StorageError> {
+        let rows = sqlx::query_scalar::<_, String>(
+            r#"
+            select distinct on (presence.username) presence.username
+            from view_presence presence
+            join player_profiles profile on profile.player_id = presence.player_id
+            where profile.admission_state = 'agreed'
+              and presence.last_seen_at >= now() - ($1::double precision * interval '1 second')
+            order by presence.username, presence.last_seen_at desc
+            "#,
+        )
+        .bind(within_seconds)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Lists admitted users active in a view within the given window.
+    pub async fn recent_active_view_users(
+        &self,
+        view_id: &str,
+        excluded_player_id: &str,
+        within_seconds: i64,
+    ) -> Result<Vec<String>, StorageError> {
+        let rows = sqlx::query_scalar::<_, String>(
+            r#"
+            select distinct on (presence.username) presence.username
+            from view_presence presence
+            join player_profiles profile on profile.player_id = presence.player_id
+            where profile.admission_state = 'agreed'
+              and presence.view_id = $1
+              and presence.player_id <> $2
+              and presence.last_seen_at >= now() - ($3::double precision * interval '1 second')
+            order by presence.username, presence.last_seen_at desc
+            "#,
+        )
+        .bind(view_id)
+        .bind(excluded_player_id)
+        .bind(within_seconds)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// Loads a player's MARK balance.
     pub async fn player_balance(&self, player_id: &str) -> Result<StoredBalance, StorageError> {
         let account_id = player_account_id(player_id);

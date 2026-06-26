@@ -36,6 +36,11 @@ impl<S, E> AppService<S>
 where
     S: AccountStore<Error = E>,
 {
+    /// Counts admitted players in the world.
+    pub async fn admitted_player_count(&self) -> Result<usize, E> {
+        self.store.admitted_player_count().await
+    }
+
     /// Builds account settings text.
     pub async fn show_account_settings(
         &self,
@@ -160,6 +165,9 @@ pub trait AccountStore {
         username: &str,
         player_id: &str,
     ) -> Result<Self::AccountSettings, Self::Error>;
+
+    /// Counts admitted players in the world.
+    async fn admitted_player_count(&self) -> Result<usize, Self::Error>;
 
     /// Sets or rotates the player's mail token.
     async fn set_mail_auth_token(

@@ -30,6 +30,23 @@ where
             .record_view_presence(username, player_id, view_id)
             .await
     }
+
+    /// Lists users with recent activity in any world view.
+    pub async fn recent_active_users(&self, within_seconds: i64) -> Result<Vec<String>, E> {
+        self.store.recent_active_users(within_seconds).await
+    }
+
+    /// Lists users with recent activity in the given world view.
+    pub async fn recent_active_view_users(
+        &self,
+        view_id: &str,
+        excluded_player_id: &str,
+        within_seconds: i64,
+    ) -> Result<Vec<String>, E> {
+        self.store
+            .recent_active_view_users(view_id, excluded_player_id, within_seconds)
+            .await
+    }
 }
 
 /// Storage boundary for view presence hints.
@@ -44,6 +61,17 @@ pub trait ViewPresenceStore {
         player_id: &str,
         view_id: &str,
     ) -> Result<(), Self::Error>;
+
+    /// Lists admitted usernames with recent activity in any world view.
+    async fn recent_active_users(&self, within_seconds: i64) -> Result<Vec<String>, Self::Error>;
+
+    /// Lists admitted usernames with recent activity in the given world view.
+    async fn recent_active_view_users(
+        &self,
+        view_id: &str,
+        excluded_player_id: &str,
+        within_seconds: i64,
+    ) -> Result<Vec<String>, Self::Error>;
 }
 
 /// Storage boundary for persisted player state.

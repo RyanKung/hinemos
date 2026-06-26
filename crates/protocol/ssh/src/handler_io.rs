@@ -334,11 +334,8 @@ impl ConnectionHandler {
         app.restrict_pending_admission_observation_for_player(&mut observation, &player_id)
             .await?;
         let view_users = self
-            .shared
-            .presence
-            .lock()
-            .await
-            .view_users(self.connection_id, &observation.view_id);
+            .online_view_users(&app, &observation.view_id, &player_id)
+            .await?;
         observation.online_users = render_online_summary(&view_users, 10);
         let app_config = self.shared.app_config().await;
         send_text_observation(

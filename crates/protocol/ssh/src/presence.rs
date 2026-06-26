@@ -94,6 +94,19 @@ impl PresenceRegistry {
             .len()
     }
 
+    pub(crate) fn users_outside_view(&self, excluded_view_id: &str) -> Vec<String> {
+        let mut users = self
+            .connections
+            .values()
+            .filter(|record| record.current_view != excluded_view_id)
+            .map(|record| record.user.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        users.sort();
+        users
+    }
+
     pub(crate) fn admin_sessions(&self) -> Vec<AdminSession> {
         self.connections
             .iter()

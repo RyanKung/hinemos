@@ -14,7 +14,7 @@ use russh::ChannelId;
 use russh::server::Session;
 
 use crate::config::format_mail_user;
-use crate::presence::{PresenceDelivery, PresenceDeliveryMode, PresenceViewUser};
+use crate::presence::{PresenceDelivery, PresenceDeliveryMode};
 use hinemos_app::ServiceRoomView;
 use render_map::{apply_auto_ascii_map, overlay_ascii_parcel_label, overlay_ascii_title};
 
@@ -496,12 +496,8 @@ pub(crate) fn send_stdin_closed_guidance(
     Ok(())
 }
 
-pub(crate) fn render_online_summary(users: &[PresenceViewUser], limit: usize) -> Vec<String> {
-    let mut rendered = users
-        .iter()
-        .take(limit)
-        .map(|user| user.user.clone())
-        .collect::<Vec<_>>();
+pub(crate) fn render_online_summary(users: &[String], limit: usize) -> Vec<String> {
+    let mut rendered = users.iter().take(limit).cloned().collect::<Vec<_>>();
     let remaining = users.len().saturating_sub(limit);
     if remaining > 0 {
         rendered.push(format!("+{remaining} more (use /who)"));

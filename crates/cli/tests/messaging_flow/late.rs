@@ -724,6 +724,7 @@ fn observations_show_active_users_in_the_same_view_and_who_lists_all() {
     observer_session.wait_for_stdout("+1 more (use /who)", Duration::from_secs(10));
 
     observer_session.write_line("/who");
+    observer_session.wait_for_stdout("Population: total 12, online 12.", Duration::from_secs(10));
     observer_session.wait_for_stdout(
         "Online here in arrival_street (11):",
         Duration::from_secs(10),

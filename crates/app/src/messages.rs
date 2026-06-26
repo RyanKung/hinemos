@@ -186,15 +186,34 @@ pub(crate) fn render_inventory(items: &[String]) -> String {
     }
 }
 
-pub(crate) fn render_who(current_view: &str, users: &[String]) -> String {
+/// Population counts rendered by `/who`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WhoPopulation {
+    /// Total admitted players in the world.
+    pub total: usize,
+    /// Unique users currently connected.
+    pub online: usize,
+}
+
+pub(crate) fn render_who(
+    current_view: &str,
+    users: &[String],
+    population: WhoPopulation,
+) -> String {
+    let mut text = format!(
+        "Population: total {}, online {}.\r\n",
+        population.total, population.online
+    );
     if users.is_empty() {
-        return format!("Online here in {current_view}: nobody else.\r\n");
+        text.push_str(&format!("Online here in {current_view}: nobody else.\r\n"));
+        return text;
     }
-    format!(
+    text.push_str(&format!(
         "Online here in {current_view} ({}): {}\r\n",
         users.len(),
         users.join(", ")
-    )
+    ));
+    text
 }
 
 pub(crate) fn render_player_balance(balance: impl BalanceView) -> String {

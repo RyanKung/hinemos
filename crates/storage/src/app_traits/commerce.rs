@@ -369,6 +369,10 @@ impl AccountStore for PgStorage {
         PgStorage::account_settings(self, username, player_id).await
     }
 
+    async fn admitted_player_count(&self) -> Result<usize, Self::Error> {
+        PgStorage::admitted_player_count(self).await
+    }
+
     async fn set_mail_auth_token(
         &self,
         username: &str,
