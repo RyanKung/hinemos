@@ -1,3 +1,4 @@
+use hinemos_app::RecentPresenceUser;
 use hinemos_core::PlayerState;
 use serde_json::json;
 use sqlx::Row;
@@ -15,6 +16,17 @@ use crate::types::{
     NewMemoryAtom, NewMemoryEvent, PlayerStateRow, StoredBalance, StoredParcel, StoredTransfer,
 };
 use crate::{PgStorage, TEST_CURRENCY};
+
+fn recent_presence_user_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<RecentPresenceUser, StorageError> {
+    let user = row.try_get::<String, _>("username")?;
+    let age_millis = row.try_get::<i64, _>("age_millis")?;
+    let age_millis = u64::try_from(age_millis).map_err(|_| {
+        StorageError::InvalidAccountSetting(format!("invalid presence age: {age_millis}"))
+    })?;
+    Ok(RecentPresenceUser { user, age_millis })
+}
 
 impl PgStorage {
     /// Ensures the player has a MARK wallet and receives the one-time test grant.
@@ -138,6 +150,80 @@ impl PgStorage {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Lists admitted users that were active within the given window.
+    pub async fn recent_active_users(
+        &self,
+        within_seconds: i64,
+    ) -> Result<Vec<RecentPresenceUser>, StorageError> {
+        let rows = sqlx::query(
+            r#"
+            select
+                latest.username,
+                greatest(
+                    0,
+                    floor(extract(epoch from (now() - latest.last_seen_at)) * 1000)
+                )::bigint as age_millis
+            from (
+                select distinct on (presence.username)
+                    presence.username,
+                    presence.last_seen_at
+                from view_presence presence
+                join player_profiles profile on profile.player_id = presence.player_id
+                where profile.admission_state = 'agreed'
+                  and presence.last_seen_at >= now() - ($1::double precision * interval '1 second')
+                order by presence.username, presence.last_seen_at desc
+            ) latest
+            order by latest.last_seen_at desc, latest.username
+            "#,
+        )
+        .bind(within_seconds)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(recent_presence_user_from_row)
+            .collect()
+    }
+
+    /// Lists admitted users active in a view within the given window.
+    pub async fn recent_active_view_users(
+        &self,
+        view_id: &str,
+        excluded_player_id: &str,
+        within_seconds: i64,
+    ) -> Result<Vec<RecentPresenceUser>, StorageError> {
+        let rows = sqlx::query(
+            r#"
+            select
+                latest.username,
+                greatest(
+                    0,
+                    floor(extract(epoch from (now() - latest.last_seen_at)) * 1000)
+                )::bigint as age_millis
+            from (
+                select distinct on (presence.username)
+                    presence.username,
+                    presence.last_seen_at
+                from view_presence presence
+                join player_profiles profile on profile.player_id = presence.player_id
+                where profile.admission_state = 'agreed'
+                  and presence.view_id = $1
+                  and presence.player_id <> $2
+                  and presence.last_seen_at >= now() - ($3::double precision * interval '1 second')
+                order by presence.username, presence.last_seen_at desc
+            ) latest
+            order by latest.last_seen_at desc, latest.username
+            "#,
+        )
+        .bind(view_id)
+        .bind(excluded_player_id)
+        .bind(within_seconds)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(recent_presence_user_from_row)
+            .collect()
     }
 
     /// Loads a player's MARK balance.

@@ -1,4 +1,4 @@
-use crate::{AppRequest, BuildSheet};
+use crate::{AppRequest, BuildSheet, WhoPopulation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum InboxMutation {
@@ -35,6 +35,7 @@ pub(super) enum ReadAppRequest<'a> {
     Who {
         current_view: &'a str,
         users: &'a [String],
+        population: WhoPopulation,
     },
     News,
     Balance,
@@ -229,9 +230,11 @@ fn route_read(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
         AppRequest::Who {
             current_view,
             users,
+            population,
         } => RoutedAppRequest::Read(ReadAppRequest::Who {
             current_view,
             users,
+            population,
         }),
         AppRequest::News => RoutedAppRequest::Read(ReadAppRequest::News),
         AppRequest::Balance => RoutedAppRequest::Read(ReadAppRequest::Balance),

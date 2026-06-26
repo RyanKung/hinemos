@@ -180,6 +180,22 @@ impl ViewPresenceStore for TestPresenceStore {
             .push(format!("presence:{username}:{player_id}:{view_id}"));
         Ok(())
     }
+
+    async fn recent_active_users(
+        &self,
+        _within_seconds: i64,
+    ) -> Result<Vec<RecentPresenceUser>, Self::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn recent_active_view_users(
+        &self,
+        _view_id: &str,
+        _excluded_player_id: &str,
+        _within_seconds: i64,
+    ) -> Result<Vec<RecentPresenceUser>, Self::Error> {
+        Ok(Vec::new())
+    }
 }
 
 impl MessageStore for TestMessageStore {

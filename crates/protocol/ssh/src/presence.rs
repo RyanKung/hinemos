@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use hinemos_admin_protocol::{AdminSession, AdminUser};
+use hinemos_app::RecentPresenceUser;
 use russh::ChannelId;
 use russh::server::Handle;
 
@@ -94,6 +95,20 @@ impl PresenceRegistry {
             .len()
     }
 
+    pub(crate) fn users_outside_view(&self, excluded_view_id: &str) -> Vec<PresenceViewUser> {
+        let mut grouped = HashMap::<String, Instant>::new();
+        for record in self.connections.values() {
+            if record.current_view == excluded_view_id {
+                continue;
+            }
+            grouped
+                .entry(record.user.clone())
+                .and_modify(|last_seen_at| *last_seen_at = (*last_seen_at).max(record.last_seen_at))
+                .or_insert(record.last_seen_at);
+        }
+        presence_view_users_from_grouped(grouped)
+    }
+
     pub(crate) fn admin_sessions(&self) -> Vec<AdminSession> {
         self.connections
             .iter()
@@ -158,17 +173,7 @@ impl PresenceRegistry {
                 .or_insert(record.last_seen_at);
         }
 
-        let mut users = grouped
-            .into_iter()
-            .map(|(user, last_seen_at)| PresenceViewUser { user, last_seen_at })
-            .collect::<Vec<_>>();
-        users.sort_by(|left, right| {
-            right
-                .last_seen_at
-                .cmp(&left.last_seen_at)
-                .then_with(|| left.user.cmp(&right.user))
-        });
-        users
+        presence_view_users_from_grouped(grouped)
     }
 
     pub(crate) fn request_kick(&mut self, connection_id: u64) -> bool {
@@ -245,6 +250,20 @@ struct UserAccumulator {
     player_ids: HashSet<String>,
 }
 
+fn presence_view_users_from_grouped(grouped: HashMap<String, Instant>) -> Vec<PresenceViewUser> {
+    let mut users = grouped
+        .into_iter()
+        .map(|(user, last_seen_at)| PresenceViewUser { user, last_seen_at })
+        .collect::<Vec<_>>();
+    users.sort_by(|left, right| {
+        right
+            .last_seen_at
+            .cmp(&left.last_seen_at)
+            .then_with(|| left.user.cmp(&right.user))
+    });
+    users
+}
+
 #[derive(Debug)]
 struct PresenceRecord {
     player_id: String,
@@ -289,6 +308,19 @@ pub(crate) struct PresenceDelivery {
 pub(crate) struct PresenceViewUser {
     pub(crate) user: String,
     last_seen_at: Instant,
+}
+
+impl PresenceViewUser {
+    pub(crate) fn into_recent_presence_user(self) -> RecentPresenceUser {
+        RecentPresenceUser {
+            user: self.user,
+            age_millis: instant_age_millis(self.last_seen_at),
+        }
+    }
+}
+
+fn instant_age_millis(last_seen_at: Instant) -> u64 {
+    u64::try_from(last_seen_at.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

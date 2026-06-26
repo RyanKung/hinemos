@@ -7,6 +7,15 @@ use super::request_mapping::{
 use super::route::ReadAppRequest;
 use super::{AppDispatchStore, AppViewCommandContext};
 
+struct WorldViewCommandContext<'a> {
+    player_id: &'a str,
+    current_view: &'a str,
+    current_title: &'a str,
+    inventory: &'a [String],
+    online_users: &'a [String],
+    who_population: WhoPopulation,
+}
+
 impl<S> AppService<S>
 where
     S: AppDispatchStore,
@@ -84,11 +93,14 @@ where
                 return self
                     .handle_world_view_command(
                         command,
-                        &identity.player_id,
-                        context.current_view,
-                        context.current_title,
-                        context.inventory,
-                        context.online_users,
+                        WorldViewCommandContext {
+                            player_id: &identity.player_id,
+                            current_view: context.current_view,
+                            current_title: context.current_title,
+                            inventory: context.inventory,
+                            online_users: context.online_users,
+                            who_population: context.who_population,
+                        },
                     )
                     .await;
             }
@@ -124,25 +136,32 @@ where
     S: MessageStore<Error = E>,
 {
     /// Handles semantic commands that are routed from the current room view.
-    pub async fn handle_world_view_command(
+    async fn handle_world_view_command(
         &self,
         command: &SemanticCommand,
-        player_id: &str,
-        current_view: &str,
-        current_title: &str,
-        inventory: &[String],
-        online_users: &[String],
+        context: WorldViewCommandContext<'_>,
     ) -> Result<Option<Vec<UiEvent>>, E> {
         let events = match command {
-            SemanticCommand::Inventory => Some(text_events(render_inventory(inventory), None)),
+            SemanticCommand::Inventory => {
+                Some(text_events(render_inventory(context.inventory), None))
+            }
             SemanticCommand::History => Some(text_events(
-                self.room_history(current_view, current_title).await?.text,
+                self.room_history(context.current_view, context.current_title)
+                    .await?
+                    .text,
                 None,
             )),
-            SemanticCommand::Who => Some(text_events(render_who(current_view, online_users), None)),
+            SemanticCommand::Who => Some(text_events(
+                render_who(
+                    context.current_view,
+                    context.online_users,
+                    context.who_population,
+                ),
+                None,
+            )),
             SemanticCommand::News => Some(text_events(self.world_news().await?.text, None)),
             SemanticCommand::Balance => Some(text_events(
-                render_player_balance(self.store.player_balance(player_id).await?),
+                render_player_balance(self.store.player_balance(context.player_id).await?),
                 None,
             )),
             _ => None,

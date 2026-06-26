@@ -25,7 +25,8 @@ where
             ReadAppRequest::Who {
                 current_view,
                 users,
-            } => render_who(current_view, users),
+                population,
+            } => render_who(current_view, users, population),
             ReadAppRequest::News => self.world_news().await?.text,
             ReadAppRequest::Balance => {
                 render_player_balance(self.store.player_balance(&identity.player_id).await?)

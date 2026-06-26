@@ -62,6 +62,8 @@ pub struct AppViewCommandContext<'a, B> {
     pub inventory: &'a [String],
     /// Usernames currently visible in this view.
     pub online_users: &'a [String],
+    /// Population counts shown by `/who`.
+    pub who_population: WhoPopulation,
     /// Entity ids visible in the current observation.
     pub visible_entity_ids: &'a [String],
     /// Optional active room binding for this view.

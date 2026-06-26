@@ -28,6 +28,8 @@ pub enum AppRequest<'a> {
         current_view: &'a str,
         /// Usernames currently visible in this view.
         users: &'a [String],
+        /// Population counts for the world and online sessions.
+        population: WhoPopulation,
     },
     /// Render recent world news.
     News,

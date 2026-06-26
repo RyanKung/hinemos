@@ -438,6 +438,22 @@ impl PgStorage {
         Ok(settings)
     }
 
+    /// Counts profiles admitted into the world.
+    pub async fn admitted_player_count(&self) -> Result<usize, StorageError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)
+            from player_profiles
+            where admission_state = 'agreed'
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        usize::try_from(count).map_err(|_| {
+            StorageError::InvalidAccountSetting(format!("invalid admitted player count: {count}"))
+        })
+    }
+
     /// Loads admission state for a player profile.
     pub async fn player_admission(&self, player_id: &str) -> Result<StoredAdmission, StorageError> {
         let admission = sqlx::query_as::<_, StoredAdmission>(
