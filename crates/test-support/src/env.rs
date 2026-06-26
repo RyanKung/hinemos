@@ -81,6 +81,18 @@ pub fn assert_provider_env(values: &HashMap<String, String>) {
     );
 }
 
+pub fn assert_gpt_provider_env(values: &HashMap<String, String>) {
+    assert_provider_env(values);
+
+    let model = values
+        .get("ANTHROPIC_MODEL")
+        .expect("ANTHROPIC_MODEL was checked by assert_provider_env");
+    assert!(
+        model.to_ascii_lowercase().contains("gpt"),
+        "LLM provider must use a GPT model through the rotom provider. Set ANTHROPIC_MODEL to a GPT-backed model; current model is `{model}`."
+    );
+}
+
 pub(crate) fn assert_database_env(values: &HashMap<String, String>) -> String {
     values
         .get("DATABASE_URL")
