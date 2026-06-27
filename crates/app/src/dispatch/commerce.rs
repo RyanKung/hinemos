@@ -84,7 +84,8 @@ where
 
 impl<S, E> AppService<S>
 where
-    S: ShopStore<Error = E>,
+    S: ShopStore<Error = E> + LandStore<Error = E>,
+    E: FromMailingListValidation,
 {
     pub(super) async fn handle_shop_request(
         &self,
@@ -112,6 +113,105 @@ where
                     },
                 ])
             }
+            ShopAppRequest::MailingListCreate {
+                parcel_id,
+                slug,
+                title,
+            } => {
+                let text = self
+                    .create_shop_mailing_list(parcel_id, &identity.player_id, slug, title)
+                    .await?
+                    .text;
+                Ok(text_events(
+                    text,
+                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                ))
+            }
+            ShopAppRequest::MailingListList { parcel_id } => Ok(text_events(
+                self.list_shop_mailing_lists(parcel_id, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::MailingListSubscribers { parcel_id, slug } => Ok(text_events(
+                self.shop_mailing_list_subscribers(parcel_id, slug, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::MailingListSend {
+                parcel_id,
+                slug,
+                subject,
+                body,
+            } => {
+                let result = self
+                    .send_shop_mailing_list_post(
+                        parcel_id,
+                        slug,
+                        &identity.user,
+                        &identity.player_id,
+                        subject,
+                        body,
+                    )
+                    .await?;
+                let mut events = vec![UiEvent::Text(format!(
+                    "Sent mailing list post #{} to {} subscriber(s): {}.\r\n",
+                    result.post.id(),
+                    result.post.recipient_count(),
+                    result.post.subject()
+                ))];
+                events.extend(result.deliveries.into_iter().map(|delivery| {
+                    UiEvent::LiveInboxNotice {
+                        target_player_id: delivery.recipient_player_id,
+                        notice: LiveInboxNotice::from_item(&delivery.inbox_item),
+                    }
+                }));
+                Ok(events)
+            }
+            ShopAppRequest::MailingListClose { parcel_id, slug } => {
+                let text = self
+                    .close_shop_mailing_list(parcel_id, slug, &identity.player_id)
+                    .await?
+                    .text;
+                Ok(text_events(
+                    text,
+                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                ))
+            }
+            ShopAppRequest::MailingListSubscribe { target, slug } => Ok(text_events(
+                self.subscribe_shop_mailing_list(target, slug, &identity.user, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::MailingListUnsubscribe { target, slug } => Ok(text_events(
+                self.unsubscribe_shop_mailing_list(
+                    target,
+                    slug,
+                    &identity.user,
+                    &identity.player_id,
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ShopAppRequest::MailingListSubscriptions => Ok(text_events(
+                self.shop_mailing_list_subscriptions(&identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
         }
+    }
+
+    async fn commercial_parcel_invalidation(&self, parcel_id: &str) -> Result<UiEvent, E> {
+        let parcel = self.store.commercial_parcel(parcel_id).await?;
+        Ok(commercial_parcel_cache_event(
+            CommercialParcelCacheInvalidation {
+                view_id: parcel.view_id().to_owned(),
+                front_view_id: parcel.front_view_id().to_owned(),
+            },
+        ))
     }
 }

@@ -1,6 +1,7 @@
 use super::contracts::{
-    BuildStore, LandStore, ParcelStore, ParcelView, PaymentRequestView, PaymentStore, ShopStore,
-    TransferView,
+    BuildStore, FromMailingListValidation, LandStore, ParcelStore, ParcelView, PaymentRequestView,
+    PaymentStore, ShopMailingListSubscriberView, ShopMailingListSubscriptionView,
+    ShopMailingListView, ShopStore, TransferView,
 };
 use super::rendering::{
     custom_command_preview, is_custom_command_input, non_empty, render_parcel_detail,
@@ -14,11 +15,14 @@ use super::results::{
 use crate::{
     AppIdentity, AppService, BuildSheet, LiveInboxNotice, MailAuthTokenView, OperatorCommandView,
     PARCEL_STATUS_BUILT, RoomBindingKindView, RoomCommandPolicyView, UiEvent,
+    shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
+    shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
 };
 
 impl<S, E> AppService<S>
 where
     S: ShopStore<Error = E>,
+    E: FromMailingListValidation,
 {
     /// Builds the shop operator inbox text.
     pub async fn shop_inbox(&self, owner_player_id: &str) -> Result<BusinessListResult, E> {
@@ -77,6 +81,174 @@ where
         })
     }
 
+    /// Creates a mailing list for an owned shop parcel.
+    pub async fn create_shop_mailing_list(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<BusinessListResult, E> {
+        validate_mailing_list_slug(slug)?;
+        validate_mailing_list_title(title)?;
+        let list = self
+            .store
+            .create_shop_mailing_list(parcel_id, owner_player_id, slug, title)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Created mailing list {} for parcel {}: {}.\r\nSubscribe command: /subscribe {} {}\r\n",
+                list.slug(),
+                list.parcel_id(),
+                list.title(),
+                list.parcel_id(),
+                list.slug()
+            ),
+        })
+    }
+
+    /// Lists mailing lists for an owned shop parcel.
+    pub async fn list_shop_mailing_lists(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let lists = self
+            .store
+            .shop_mailing_lists(parcel_id, owner_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: render_shop_mailing_lists(parcel_id, &lists).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Shows active subscriber count and recent subscribers.
+    pub async fn shop_mailing_list_subscribers(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let page = self
+            .store
+            .shop_mailing_list_subscribers(parcel_id, slug, owner_player_id, 20)
+            .await?;
+        Ok(BusinessListResult {
+            text: render_shop_mailing_list_subscribers(
+                parcel_id,
+                slug,
+                page.total,
+                &page.subscribers,
+            )
+            .replace('\n', "\r\n"),
+        })
+    }
+
+    /// Closes an owned mailing list to new subscriptions.
+    pub async fn close_shop_mailing_list(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let list = self
+            .store
+            .close_shop_mailing_list(parcel_id, slug, owner_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Closed mailing list {} for parcel {}. Existing subscribers remain recorded and can unsubscribe.\r\n",
+                list.slug(),
+                list.parcel_id()
+            ),
+        })
+    }
+
+    /// Subscribes the current player to a shop mailing list.
+    pub async fn subscribe_shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+        subscriber_user: &str,
+        subscriber_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let subscription = self
+            .store
+            .subscribe_shop_mailing_list(target, slug, subscriber_user, subscriber_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Subscribed to {} ({}) at {}.\r\nUnsubscribe: /unsubscribe {} {}\r\n",
+                subscription.list_title(),
+                subscription.slug(),
+                subscription.parcel_id(),
+                subscription.parcel_id(),
+                subscription.slug()
+            ),
+        })
+    }
+
+    /// Unsubscribes the current player from a shop mailing list.
+    pub async fn unsubscribe_shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+        subscriber_user: &str,
+        subscriber_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let subscription = self
+            .store
+            .unsubscribe_shop_mailing_list(target, slug, subscriber_user, subscriber_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Unsubscribed from {} ({}) at {}.\r\n",
+                subscription.list_title(),
+                subscription.slug(),
+                subscription.parcel_id()
+            ),
+        })
+    }
+
+    /// Lists active mailing-list subscriptions for the current player.
+    pub async fn shop_mailing_list_subscriptions(
+        &self,
+        subscriber_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let subscriptions = self
+            .store
+            .shop_mailing_list_subscriptions(subscriber_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: render_shop_mailing_list_subscriptions(&subscriptions).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Sends a mailing-list post to all current active subscribers.
+    pub async fn send_shop_mailing_list_post(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        sender_user: &str,
+        sender_player_id: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<super::contracts::ShopMailingListSend<S::MailingListPost, S::InboxItem>, E> {
+        validate_mailing_list_slug(slug)?;
+        validate_mailing_list_subject(subject)?;
+        validate_mailing_list_body(body)?;
+        self.store
+            .send_shop_mailing_list_post(
+                parcel_id,
+                slug,
+                sender_user,
+                sender_player_id,
+                subject,
+                body,
+            )
+            .await
+    }
+
     /// Handles a raw or slash-prefixed input line inside a commercial parcel room.
     pub async fn handle_commercial_parcel_input<P>(
         &self,
@@ -133,6 +305,127 @@ where
         });
         Ok(Some(events))
     }
+}
+
+fn validate_mailing_list_slug<E>(slug: &str) -> Result<(), E>
+where
+    E: FromMailingListValidation,
+{
+    if shop_mailing_list_slug_is_valid(slug) {
+        Ok(())
+    } else {
+        Err(E::invalid_mailing_list("invalid mailing-list slug"))
+    }
+}
+
+fn validate_mailing_list_title<E>(title: &str) -> Result<(), E>
+where
+    E: FromMailingListValidation,
+{
+    if shop_mailing_list_title_is_valid(title) {
+        Ok(())
+    } else {
+        Err(E::invalid_mailing_list("invalid mailing-list title"))
+    }
+}
+
+fn validate_mailing_list_subject<E>(subject: &str) -> Result<(), E>
+where
+    E: FromMailingListValidation,
+{
+    if shop_mailing_list_subject_is_valid(subject) {
+        Ok(())
+    } else {
+        Err(E::invalid_mailing_list("invalid mailing-list subject"))
+    }
+}
+
+fn validate_mailing_list_body<E>(body: &str) -> Result<(), E>
+where
+    E: FromMailingListValidation,
+{
+    if shop_mailing_list_body_is_valid(body) {
+        Ok(())
+    } else {
+        Err(E::invalid_mailing_list("invalid mailing-list body"))
+    }
+}
+
+fn render_shop_mailing_lists(parcel_id: &str, lists: &[impl ShopMailingListView]) -> String {
+    let mut lines = vec![format!("Mailing Lists for {parcel_id}")];
+    if lists.is_empty() {
+        lines.push(
+            "No mailing lists. Create one with /shop mailing-list create <parcel> <slug> <title>."
+                .to_owned(),
+        );
+    } else {
+        for list in lists {
+            lines.push(format!(
+                "- {} [{}] {} subscribers={} created={}. Subscribe: /subscribe {} {}",
+                list.slug(),
+                list.status(),
+                list.title(),
+                list.subscriber_count(),
+                list.created_at(),
+                list.parcel_id(),
+                list.slug()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_shop_mailing_list_subscribers(
+    parcel_id: &str,
+    slug: &str,
+    total: i64,
+    subscribers: &[impl ShopMailingListSubscriberView],
+) -> String {
+    let mut lines = vec![format!(
+        "Mailing List Subscribers for {parcel_id} {slug}: {total} active"
+    )];
+    if subscribers.is_empty() {
+        lines.push("No active subscribers.".to_owned());
+    } else {
+        for subscriber in subscribers {
+            lines.push(format!(
+                "- {} ({}) since {}",
+                subscriber.subscriber_user(),
+                subscriber.subscriber_player_id(),
+                subscriber.updated_at()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_shop_mailing_list_subscriptions(
+    subscriptions: &[impl ShopMailingListSubscriptionView],
+) -> String {
+    let mut lines = vec!["Shop Mailing List Subscriptions".to_owned()];
+    if subscriptions.is_empty() {
+        lines.push("No active subscriptions.".to_owned());
+    } else {
+        for subscription in subscriptions {
+            let shop = subscription
+                .shop_title()
+                .unwrap_or(subscription.parcel_id());
+            lines.push(format!(
+                "- {} / {} ({}) status={} updated={}. Unsubscribe: /unsubscribe {} {}",
+                shop,
+                subscription.list_title(),
+                subscription.slug(),
+                subscription.status(),
+                subscription.updated_at(),
+                subscription.parcel_id(),
+                subscription.slug()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
 }
 
 impl<S, E> AppService<S>

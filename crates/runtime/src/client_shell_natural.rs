@@ -1,7 +1,7 @@
 use hinemos_core::{
     BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction, JsonObservation,
     LandAction, MbtiType, PayAction, SemanticCommand, SettingsAction, ShopAction,
-    role_card_intro_is_valid, role_card_name_is_valid,
+    ShopMailingListAction, SubscriptionAction, role_card_intro_is_valid, role_card_name_is_valid,
 };
 
 use super::{ENTER_VERBS, INSPECT_VERBS, READ_VERBS, SlashParseError, TAKE_VERBS, TALK_VERBS};
@@ -526,8 +526,107 @@ pub(super) fn parse_shop_command<'a>(
                 },
             })
         }
+        "mailing-list" | "mailinglist" | "list" => Ok(SemanticCommand::Shop {
+            action: ShopAction::MailingList {
+                action: parse_shop_mailing_list_action(trimmed, tokens)?,
+            },
+        }),
         _ => Err(SlashParseError::UnknownCommand),
     }
+}
+
+fn parse_shop_mailing_list_action<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<ShopMailingListAction, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "create" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let title = rest_after_tokens(trimmed, 5)?;
+            Ok(ShopMailingListAction::Create {
+                parcel_id: parcel_id.to_owned(),
+                slug: slug.to_owned(),
+                title,
+            })
+        }
+        "list" => Ok(ShopMailingListAction::List {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        "subscribers" => Ok(ShopMailingListAction::Subscribers {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        "send" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let subject_and_body = rest_after_tokens(trimmed, 5)?;
+            let (subject, body) = subject_and_body
+                .split_once(" -- ")
+                .ok_or(SlashParseError::MissingArgument)?;
+            Ok(ShopMailingListAction::Send {
+                parcel_id: parcel_id.to_owned(),
+                slug: slug.to_owned(),
+                subject: subject.trim().to_owned(),
+                body: body.trim().to_owned(),
+            })
+        }
+        "close" => Ok(ShopMailingListAction::Close {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        _ => Err(SlashParseError::UnknownCommand),
+    }
+}
+
+pub(super) fn parse_subscribe_command<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<SemanticCommand, SlashParseError> {
+    let (target, slug) = subscription_target_and_slug(tokens)?;
+    Ok(SemanticCommand::Subscription {
+        action: SubscriptionAction::Subscribe { target, slug },
+    })
+}
+
+pub(super) fn parse_unsubscribe_command<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<SemanticCommand, SlashParseError> {
+    let (target, slug) = subscription_target_and_slug(tokens)?;
+    Ok(SemanticCommand::Subscription {
+        action: SubscriptionAction::Unsubscribe { target, slug },
+    })
+}
+
+fn subscription_target_and_slug<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<(String, String), SlashParseError> {
+    let parts = tokens.collect::<Vec<_>>();
+    let Some((slug, target_parts)) = parts.split_last() else {
+        return Err(SlashParseError::MissingArgument);
+    };
+    if target_parts.is_empty() {
+        return Err(SlashParseError::MissingArgument);
+    }
+    Ok((target_parts.join(" "), (*slug).to_owned()))
 }
 
 pub(super) fn rest_after_command(
@@ -555,4 +654,33 @@ pub(super) fn rest_after_token(trimmed: &str, token: &str) -> Result<String, Sla
     } else {
         Ok(text.to_owned())
     }
+}
+
+pub(super) fn rest_after_tokens(
+    trimmed: &str,
+    token_count: usize,
+) -> Result<String, SlashParseError> {
+    let mut in_token = false;
+    let mut seen = 0usize;
+
+    for (offset, character) in trimmed.char_indices() {
+        if character.is_whitespace() {
+            if in_token {
+                seen += 1;
+                in_token = false;
+                if seen == token_count {
+                    let text = trimmed[offset..].trim();
+                    return if text.is_empty() {
+                        Err(SlashParseError::MissingArgument)
+                    } else {
+                        Ok(text.to_owned())
+                    };
+                }
+            }
+        } else if !in_token {
+            in_token = true;
+        }
+    }
+
+    Err(SlashParseError::MissingArgument)
 }

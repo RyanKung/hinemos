@@ -306,6 +306,11 @@ impl GameRuntime {
                     "Shop tools are available in SSH sessions.".to_owned(),
                 )]
             }
+            SemanticCommand::Subscription { .. } => {
+                vec![message(
+                    "Shop mailing-list subscriptions are available in SSH sessions.".to_owned(),
+                )]
+            }
             SemanticCommand::Extension { .. } => {
                 vec![message(
                     "Extension commands are available in SSH sessions.".to_owned(),

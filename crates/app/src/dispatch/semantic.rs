@@ -2,7 +2,7 @@ use crate::*;
 
 use super::events::text_events;
 use super::request_mapping::{
-    build_request, inbox_request, land_request, payment_request, shop_request,
+    build_request, inbox_request, land_request, payment_request, shop_request, subscription_request,
 };
 use super::route::ReadAppRequest;
 use super::{AppDispatchStore, AppViewCommandContext};
@@ -19,6 +19,7 @@ struct WorldViewCommandContext<'a> {
 impl<S> AppService<S>
 where
     S: AppDispatchStore,
+    <S as AppDispatchStore>::Error: FromMailingListValidation,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding: RoomBindingEntryView
         + ParcelView
@@ -62,6 +63,7 @@ where
             SemanticCommand::Land { action } => land_request(action, context.generated_token),
             SemanticCommand::Build { action } => build_request(action, context.current_view),
             SemanticCommand::Shop { action } => shop_request(action),
+            SemanticCommand::Subscription { action } => subscription_request(action),
             _ => return Ok(None),
         };
         Ok(Some(self.handle(identity, request).await?))

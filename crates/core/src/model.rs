@@ -55,6 +55,14 @@ pub const OPERATOR_COMMAND_STATUS_PENDING: &str = "pending";
 pub const OPERATOR_COMMAND_STATUS_DELIVERED: &str = "delivered";
 /// Operator command status indicating a handled command.
 pub const OPERATOR_COMMAND_STATUS_HANDLED: &str = "handled";
+/// Shop mailing list status indicating new subscriptions are accepted.
+pub const SHOP_MAILING_LIST_STATUS_OPEN: &str = "open";
+/// Shop mailing list status indicating new subscriptions are closed.
+pub const SHOP_MAILING_LIST_STATUS_CLOSED: &str = "closed";
+/// Shop mailing list subscription status indicating active delivery.
+pub const SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE: &str = "active";
+/// Shop mailing list subscription status indicating the player opted out.
+pub const SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED: &str = "unsubscribed";
 
 /// The mutable state of a world instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

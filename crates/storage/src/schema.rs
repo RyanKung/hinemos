@@ -15,6 +15,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_ledger(pool).await?;
     migrate_commercial_parcels(pool).await?;
     migrate_service_rooms(pool).await?;
+    migrate_shop_mailing_lists(pool).await?;
     migrate_shop_payments(pool).await?;
     migrate_marriage_certificates(pool).await?;
     migrate_memory_events(pool).await?;
@@ -980,6 +981,99 @@ async fn migrate_shop_payments(pool: &PgPool) -> Result<(), StorageError> {
         r#"
             create index if not exists payment_requests_payer_idx
             on payment_requests (payer_player_id, status, created_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists shop_mailing_lists (
+                id bigserial primary key,
+                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                owner_player_id text not null,
+                slug text not null,
+                title text not null,
+                description text,
+                status text not null default 'open'
+                    check (status in ('open', 'closed')),
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (parcel_id, slug)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_mailing_lists_owner_idx
+            on shop_mailing_lists (owner_player_id, parcel_id, created_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_mailing_list_subscriptions (
+                id bigserial primary key,
+                list_id bigint not null references shop_mailing_lists(id) on delete cascade,
+                subscriber_user text not null,
+                subscriber_player_id text not null,
+                status text not null default 'active'
+                    check (status in ('active', 'unsubscribed')),
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (list_id, subscriber_player_id)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_mailing_list_subscriptions_player_idx
+            on shop_mailing_list_subscriptions (subscriber_player_id, status, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_mailing_list_posts (
+                id bigserial primary key,
+                list_id bigint not null references shop_mailing_lists(id) on delete cascade,
+                sender_user text not null,
+                sender_player_id text not null,
+                subject text not null,
+                body text not null,
+                recipient_count bigint not null check (recipient_count >= 0),
+                created_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_mailing_list_deliveries (
+                id bigserial primary key,
+                post_id bigint not null references shop_mailing_list_posts(id) on delete cascade,
+                recipient_user text not null,
+                recipient_player_id text not null,
+                inbox_item_id bigint references inbox_items(id),
+                created_at timestamptz not null default now(),
+                unique (post_id, recipient_player_id)
+            )
             "#,
     )
     .execute(pool)

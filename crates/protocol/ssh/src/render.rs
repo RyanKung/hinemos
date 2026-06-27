@@ -7,7 +7,10 @@ mod render_map;
 mod render_tests;
 
 use anyhow::Result;
-use hinemos_core::{JsonObservation, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, SemanticCommand};
+use hinemos_core::{
+    JsonObservation, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, SHOP_MAILING_LIST_STATUS_OPEN,
+    SemanticCommand, SubscriptionAction,
+};
 use hinemos_runtime::{Chrome, render_text_events, render_text_observation_with_width};
 use hinemos_storage::{StoredInboxItem, StoredRoomBinding};
 use russh::ChannelId;
@@ -173,10 +176,13 @@ pub(crate) fn overlay_parcel_observation(
             if let Some(description) = binding.parcel_description.as_deref() {
                 let shop_commands = format_shop_commands(binding);
                 observation.description = format!(
-                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}.\nShop commands: {}.\nOperator prompt: {}",
+                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}.\nShop commands: {}.\nMailing lists: {}.\nOperator prompt: {}",
                     binding.address,
                     binding.parcel_style.as_deref().unwrap_or("unspecified"),
                     shop_commands.as_deref().unwrap_or("not specified"),
+                    format_shop_mailing_lists(binding)
+                        .as_deref()
+                        .unwrap_or("none"),
                     binding
                         .parcel_operator_prompt
                         .as_deref()
@@ -194,6 +200,16 @@ pub(crate) fn overlay_parcel_observation(
                             .unwrap_or_default()
                             .to_owned(),
                         input,
+                    }
+                }));
+            observation
+                .available_commands
+                .extend(open_shop_mailing_lists(binding).map(|list| {
+                    SemanticCommand::Subscription {
+                        action: SubscriptionAction::Subscribe {
+                            target: binding.address.clone(),
+                            slug: list.slug.clone(),
+                        },
                     }
                 }));
         }
@@ -333,6 +349,27 @@ fn format_shop_commands(binding: &StoredRoomBinding) -> Option<String> {
         .filter_map(format_shop_command_entry)
         .collect::<Vec<_>>();
     (!rendered.is_empty()).then(|| rendered.join("; "))
+}
+
+fn format_shop_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
+    let rendered = open_shop_mailing_lists(binding)
+        .map(|list| {
+            format!(
+                "{} ({}) subscribe: /subscribe {} {}",
+                list.title, list.slug, binding.address, list.slug
+            )
+        })
+        .collect::<Vec<_>>();
+    (!rendered.is_empty()).then(|| rendered.join("; "))
+}
+
+fn open_shop_mailing_lists(
+    binding: &StoredRoomBinding,
+) -> impl Iterator<Item = &hinemos_storage::StoredShopMailingList> {
+    binding
+        .parcel_mailing_lists
+        .iter()
+        .filter(|list| list.status == SHOP_MAILING_LIST_STATUS_OPEN)
 }
 
 fn format_shop_command_entry(entry: &str) -> Option<String> {
