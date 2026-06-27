@@ -11,7 +11,9 @@ mod client_shell_text;
 
 use std::collections::HashMap;
 
-use hinemos_core::{Direction, EntityRef, JsonObservation, SemanticCommand, WorldState};
+use hinemos_core::{
+    Direction, EntityRef, JsonObservation, SemanticCommand, SubscriptionAction, WorldState,
+};
 use thiserror::Error;
 
 use client_shell_natural::*;
@@ -77,13 +79,14 @@ impl Chrome {
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
+        Shop mailing lists: /subscribe <parcel-or-shop> <slug>, /unsubscribe <parcel-or-shop> <slug>, /subscriptions\n\
         Memory: /memory, /memory self, /memory commitments, /memory recall <person>, /memory search <query>\n\
         Settings: /settings, /settings name <name>, /settings gender <male|female|none>, /settings mbti <type>, /settings intro <one line>, /settings intro clear, /settings mail-token\n\
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land token <parcel>, /land transfer <parcel> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
-        Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>\n\
+        Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>; mailing lists use /shop mailing-list create <parcel> <slug> <title>, /shop mailing-list send <parcel> <slug> <subject> -- <body>\n\
         Local extensions appear in Available inside their view.";
 
     /// Feedback line after inspecting an entity.
@@ -246,6 +249,11 @@ impl Chrome {
             "land" => parse_land_command(&mut tokens),
             "build" => parse_build_command(trimmed, &mut tokens),
             "shop" => parse_shop_command(trimmed, &mut tokens),
+            "subscribe" => parse_subscribe_command(&mut tokens),
+            "unsubscribe" => parse_unsubscribe_command(&mut tokens),
+            "subscriptions" => Ok(SemanticCommand::Subscription {
+                action: SubscriptionAction::List,
+            }),
             _ if self.extension_commands.contains_key(cmd.as_str()) => {
                 Ok(SemanticCommand::Extension {
                     name: cmd,

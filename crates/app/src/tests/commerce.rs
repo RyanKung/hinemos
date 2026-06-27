@@ -255,3 +255,51 @@ fn commercial_parcel_actions_emit_cache_invalidation_events() {
         );
     });
 }
+
+#[test]
+fn shop_mailing_list_send_emits_live_inbox_notice() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let app = AppService::new(TestCommercialStore {
+            parcel: Mutex::new(TestCommercialParcel {
+                parcel_id: "P1",
+                view_id: "parcel-view",
+                front_view_id: "street-a",
+                district: "north",
+                position: 1,
+                owner_user: Some("owner".to_owned()),
+                owner_player_id: Some("owner-player".to_owned()),
+                room_user: Some("room-user".to_owned()),
+                room_player_id: Some("room-player".to_owned()),
+                status: PARCEL_STATUS_BUILT,
+                title: Some("Parcel".to_owned()),
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: None,
+            }),
+            calls: Mutex::new(Vec::new()),
+        });
+        let identity = AppIdentity::new("owner", "owner-player");
+
+        let result = app
+            .send_shop_mailing_list_post(
+                "P1",
+                "updates",
+                &identity.user,
+                &identity.player_id,
+                "Weekly Deal",
+                "Body",
+            )
+            .await
+            .expect("send mailing list post");
+
+        assert_eq!(result.post.id(), 7);
+        assert_eq!(result.post.recipient_count(), 1);
+        assert_eq!(result.deliveries[0].recipient_player_id, "visitor-player");
+        assert_eq!(result.deliveries[0].inbox_item.subject(), "Weekly Deal");
+    });
+}

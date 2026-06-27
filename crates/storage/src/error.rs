@@ -78,6 +78,49 @@ pub enum StorageError {
     /// Account setting input is invalid.
     #[error("invalid account setting: {0}")]
     InvalidAccountSetting(String),
+    /// Mailing-list input is invalid.
+    #[error("invalid mailing list: {0}")]
+    InvalidMailingList(String),
+    /// Mailing list was not found.
+    #[error("mailing list not found: {parcel_id}/{slug}")]
+    MailingListNotFound {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Mailing list already exists for a shop parcel.
+    #[error("mailing list already exists: {parcel_id}/{slug}")]
+    MailingListAlreadyExists {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Mailing list is closed to new subscriptions.
+    #[error("mailing list is closed: {parcel_id}/{slug}")]
+    MailingListClosed {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Player is already actively subscribed.
+    #[error("already subscribed to mailing list: {parcel_id}/{slug}")]
+    MailingListAlreadySubscribed {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Mailing list has no active subscribers.
+    #[error("mailing list has no active subscribers: {parcel_id}/{slug}")]
+    MailingListNoSubscribers {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+    },
 }
 
 impl StorageError {

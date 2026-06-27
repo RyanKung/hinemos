@@ -1,4 +1,4 @@
-use hinemos_core::{JsonObservation, ObservationEvent, SemanticCommand};
+use hinemos_core::{JsonObservation, ObservationEvent, SemanticCommand, SubscriptionAction};
 
 use super::Chrome;
 
@@ -203,6 +203,7 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         &mut parts,
     );
     push_agreement_commands(observation, &mut parts);
+    push_subscription_commands(observation, &mut parts);
     push_extension_commands(observation, &mut parts);
 
     render_available_parts(parts)
@@ -285,6 +286,28 @@ fn push_agreement_commands(observation: &JsonObservation, parts: &mut Vec<String
         .collect::<Vec<_>>();
     if !commands.is_empty() {
         parts.push(format!("admission: {}", commands.join(", ")));
+    }
+}
+
+fn push_subscription_commands(observation: &JsonObservation, parts: &mut Vec<String>) {
+    let commands = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| match command {
+            SemanticCommand::Subscription {
+                action: SubscriptionAction::Subscribe { target, slug },
+            } => Some(format!("/subscribe {target} {slug}")),
+            SemanticCommand::Subscription {
+                action: SubscriptionAction::Unsubscribe { target, slug },
+            } => Some(format!("/unsubscribe {target} {slug}")),
+            SemanticCommand::Subscription {
+                action: SubscriptionAction::List,
+            } => Some("/subscriptions".to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !commands.is_empty() {
+        parts.push(format!("subscriptions: {}", commands.join(", ")));
     }
 }
 

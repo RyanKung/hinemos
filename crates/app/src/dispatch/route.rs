@@ -126,6 +126,37 @@ pub(super) enum ShopAppRequest<'a> {
         amount: i64,
         delivery: &'a str,
     },
+    MailingListCreate {
+        parcel_id: &'a str,
+        slug: &'a str,
+        title: &'a str,
+    },
+    MailingListList {
+        parcel_id: &'a str,
+    },
+    MailingListSubscribers {
+        parcel_id: &'a str,
+        slug: &'a str,
+    },
+    MailingListSend {
+        parcel_id: &'a str,
+        slug: &'a str,
+        subject: &'a str,
+        body: &'a str,
+    },
+    MailingListClose {
+        parcel_id: &'a str,
+        slug: &'a str,
+    },
+    MailingListSubscribe {
+        target: &'a str,
+        slug: &'a str,
+    },
+    MailingListUnsubscribe {
+        target: &'a str,
+        slug: &'a str,
+    },
+    MailingListSubscriptions,
 }
 
 pub(super) enum ServiceRoomAppRequest<'a> {
@@ -195,9 +226,16 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             | AppRequest::BuildApply { .. }
             | AppRequest::BuildSet { .. }
             | AppRequest::BuildPublish { .. }) => route_build(request),
-            request @ (AppRequest::ShopInbox | AppRequest::ShopRequestPayment { .. }) => {
-                route_shop(request)
-            }
+            request @ (AppRequest::ShopInbox
+            | AppRequest::ShopRequestPayment { .. }
+            | AppRequest::ShopMailingListCreate { .. }
+            | AppRequest::ShopMailingListList { .. }
+            | AppRequest::ShopMailingListSubscribers { .. }
+            | AppRequest::ShopMailingListSend { .. }
+            | AppRequest::ShopMailingListClose { .. }
+            | AppRequest::ShopMailingListSubscribe { .. }
+            | AppRequest::ShopMailingListUnsubscribe { .. }
+            | AppRequest::ShopMailingListSubscriptions) => route_shop(request),
             request @ (AppRequest::ServiceRoomInput { .. }
             | AppRequest::ServiceRoomHelp { .. }
             | AppRequest::ServiceRoomObservation { .. }
@@ -373,6 +411,44 @@ fn route_shop(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
             amount,
             delivery,
         }),
+        AppRequest::ShopMailingListCreate {
+            parcel_id,
+            slug,
+            title,
+        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListCreate {
+            parcel_id,
+            slug,
+            title,
+        }),
+        AppRequest::ShopMailingListList { parcel_id } => {
+            RoutedAppRequest::Shop(ShopAppRequest::MailingListList { parcel_id })
+        }
+        AppRequest::ShopMailingListSubscribers { parcel_id, slug } => {
+            RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscribers { parcel_id, slug })
+        }
+        AppRequest::ShopMailingListSend {
+            parcel_id,
+            slug,
+            subject,
+            body,
+        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListSend {
+            parcel_id,
+            slug,
+            subject,
+            body,
+        }),
+        AppRequest::ShopMailingListClose { parcel_id, slug } => {
+            RoutedAppRequest::Shop(ShopAppRequest::MailingListClose { parcel_id, slug })
+        }
+        AppRequest::ShopMailingListSubscribe { target, slug } => {
+            RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscribe { target, slug })
+        }
+        AppRequest::ShopMailingListUnsubscribe { target, slug } => {
+            RoutedAppRequest::Shop(ShopAppRequest::MailingListUnsubscribe { target, slug })
+        }
+        AppRequest::ShopMailingListSubscriptions => {
+            RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscriptions)
+        }
         _ => unreachable!("shop request route called with non-shop request"),
     }
 }

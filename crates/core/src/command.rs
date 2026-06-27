@@ -198,6 +198,11 @@ pub enum SemanticCommand {
         /// Shop command action.
         action: ShopAction,
     },
+    /// Manage the current player's shop mailing-list subscriptions.
+    Subscription {
+        /// Subscription command action.
+        action: SubscriptionAction,
+    },
     /// Run a registered extension command.
     Extension {
         /// Registered extension command name.
@@ -526,4 +531,127 @@ pub enum ShopAction {
         /// Content delivered only after the visitor accepts and pays.
         delivery: String,
     },
+    /// Manage a shop mailing list.
+    MailingList {
+        /// Mailing-list owner action.
+        action: ShopMailingListAction,
+    },
+}
+
+/// Shop mailing-list owner actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ShopMailingListAction {
+    /// Create a list for an owned shop parcel.
+    Create {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+        /// Player-facing list title.
+        title: String,
+    },
+    /// List mailing lists for an owned shop parcel.
+    List {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Show active subscriber count and recent subscribers.
+    Subscribers {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Send a post to current active subscribers.
+    Send {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+        /// Inbox subject.
+        subject: String,
+        /// Inbox body.
+        body: String,
+    },
+    /// Close a list to new subscriptions.
+    Close {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+    },
+}
+
+/// Shop mailing-list subscriber actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SubscriptionAction {
+    /// Subscribe to an open shop mailing list.
+    Subscribe {
+        /// Parcel id or visible shop title.
+        target: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Unsubscribe from a shop mailing list.
+    Unsubscribe {
+        /// Parcel id or visible shop title.
+        target: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// List the current player's active subscriptions.
+    List,
+}
+
+/// Maximum mailing-list slug length, counted in Unicode scalar values.
+pub const SHOP_MAILING_LIST_SLUG_MAX_CHARS: usize = 32;
+
+/// Maximum mailing-list title length, counted in Unicode scalar values.
+pub const SHOP_MAILING_LIST_TITLE_MAX_CHARS: usize = 80;
+
+/// Maximum mailing-list subject length, counted in Unicode scalar values.
+pub const SHOP_MAILING_LIST_SUBJECT_MAX_CHARS: usize = 120;
+
+/// Maximum mailing-list post body length, counted in Unicode scalar values.
+pub const SHOP_MAILING_LIST_BODY_MAX_CHARS: usize = 2_000;
+
+/// Maximum number of mailing lists a single shop parcel can own.
+pub const SHOP_MAILING_LISTS_PER_PARCEL_MAX: usize = 10;
+
+/// Returns true when a mailing-list slug is admissible.
+#[must_use]
+pub fn shop_mailing_list_slug_is_valid(slug: &str) -> bool {
+    let slug = slug.trim();
+    !slug.is_empty()
+        && slug.chars().count() <= SHOP_MAILING_LIST_SLUG_MAX_CHARS
+        && slug.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        })
+}
+
+/// Returns true when a mailing-list title is admissible.
+#[must_use]
+pub fn shop_mailing_list_title_is_valid(title: &str) -> bool {
+    let title = title.trim();
+    !title.is_empty()
+        && title.chars().count() <= SHOP_MAILING_LIST_TITLE_MAX_CHARS
+        && !contains_line_break(title)
+}
+
+/// Returns true when a mailing-list subject is admissible.
+#[must_use]
+pub fn shop_mailing_list_subject_is_valid(subject: &str) -> bool {
+    let subject = subject.trim();
+    !subject.is_empty()
+        && subject.chars().count() <= SHOP_MAILING_LIST_SUBJECT_MAX_CHARS
+        && !contains_line_break(subject)
+}
+
+/// Returns true when a mailing-list body is admissible.
+#[must_use]
+pub fn shop_mailing_list_body_is_valid(body: &str) -> bool {
+    let body = body.trim();
+    !body.is_empty() && body.chars().count() <= SHOP_MAILING_LIST_BODY_MAX_CHARS
 }

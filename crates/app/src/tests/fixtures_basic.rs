@@ -70,6 +70,25 @@ pub(super) struct TestInboxItem {
     pub(super) body: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestMailingList {
+    pub(super) slug: String,
+    pub(super) title: String,
+    pub(super) status: String,
+    pub(super) subscriber_count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestMailingListSubscriber;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestMailingListSubscription {
+    pub(super) status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestMailingListPost;
+
 impl WorldMessageView for TestWorldMessage {
     fn kind(&self) -> &str {
         "say"
@@ -518,6 +537,102 @@ impl OperatorCommandView for TestOperatorCommand {
     }
 }
 
+impl ShopMailingListView for TestMailingList {
+    fn id(&self) -> i64 {
+        1
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn subscriber_count(&self) -> i64 {
+        self.subscriber_count
+    }
+
+    fn created_at(&self) -> &str {
+        "created"
+    }
+}
+
+impl ShopMailingListSubscriberView for TestMailingListSubscriber {
+    fn subscriber_user(&self) -> &str {
+        "visitor"
+    }
+
+    fn subscriber_player_id(&self) -> &str {
+        "visitor-player"
+    }
+
+    fn updated_at(&self) -> &str {
+        "updated"
+    }
+}
+
+impl ShopMailingListSubscriptionView for TestMailingListSubscription {
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn shop_title(&self) -> Option<&str> {
+        Some("Parcel")
+    }
+
+    fn slug(&self) -> &str {
+        "updates"
+    }
+
+    fn list_title(&self) -> &str {
+        "Shop Updates"
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn updated_at(&self) -> &str {
+        "updated"
+    }
+}
+
+impl ShopMailingListPostView for TestMailingListPost {
+    fn id(&self) -> i64 {
+        7
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn slug(&self) -> &str {
+        "updates"
+    }
+
+    fn list_title(&self) -> &str {
+        "Shop Updates"
+    }
+
+    fn subject(&self) -> &str {
+        "Weekly Deal"
+    }
+
+    fn recipient_count(&self) -> i64 {
+        1
+    }
+}
+
 impl TestCommercialStore {
     fn parcel(&self) -> TestCommercialParcel {
         self.parcel.lock().unwrap().clone()
@@ -643,6 +758,10 @@ impl ShopStore for TestCommercialStore {
     type PaymentRequest = TestPaymentRequest;
     type InboxItem = TestInboxItem;
     type OperatorCommand = TestOperatorCommand;
+    type MailingList = TestMailingList;
+    type MailingListSubscriber = TestMailingListSubscriber;
+    type MailingListSubscription = TestMailingListSubscription;
+    type MailingListPost = TestMailingListPost;
 
     async fn save_operator_command<P>(
         &self,
@@ -692,6 +811,144 @@ impl ShopStore for TestCommercialStore {
             sender_user: "alice",
             subject: "hello",
             body: "body",
+        })
+    }
+
+    async fn create_shop_mailing_list(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<Self::MailingList, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "mailing-list-create:{parcel_id}:{owner_player_id}:{slug}:{title}"
+        ));
+        Ok(TestMailingList {
+            slug: slug.to_owned(),
+            title: title.to_owned(),
+            status: "open".to_owned(),
+            subscriber_count: 0,
+        })
+    }
+
+    async fn shop_mailing_lists(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::MailingList>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("mailing-list-list:{parcel_id}:{owner_player_id}"));
+        Ok(vec![TestMailingList {
+            slug: "updates".to_owned(),
+            title: "Shop Updates".to_owned(),
+            status: "open".to_owned(),
+            subscriber_count: 1,
+        }])
+    }
+
+    async fn shop_mailing_list_subscribers(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        _limit: i64,
+    ) -> Result<ShopMailingListSubscriberPage<Self::MailingListSubscriber>, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "mailing-list-subscribers:{parcel_id}:{slug}:{owner_player_id}"
+        ));
+        Ok(ShopMailingListSubscriberPage {
+            total: 1,
+            subscribers: vec![TestMailingListSubscriber],
+        })
+    }
+
+    async fn close_shop_mailing_list(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+    ) -> Result<Self::MailingList, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "mailing-list-close:{parcel_id}:{slug}:{owner_player_id}"
+        ));
+        Ok(TestMailingList {
+            slug: slug.to_owned(),
+            title: "Shop Updates".to_owned(),
+            status: "closed".to_owned(),
+            subscriber_count: 1,
+        })
+    }
+
+    async fn subscribe_shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+        subscriber_user: &str,
+        subscriber_player_id: &str,
+    ) -> Result<Self::MailingListSubscription, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "mailing-list-subscribe:{target}:{slug}:{subscriber_user}:{subscriber_player_id}"
+        ));
+        Ok(TestMailingListSubscription {
+            status: "active".to_owned(),
+        })
+    }
+
+    async fn unsubscribe_shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+        subscriber_user: &str,
+        subscriber_player_id: &str,
+    ) -> Result<Self::MailingListSubscription, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "mailing-list-unsubscribe:{target}:{slug}:{subscriber_user}:{subscriber_player_id}"
+        ));
+        Ok(TestMailingListSubscription {
+            status: "unsubscribed".to_owned(),
+        })
+    }
+
+    async fn shop_mailing_list_subscriptions(
+        &self,
+        subscriber_player_id: &str,
+    ) -> Result<Vec<Self::MailingListSubscription>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("mailing-list-subscriptions:{subscriber_player_id}"));
+        Ok(vec![TestMailingListSubscription {
+            status: "active".to_owned(),
+        }])
+    }
+
+    async fn send_shop_mailing_list_post(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        sender_user: &str,
+        sender_player_id: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "mailing-list-send:{parcel_id}:{slug}:{sender_user}:{sender_player_id}:{subject}:{body}"
+        ));
+        Ok(ShopMailingListSend {
+            post: TestMailingListPost,
+            deliveries: vec![ShopMailingListDelivery {
+                recipient_player_id: "visitor-player".to_owned(),
+                inbox_item: TestInboxItem {
+                    id: 7,
+                    kind: "mail",
+                    sender_user: "owner",
+                    subject: "Weekly Deal",
+                    body: "Body",
+                },
+            }],
         })
     }
 }

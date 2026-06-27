@@ -146,6 +146,61 @@ pub enum AppRequest<'a> {
         /// Delivery content unlocked after payment.
         delivery: &'a str,
     },
+    /// Create a mailing list for an owned shop.
+    ShopMailingListCreate {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable list slug.
+        slug: &'a str,
+        /// Player-facing list title.
+        title: &'a str,
+    },
+    /// List mailing lists for an owned shop.
+    ShopMailingListList {
+        /// Parcel id.
+        parcel_id: &'a str,
+    },
+    /// Show mailing-list subscribers for an owned shop.
+    ShopMailingListSubscribers {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable list slug.
+        slug: &'a str,
+    },
+    /// Send a mailing-list post.
+    ShopMailingListSend {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable list slug.
+        slug: &'a str,
+        /// Inbox subject.
+        subject: &'a str,
+        /// Inbox body.
+        body: &'a str,
+    },
+    /// Close a mailing list to new subscriptions.
+    ShopMailingListClose {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable list slug.
+        slug: &'a str,
+    },
+    /// Subscribe the current player to a shop mailing list.
+    ShopMailingListSubscribe {
+        /// Parcel id or visible shop title.
+        target: &'a str,
+        /// Stable list slug.
+        slug: &'a str,
+    },
+    /// Unsubscribe the current player from a shop mailing list.
+    ShopMailingListUnsubscribe {
+        /// Parcel id or visible shop title.
+        target: &'a str,
+        /// Stable list slug.
+        slug: &'a str,
+    },
+    /// List the current player's shop mailing-list subscriptions.
+    ShopMailingListSubscriptions,
     /// Persist a same-view say message and emit live delivery events.
     Say {
         /// Current room view id.

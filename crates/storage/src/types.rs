@@ -2,7 +2,7 @@
 
 use hinemos_core::{
     ADMISSION_STATE_AGREED, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT,
-    PlayerState, role_card_name_is_valid,
+    PlayerState, SHOP_MAILING_LIST_STATUS_OPEN, role_card_name_is_valid,
 };
 use serde_json::Value;
 
@@ -336,6 +336,8 @@ pub struct StoredRoomBinding {
     pub parcel_operator_prompt: Option<String>,
     /// Parcel custom command help when this binding comes from a commercial parcel.
     pub parcel_custom_commands: Option<String>,
+    /// Open mailing lists advertised by this commercial parcel.
+    pub parcel_mailing_lists: Vec<StoredShopMailingList>,
     /// Explicit enter aliases.
     pub enter_aliases: Vec<String>,
     /// Mailbox username for room-owned workflows.
@@ -389,6 +391,7 @@ impl StoredRoomBinding {
             parcel_style: parcel.style,
             parcel_operator_prompt: parcel.operator_prompt,
             parcel_custom_commands: parcel.custom_commands,
+            parcel_mailing_lists: Vec::new(),
             enter_aliases,
             room_user: parcel.room_user,
             room_player_id: parcel.room_player_id,
@@ -439,12 +442,23 @@ impl StoredRoomBinding {
             parcel_style: None,
             parcel_operator_prompt: None,
             parcel_custom_commands: None,
+            parcel_mailing_lists: Vec::new(),
             enter_aliases,
             room_user: Some(room.room_user),
             room_player_id: Some(room.room_player_id),
             owner_player_id: None,
             command_policy: StoredRoomCommandPolicy::ForwardListed(listed_commands),
         })
+    }
+
+    /// Returns this binding with commercial parcel mailing-list summaries attached.
+    #[must_use]
+    pub fn with_mailing_lists(mut self, lists: Vec<StoredShopMailingList>) -> Self {
+        self.parcel_mailing_lists = lists
+            .into_iter()
+            .filter(|list| list.status == SHOP_MAILING_LIST_STATUS_OPEN)
+            .collect();
+        self
     }
 }
 
@@ -502,6 +516,80 @@ pub struct StoredPaymentRequest {
     pub status: String,
     /// Ledger row id after payment.
     pub ledger_id: Option<i64>,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
+/// Stored shop mailing-list summary.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopMailingList {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the shop.
+    pub parcel_id: String,
+    /// Current owner player id captured when the list was created.
+    pub owner_player_id: String,
+    /// Stable list slug.
+    pub slug: String,
+    /// Player-facing title.
+    pub title: String,
+    /// List status: open or closed.
+    pub status: String,
+    /// Active subscriber count.
+    pub subscriber_count: i64,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
+/// Stored shop mailing-list subscriber row.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopMailingListSubscriber {
+    /// Subscriber username.
+    pub subscriber_user: String,
+    /// Subscriber player id.
+    pub subscriber_player_id: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
+/// Stored shop mailing-list subscription visible to a subscriber.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopMailingListSubscription {
+    /// Parcel id for the shop.
+    pub parcel_id: String,
+    /// Built shop title.
+    pub shop_title: Option<String>,
+    /// Stable list slug.
+    pub slug: String,
+    /// Mailing-list title.
+    pub list_title: String,
+    /// Subscription status.
+    pub status: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
+/// Stored shop mailing-list post.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopMailingListPost {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the shop.
+    pub parcel_id: String,
+    /// Stable list slug.
+    pub slug: String,
+    /// Mailing-list title.
+    pub list_title: String,
+    /// Sender username.
+    pub sender_user: String,
+    /// Sender player id.
+    pub sender_player_id: String,
+    /// Inbox subject.
+    pub subject: String,
+    /// Inbox body.
+    pub body: String,
+    /// Number of active subscribers resolved at send time.
+    pub recipient_count: i64,
     /// Database formatted creation time.
     pub created_at: String,
 }

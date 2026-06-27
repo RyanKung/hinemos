@@ -80,5 +80,48 @@ pub(super) fn shop_request(action: &ShopAction) -> AppRequest<'_> {
             amount: *amount,
             delivery,
         },
+        ShopAction::MailingList { action } => match action {
+            ShopMailingListAction::Create {
+                parcel_id,
+                slug,
+                title,
+            } => AppRequest::ShopMailingListCreate {
+                parcel_id,
+                slug,
+                title,
+            },
+            ShopMailingListAction::List { parcel_id } => {
+                AppRequest::ShopMailingListList { parcel_id }
+            }
+            ShopMailingListAction::Subscribers { parcel_id, slug } => {
+                AppRequest::ShopMailingListSubscribers { parcel_id, slug }
+            }
+            ShopMailingListAction::Send {
+                parcel_id,
+                slug,
+                subject,
+                body,
+            } => AppRequest::ShopMailingListSend {
+                parcel_id,
+                slug,
+                subject,
+                body,
+            },
+            ShopMailingListAction::Close { parcel_id, slug } => {
+                AppRequest::ShopMailingListClose { parcel_id, slug }
+            }
+        },
+    }
+}
+
+pub(super) fn subscription_request(action: &SubscriptionAction) -> AppRequest<'_> {
+    match action {
+        SubscriptionAction::Subscribe { target, slug } => {
+            AppRequest::ShopMailingListSubscribe { target, slug }
+        }
+        SubscriptionAction::Unsubscribe { target, slug } => {
+            AppRequest::ShopMailingListUnsubscribe { target, slug }
+        }
+        SubscriptionAction::List => AppRequest::ShopMailingListSubscriptions,
     }
 }

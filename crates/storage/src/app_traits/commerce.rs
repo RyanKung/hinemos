@@ -210,6 +210,108 @@ impl PaymentRequestView for StoredPaymentRequest {
     }
 }
 
+impl FromMailingListValidation for StorageError {
+    fn invalid_mailing_list(message: &str) -> Self {
+        Self::InvalidMailingList(message.to_owned())
+    }
+}
+
+impl ShopMailingListView for StoredShopMailingList {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn subscriber_count(&self) -> i64 {
+        self.subscriber_count
+    }
+
+    fn created_at(&self) -> &str {
+        &self.created_at
+    }
+}
+
+impl ShopMailingListSubscriberView for StoredShopMailingListSubscriber {
+    fn subscriber_user(&self) -> &str {
+        &self.subscriber_user
+    }
+
+    fn subscriber_player_id(&self) -> &str {
+        &self.subscriber_player_id
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+}
+
+impl ShopMailingListSubscriptionView for StoredShopMailingListSubscription {
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn shop_title(&self) -> Option<&str> {
+        self.shop_title.as_deref()
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn list_title(&self) -> &str {
+        &self.list_title
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+}
+
+impl ShopMailingListPostView for StoredShopMailingListPost {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn list_title(&self) -> &str {
+        &self.list_title
+    }
+
+    fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    fn recipient_count(&self) -> i64 {
+        self.recipient_count
+    }
+}
+
 impl LandStore for PgStorage {
     type Error = StorageError;
     type Parcel = StoredParcel;
@@ -276,6 +378,10 @@ impl ShopStore for PgStorage {
     type PaymentRequest = StoredPaymentRequest;
     type InboxItem = StoredInboxItem;
     type OperatorCommand = StoredOperatorCommand;
+    type MailingList = StoredShopMailingList;
+    type MailingListSubscriber = StoredShopMailingListSubscriber;
+    type MailingListSubscription = StoredShopMailingListSubscription;
+    type MailingListPost = StoredShopMailingListPost;
 
     async fn save_operator_command<P>(
         &self,
@@ -331,6 +437,106 @@ impl ShopStore for PgStorage {
         source_id: i64,
     ) -> Result<Self::InboxItem, Self::Error> {
         PgStorage::inbox_item_by_source(self, recipient_player_id, source_kind, source_id).await
+    }
+
+    async fn create_shop_mailing_list(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<Self::MailingList, Self::Error> {
+        PgStorage::create_shop_mailing_list(self, parcel_id, owner_player_id, slug, title).await
+    }
+
+    async fn shop_mailing_lists(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::MailingList>, Self::Error> {
+        PgStorage::shop_mailing_lists(self, parcel_id, owner_player_id).await
+    }
+
+    async fn shop_mailing_list_subscribers(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        limit: i64,
+    ) -> Result<ShopMailingListSubscriberPage<Self::MailingListSubscriber>, Self::Error> {
+        PgStorage::shop_mailing_list_subscribers(self, parcel_id, slug, owner_player_id, limit)
+            .await
+    }
+
+    async fn close_shop_mailing_list(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+    ) -> Result<Self::MailingList, Self::Error> {
+        PgStorage::close_shop_mailing_list(self, parcel_id, slug, owner_player_id).await
+    }
+
+    async fn subscribe_shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+        subscriber_user: &str,
+        subscriber_player_id: &str,
+    ) -> Result<Self::MailingListSubscription, Self::Error> {
+        PgStorage::subscribe_shop_mailing_list(
+            self,
+            target,
+            slug,
+            subscriber_user,
+            subscriber_player_id,
+        )
+        .await
+    }
+
+    async fn unsubscribe_shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+        subscriber_user: &str,
+        subscriber_player_id: &str,
+    ) -> Result<Self::MailingListSubscription, Self::Error> {
+        PgStorage::unsubscribe_shop_mailing_list(
+            self,
+            target,
+            slug,
+            subscriber_user,
+            subscriber_player_id,
+        )
+        .await
+    }
+
+    async fn shop_mailing_list_subscriptions(
+        &self,
+        subscriber_player_id: &str,
+    ) -> Result<Vec<Self::MailingListSubscription>, Self::Error> {
+        PgStorage::shop_mailing_list_subscriptions(self, subscriber_player_id).await
+    }
+
+    async fn send_shop_mailing_list_post(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        sender_user: &str,
+        sender_player_id: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error> {
+        PgStorage::send_shop_mailing_list_post(
+            self,
+            parcel_id,
+            slug,
+            sender_user,
+            sender_player_id,
+            subject,
+            body,
+        )
+        .await
     }
 }
 

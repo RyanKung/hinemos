@@ -1,5 +1,17 @@
 use crate::{InboxItemView, MailAuthTokenView, OperatorCommandView};
 
+/// Error adapter for app-level mailing-list validation.
+pub trait FromMailingListValidation {
+    /// Builds an invalid mailing-list error.
+    fn invalid_mailing_list(message: &str) -> Self;
+}
+
+impl FromMailingListValidation for std::convert::Infallible {
+    fn invalid_mailing_list(_message: &str) -> Self {
+        unreachable!("infallible test stores do not reject mailing-list validation")
+    }
+}
+
 /// Storage boundary for commercial parcel lookup.
 pub trait ParcelStore {
     /// Store error type.
@@ -180,6 +192,108 @@ pub trait PaymentRequestView {
     fn delivery(&self) -> &str;
 }
 
+/// Protocol-neutral view of a shop mailing list.
+pub trait ShopMailingListView {
+    /// Mailing-list id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable list slug.
+    fn slug(&self) -> &str;
+
+    /// Player-facing title.
+    fn title(&self) -> &str;
+
+    /// List status.
+    fn status(&self) -> &str;
+
+    /// Active subscriber count.
+    fn subscriber_count(&self) -> i64;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of a shop mailing-list subscriber.
+pub trait ShopMailingListSubscriberView {
+    /// Subscriber username.
+    fn subscriber_user(&self) -> &str;
+
+    /// Subscriber player id.
+    fn subscriber_player_id(&self) -> &str;
+
+    /// Last subscription update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of the current player's mailing-list subscription.
+pub trait ShopMailingListSubscriptionView {
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Shop title.
+    fn shop_title(&self) -> Option<&str>;
+
+    /// Stable list slug.
+    fn slug(&self) -> &str;
+
+    /// Mailing-list title.
+    fn list_title(&self) -> &str;
+
+    /// Subscription status.
+    fn status(&self) -> &str;
+
+    /// Last subscription update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of a mailing-list post.
+pub trait ShopMailingListPostView {
+    /// Post id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable list slug.
+    fn slug(&self) -> &str;
+
+    /// List title.
+    fn list_title(&self) -> &str;
+
+    /// Inbox subject.
+    fn subject(&self) -> &str;
+
+    /// Recipient count.
+    fn recipient_count(&self) -> i64;
+}
+
+/// Subscriber page for an owner mailing-list inspection.
+pub struct ShopMailingListSubscriberPage<S> {
+    /// Total active subscriber count.
+    pub total: i64,
+    /// Recent active subscribers.
+    pub subscribers: Vec<S>,
+}
+
+/// One inbox delivery created for a mailing-list post.
+pub struct ShopMailingListDelivery<I> {
+    /// Recipient player id for live notification routing.
+    pub recipient_player_id: String,
+    /// Inbox item created or reused for the recipient.
+    pub inbox_item: I,
+}
+
+/// Result from sending a mailing-list post.
+pub struct ShopMailingListSend<P, I> {
+    /// Stored post.
+    pub post: P,
+    /// Created or reused inbox deliveries.
+    pub deliveries: Vec<ShopMailingListDelivery<I>>,
+}
+
 /// Storage boundary for shop operator actions.
 pub trait ShopStore {
     /// Store error type.
@@ -192,6 +306,14 @@ pub trait ShopStore {
     type InboxItem: InboxItemView;
     /// Stored operator command type.
     type OperatorCommand: OperatorCommandView;
+    /// Stored shop mailing-list type.
+    type MailingList: ShopMailingListView;
+    /// Stored shop mailing-list subscriber type.
+    type MailingListSubscriber: ShopMailingListSubscriberView;
+    /// Stored shop mailing-list subscription type.
+    type MailingListSubscription: ShopMailingListSubscriptionView;
+    /// Stored shop mailing-list post type.
+    type MailingListPost: ShopMailingListPostView;
 
     /// Persists a visitor command for a shop operator.
     async fn save_operator_command<P>(
@@ -228,6 +350,74 @@ pub trait ShopStore {
         source_kind: &str,
         source_id: i64,
     ) -> Result<Self::InboxItem, Self::Error>;
+
+    /// Creates a mailing list for an owned shop parcel.
+    async fn create_shop_mailing_list(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<Self::MailingList, Self::Error>;
+
+    /// Lists mailing lists for an owned shop parcel.
+    async fn shop_mailing_lists(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::MailingList>, Self::Error>;
+
+    /// Lists recent active subscribers for an owned shop mailing list.
+    async fn shop_mailing_list_subscribers(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        limit: i64,
+    ) -> Result<ShopMailingListSubscriberPage<Self::MailingListSubscriber>, Self::Error>;
+
+    /// Closes an owned shop mailing list to new subscriptions.
+    async fn close_shop_mailing_list(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+    ) -> Result<Self::MailingList, Self::Error>;
+
+    /// Subscribes a player to an open shop mailing list.
+    async fn subscribe_shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+        subscriber_user: &str,
+        subscriber_player_id: &str,
+    ) -> Result<Self::MailingListSubscription, Self::Error>;
+
+    /// Unsubscribes a player from a shop mailing list.
+    async fn unsubscribe_shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+        subscriber_user: &str,
+        subscriber_player_id: &str,
+    ) -> Result<Self::MailingListSubscription, Self::Error>;
+
+    /// Lists active subscriptions for a player.
+    async fn shop_mailing_list_subscriptions(
+        &self,
+        subscriber_player_id: &str,
+    ) -> Result<Vec<Self::MailingListSubscription>, Self::Error>;
+
+    /// Sends one mailing-list post to all active subscribers.
+    async fn send_shop_mailing_list_post(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        sender_user: &str,
+        sender_player_id: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error>;
 }
 
 /// Storage boundary for payment actions.

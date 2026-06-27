@@ -367,6 +367,23 @@ fn inbox_context_line(item: &impl InboxItemView) -> Option<String> {
                     .and_then(serde_json::Value::as_i64)
             })
             .map(|request_id| format!("room reply to request #{request_id}")),
+        "shop_mailing_list_post" => {
+            let post_id = item.source_id().unwrap_or_else(|| item.id());
+            let list = item
+                .payload()
+                .and_then(|payload| payload.get("listSlug"))
+                .and_then(serde_json::Value::as_str);
+            let parcel = item
+                .payload()
+                .and_then(|payload| payload.get("parcelId"))
+                .and_then(serde_json::Value::as_str);
+            Some(match (parcel, list) {
+                (Some(parcel), Some(list)) => {
+                    format!("shop_mailing_list_post #{post_id} for {parcel}/{list}")
+                }
+                _ => format!("shop_mailing_list_post #{post_id}"),
+            })
+        }
         _ => None,
     }
 }

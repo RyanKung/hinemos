@@ -1,12 +1,14 @@
 use hinemos_app::{
     AccountSettingsView, AccountStore, AdmissionStore, AdmissionView, BalanceView, BuildStore,
-    InboxItemView, InboxStore, LandStore, MailAuthTokenView, MailDaemonStore, MailStore,
-    MemoryAtomView, MemoryEventView, MemoryStore, MessageStore, ParcelStore, ParcelView,
-    PaymentRequestView, PaymentStore, PlayerStateStore as AppPlayerStateStore, RecentPresenceUser,
-    RoleCardUpdate, RoomBindingEntryView, RoomBindingKindView, RoomCommandPolicyView,
-    RoomMailboxView, RoomRegistrationStore, RoomStore, SelfModelView,
-    ServiceRoomRegistrationUpsert, ServiceRoomView, ShopStore, SocialEdgeView, TransferView,
-    ViewPresenceStore, WorldMessageView,
+    FromMailingListValidation, InboxItemView, InboxStore, LandStore, MailAuthTokenView,
+    MailDaemonStore, MailStore, MemoryAtomView, MemoryEventView, MemoryStore, MessageStore,
+    ParcelStore, ParcelView, PaymentRequestView, PaymentStore,
+    PlayerStateStore as AppPlayerStateStore, RecentPresenceUser, RoleCardUpdate,
+    RoomBindingEntryView, RoomBindingKindView, RoomCommandPolicyView, RoomMailboxView,
+    RoomRegistrationStore, RoomStore, SelfModelView, ServiceRoomRegistrationUpsert,
+    ServiceRoomView, ShopMailingListPostView, ShopMailingListSend, ShopMailingListSubscriberPage,
+    ShopMailingListSubscriberView, ShopMailingListSubscriptionView, ShopMailingListView, ShopStore,
+    SocialEdgeView, TransferView, ViewPresenceStore, WorldMessageView,
 };
 use serde_json::Value;
 use std::future::Future;
@@ -16,8 +18,9 @@ use crate::{
     PgStorage, ServiceRoomUpsert, StorageError, StoredAccountSettings, StoredAdmission,
     StoredAgentSelfModel, StoredBalance, StoredInboxItem, StoredMailAuthToken, StoredMemoryAtom,
     StoredMemoryEvent, StoredOperatorCommand, StoredParcel, StoredPaymentRequest,
-    StoredRoomBinding, StoredRoomCommandPolicy, StoredServiceRoom, StoredSocialEdge,
-    StoredTransfer, StoredWorldMessage,
+    StoredRoomBinding, StoredRoomCommandPolicy, StoredServiceRoom, StoredShopMailingList,
+    StoredShopMailingListPost, StoredShopMailingListSubscriber, StoredShopMailingListSubscription,
+    StoredSocialEdge, StoredTransfer, StoredWorldMessage,
 };
 
 mod commerce;

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use hinemos_core::{
     ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef, Gender,
     InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand, SettingsAction,
+    ShopAction, ShopMailingListAction, SubscriptionAction,
 };
 
 use super::{Chrome, SlashParseError, render_text_observation};
@@ -254,6 +255,128 @@ fn slash_parser_accepts_inbox_actions() {
         command,
         SemanticCommand::Inbox {
             action: InboxAction::Claim { item_id: 42 }
+        }
+    );
+}
+
+#[test]
+fn slash_parser_accepts_shop_mailing_list_actions() {
+    let chrome = Chrome::with_aliases(HashMap::new());
+
+    assert_eq!(
+        chrome
+            .parse_command("/shop mailing-list create N1 updates Shop Updates")
+            .expect("mailing-list create parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::MailingList {
+                action: ShopMailingListAction::Create {
+                    parcel_id: "N1".to_owned(),
+                    slug: "updates".to_owned(),
+                    title: "Shop Updates".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop mailing-list send N1 updates Weekly Deal -- Body keeps -- text")
+            .expect("mailing-list send parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::MailingList {
+                action: ShopMailingListAction::Send {
+                    parcel_id: "N1".to_owned(),
+                    slug: "updates".to_owned(),
+                    subject: "Weekly Deal".to_owned(),
+                    body: "Body keeps -- text".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop mailing-list create N1 n Tiny List")
+            .expect("mailing-list create with short slug parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::MailingList {
+                action: ShopMailingListAction::Create {
+                    parcel_id: "N1".to_owned(),
+                    slug: "n".to_owned(),
+                    title: "Tiny List".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop mailing-list send N1 n Hello -- Body")
+            .expect("mailing-list send with short slug parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::MailingList {
+                action: ShopMailingListAction::Send {
+                    parcel_id: "N1".to_owned(),
+                    slug: "n".to_owned(),
+                    subject: "Hello".to_owned(),
+                    body: "Body".to_owned()
+                }
+            }
+        }
+    );
+}
+
+#[test]
+fn slash_parser_accepts_shop_subscription_actions() {
+    let chrome = Chrome::with_aliases(HashMap::new());
+
+    assert_eq!(
+        chrome
+            .parse_command("/subscribe N1 updates")
+            .expect("subscribe parses"),
+        SemanticCommand::Subscription {
+            action: SubscriptionAction::Subscribe {
+                target: "N1".to_owned(),
+                slug: "updates".to_owned()
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/unsubscribe N1 updates")
+            .expect("unsubscribe parses"),
+        SemanticCommand::Subscription {
+            action: SubscriptionAction::Unsubscribe {
+                target: "N1".to_owned(),
+                slug: "updates".to_owned()
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/subscriptions")
+            .expect("subscriptions parses"),
+        SemanticCommand::Subscription {
+            action: SubscriptionAction::List
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/subscribe Offline Tool Broker updates")
+            .expect("subscribe with shop title parses"),
+        SemanticCommand::Subscription {
+            action: SubscriptionAction::Subscribe {
+                target: "Offline Tool Broker".to_owned(),
+                slug: "updates".to_owned()
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/unsubscribe Offline Tool Broker updates")
+            .expect("unsubscribe with shop title parses"),
+        SemanticCommand::Subscription {
+            action: SubscriptionAction::Unsubscribe {
+                target: "Offline Tool Broker".to_owned(),
+                slug: "updates".to_owned()
+            }
         }
     );
 }
