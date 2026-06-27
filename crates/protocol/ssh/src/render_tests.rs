@@ -1,10 +1,12 @@
 use hinemos_core::{
     ActionKind, DEFAULT_ADMISSION_VIEW_ID, EntityKind, EntityObservation, JsonObservation,
+    PARCEL_STATUS_BUILT, SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_STATUS_OPEN,
+    SemanticCommand, SubscriptionAction,
 };
 use hinemos_runtime::render_text_observation;
 use hinemos_storage::{
     INBOX_STATUS_UNREAD, StoredInboxItem, StoredParcel, StoredRoomBinding, StoredRoomBindingKind,
-    StoredRoomCommandPolicy,
+    StoredRoomCommandPolicy, StoredShopMailingList,
 };
 
 use super::{
@@ -185,6 +187,88 @@ fn built_parcel_replaces_static_ascii_title_with_shop_title() {
     assert!(rendered.contains("Shop commands: /hello - hello, price 25"));
     assert!(!rendered.contains("Custom commands: /hello preview=hello price=25"));
     assert!(!rendered.contains("NORTH COMMERCIAL PARCEL 01"));
+}
+
+#[test]
+fn built_parcel_advertises_only_open_mailing_lists() {
+    let mut observation = JsonObservation {
+        player_id: "player".to_owned(),
+        view_id: "north_parcel_01".to_owned(),
+        title: "North Commercial Parcel 01".to_owned(),
+        ascii_art: Vec::new(),
+        description: "Static parcel description.".to_owned(),
+        exits: Vec::new(),
+        entities: Vec::new(),
+        online_users: Vec::new(),
+        available_commands: Vec::new(),
+        events: Vec::new(),
+    };
+    let parcel = StoredParcel {
+        parcel_id: "north_01".to_owned(),
+        view_id: "north_parcel_01".to_owned(),
+        front_view_id: "street_north_01".to_owned(),
+        district: "north".to_owned(),
+        position: 1,
+        owner_user: Some("mainiu".to_owned()),
+        owner_player_id: Some("player".to_owned()),
+        room_user: Some("room-north_01".to_owned()),
+        room_player_id: Some("room:north_01".to_owned()),
+        status: PARCEL_STATUS_BUILT.to_owned(),
+        title: Some("Offline Tool Broker".to_owned()),
+        description: Some("Simple tools.".to_owned()),
+        style: Some("ledger".to_owned()),
+        operator_prompt: Some("reply tersely".to_owned()),
+        custom_commands: None,
+    };
+    let mut binding = StoredRoomBinding::from_parcel(parcel);
+    binding.parcel_mailing_lists = vec![
+        StoredShopMailingList {
+            id: 1,
+            parcel_id: "north_01".to_owned(),
+            owner_player_id: "player".to_owned(),
+            slug: "updates".to_owned(),
+            title: "Shop Updates".to_owned(),
+            status: SHOP_MAILING_LIST_STATUS_OPEN.to_owned(),
+            subscriber_count: 0,
+            created_at: "2026-06-27 00:00:00 UTC".to_owned(),
+        },
+        StoredShopMailingList {
+            id: 2,
+            parcel_id: "north_01".to_owned(),
+            owner_player_id: "player".to_owned(),
+            slug: "archive".to_owned(),
+            title: "Old News".to_owned(),
+            status: SHOP_MAILING_LIST_STATUS_CLOSED.to_owned(),
+            subscriber_count: 0,
+            created_at: "2026-06-27 00:00:00 UTC".to_owned(),
+        },
+    ];
+
+    overlay_parcel_observation(&mut observation, &binding);
+    let rendered = render_text_observation(&observation);
+
+    assert!(rendered.contains("Shop Updates (updates) subscribe: /subscribe north_01 updates"));
+    assert!(!rendered.contains("Old News"));
+    assert!(
+        observation
+            .available_commands
+            .contains(&SemanticCommand::Subscription {
+                action: SubscriptionAction::Subscribe {
+                    target: "north_01".to_owned(),
+                    slug: "updates".to_owned(),
+                }
+            })
+    );
+    assert!(
+        !observation
+            .available_commands
+            .contains(&SemanticCommand::Subscription {
+                action: SubscriptionAction::Subscribe {
+                    target: "north_01".to_owned(),
+                    slug: "archive".to_owned(),
+                }
+            })
+    );
 }
 
 #[test]

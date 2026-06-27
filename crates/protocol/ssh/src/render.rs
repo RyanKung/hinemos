@@ -8,8 +8,8 @@ mod render_tests;
 
 use anyhow::Result;
 use hinemos_core::{
-    JsonObservation, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, SemanticCommand,
-    SubscriptionAction,
+    JsonObservation, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, SHOP_MAILING_LIST_STATUS_OPEN,
+    SemanticCommand, SubscriptionAction,
 };
 use hinemos_runtime::{Chrome, render_text_events, render_text_observation_with_width};
 use hinemos_storage::{StoredInboxItem, StoredRoomBinding};
@@ -204,7 +204,7 @@ pub(crate) fn overlay_parcel_observation(
                 }));
             observation
                 .available_commands
-                .extend(binding.parcel_mailing_lists.iter().map(|list| {
+                .extend(open_shop_mailing_lists(binding).map(|list| {
                     SemanticCommand::Subscription {
                         action: SubscriptionAction::Subscribe {
                             target: binding.address.clone(),
@@ -352,9 +352,7 @@ fn format_shop_commands(binding: &StoredRoomBinding) -> Option<String> {
 }
 
 fn format_shop_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
-    let rendered = binding
-        .parcel_mailing_lists
-        .iter()
+    let rendered = open_shop_mailing_lists(binding)
         .map(|list| {
             format!(
                 "{} ({}) subscribe: /subscribe {} {}",
@@ -363,6 +361,15 @@ fn format_shop_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
         })
         .collect::<Vec<_>>();
     (!rendered.is_empty()).then(|| rendered.join("; "))
+}
+
+fn open_shop_mailing_lists(
+    binding: &StoredRoomBinding,
+) -> impl Iterator<Item = &hinemos_storage::StoredShopMailingList> {
+    binding
+        .parcel_mailing_lists
+        .iter()
+        .filter(|list| list.status == SHOP_MAILING_LIST_STATUS_OPEN)
 }
 
 fn format_shop_command_entry(entry: &str) -> Option<String> {
