@@ -67,7 +67,7 @@ fn commercial_parcel_input_routes_through_app() {
             events,
             vec![
                 UiEvent::Text(
-                    "Shop request #1 sent to owner owner for parcel parcel.\r\nStatus: delivered.\r\nPreview: hello\r\n"
+                    "Shop request #1 sent to owner owner for parcel parcel.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\nPreview: hello\r\n"
                         .to_owned()
                 ),
                 UiEvent::LiveInboxNotice {

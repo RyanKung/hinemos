@@ -92,7 +92,7 @@ fn assert_pending_admission_output(stdout: &str, test_database: &TestDatabase, u
     assert_contains(stdout, "Admission pending", "new users start pending");
     assert_contains(
         stdout,
-        "Read the board agreement first: /read agreement",
+        "Read the admission agreement first: /read agreement",
         "pending users are told to read agreement",
     );
     assert_not_contains(

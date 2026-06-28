@@ -50,7 +50,7 @@ where
     pub fn admission_guidance(&self, admission: &impl AdmissionView) -> String {
         let mut steps = Vec::new();
         if !admission.has_read_version(&self.config.agreement_version) {
-            steps.push("Read the board agreement first: /read agreement");
+            steps.push("Read the admission agreement first: /read agreement");
         }
         if !admission.role_card_name_is_valid() {
             steps.push("Choose a valid role-card name: /settings name <name>");

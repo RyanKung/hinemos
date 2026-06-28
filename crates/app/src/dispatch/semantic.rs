@@ -92,11 +92,17 @@ where
                     .store
                     .room_bindings_by_front_view(context.current_view)
                     .await?;
-                return Ok(self.visible_room_enter_events(
+                if let Some(events) =
+                    self.visible_room_enter_events(target, context.visible_entity_ids, &bindings)
+                {
+                    return Ok(Some(events));
+                }
+                return Ok(Some(self.unavailable_room_enter_events(
                     target,
+                    context.current_title,
                     context.visible_entity_ids,
                     &bindings,
-                ));
+                )));
             }
             SemanticCommand::Inventory
             | SemanticCommand::History

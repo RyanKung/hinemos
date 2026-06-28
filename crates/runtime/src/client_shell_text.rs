@@ -372,18 +372,33 @@ fn push_target_commands<'a>(
     target_for: impl Fn(&'a SemanticCommand) -> Option<&'a str>,
     parts: &mut Vec<String>,
 ) {
-    let commands = observation
+    let targets = observation
         .available_commands
         .iter()
-        .filter_map(|command| target_for(command).map(|target| format!("/{verb} {target}")))
+        .filter_map(target_for)
         .collect::<Vec<_>>();
-    if !commands.is_empty() {
-        if verb == "read" && commands.len() == 1 {
-            parts.push(format!("{verb}: /read"));
-        } else {
+    if targets.is_empty() {
+        return;
+    }
+    match (verb, targets.as_slice()) {
+        ("read", [_]) if observation_is_pending_admission(observation) => {
+            parts.push("read: /read agreement".to_owned());
+        }
+        ("read", [_]) => {
+            parts.push("read: /read".to_owned());
+        }
+        _ => {
+            let commands = targets
+                .iter()
+                .map(|target| format!("/{verb} {target}"))
+                .collect::<Vec<_>>();
             parts.push(format!("{verb}: {}", commands.join(", ")));
         }
     }
+}
+
+fn observation_is_pending_admission(observation: &JsonObservation) -> bool {
+    observation.description.contains("Admission pending")
 }
 
 fn highlight_ascii_markers(line: &str) -> String {

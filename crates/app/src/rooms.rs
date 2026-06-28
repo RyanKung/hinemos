@@ -60,6 +60,39 @@ impl<S> AppService<S> {
         ])
     }
 
+    /// Builds a local error for an `/enter` target that is not visible here.
+    #[must_use]
+    pub fn unavailable_room_enter_events(
+        &self,
+        target: &str,
+        current_title: &str,
+        visible_entity_ids: &[String],
+        bindings: &[impl RoomBindingEntryView],
+    ) -> Vec<UiEvent> {
+        let available = bindings
+            .iter()
+            .filter(|binding| self.room_binding_is_visible(*binding, visible_entity_ids))
+            .map(|binding| format!("/enter {}", binding.address()))
+            .collect::<Vec<_>>();
+        let trimmed_target = target.trim();
+        let target_label = if trimmed_target.is_empty() {
+            "that place"
+        } else {
+            trimmed_target
+        };
+        let text = if available.is_empty() {
+            format!(
+                "No entrance named {target_label} is visible from {current_title}. Move with /go until the place appears in Available.\r\n"
+            )
+        } else {
+            format!(
+                "No entrance named {target_label} is visible from {current_title}. Available entrances here: {}.\r\n",
+                available.join(", ")
+            )
+        };
+        vec![UiEvent::Text(text)]
+    }
+
     /// Returns true when a room binding forwards the given raw input line.
     #[must_use]
     pub fn room_binding_accepts_input(
@@ -267,8 +300,9 @@ where
             .await?;
         Ok(RoomInputResult {
             text: format!(
-                "Sent to room service {} (request #{}). Replies arrive in your mailbox.\r\n",
+                "Sent to room service {} (request #{}). Replies arrive in your mailbox with subject Re: #{}; use /mailbox, then /mail read <inbox-id> for that reply.\r\n",
                 mailbox.room_user().unwrap_or("unknown"),
+                inbox_item.id(),
                 inbox_item.id()
             ),
             inbox_item,

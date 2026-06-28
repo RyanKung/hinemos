@@ -154,6 +154,56 @@ fn visible_room_enter_events_returns_none_when_no_visible_binding_matches() {
 }
 
 #[test]
+fn unavailable_room_enter_events_explain_current_visible_entrances() {
+    let app = AppService::new(TestRoomStore { service_room: None });
+    let bindings = vec![TestRoomBinding {
+        view_id: "workers_room",
+        front_entity_id: Some("workers_front"),
+        address: "H3",
+        label: "Workers Society",
+        enter_aliases: vec!["workers".to_owned()],
+    }];
+    let visible_entity_ids = vec!["workers_front".to_owned()];
+
+    let events = app.unavailable_room_enter_events(
+        "bank",
+        "East Hinemos Blvd",
+        &visible_entity_ids,
+        &bindings,
+    );
+
+    assert_eq!(
+        events,
+        vec![UiEvent::Text(
+            "No entrance named bank is visible from East Hinemos Blvd. Available entrances here: /enter H3.\r\n"
+                .to_owned()
+        )]
+    );
+}
+
+#[test]
+fn unavailable_room_enter_events_explain_when_no_entrances_are_visible() {
+    let app = AppService::new(TestRoomStore { service_room: None });
+    let bindings = Vec::<TestRoomBinding>::new();
+    let visible_entity_ids = Vec::<String>::new();
+
+    let events = app.unavailable_room_enter_events(
+        "workers",
+        "Harbor Square",
+        &visible_entity_ids,
+        &bindings,
+    );
+
+    assert_eq!(
+        events,
+        vec![UiEvent::Text(
+            "No entrance named workers is visible from Harbor Square. Move with /go until the place appears in Available.\r\n"
+                .to_owned()
+        )]
+    );
+}
+
+#[test]
 fn room_binding_accepts_input_honors_forward_all_and_prefix_matching() {
     struct ForwardAllBinding;
 
@@ -254,7 +304,7 @@ fn service_room_command_for_binding_say_routes_through_app() {
             events,
             vec![
                 UiEvent::Text(
-                    "You say: hello\r\nSent to room service room-user (request #17). Replies arrive in your mailbox.\r\n"
+                    "You say: hello\r\nSent to room service room-user (request #17). Replies arrive in your mailbox with subject Re: #17; use /mailbox, then /mail read <inbox-id> for that reply.\r\n"
                         .to_owned()
                 ),
                 UiEvent::LiveViewMessage {
