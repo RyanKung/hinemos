@@ -275,10 +275,10 @@ impl PgStorage {
         Ok(rows)
     }
 
-    /// Sends one mailing-list post to all active subscribers.
+    /// Sends one mailing-list post to all active shop-chat members.
     pub async fn send_shop_mailing_list_post(
         &self,
-        parcel_id: &str,
+        target: &str,
         slug: &str,
         sender_user: &str,
         sender_player_id: &str,
@@ -288,9 +288,21 @@ impl PgStorage {
         validate_slug(slug)?;
         validate_subject(subject)?;
         validate_body(body)?;
-        let list = self
-            .owned_shop_mailing_list(parcel_id, slug, sender_player_id)
+        let list = self.resolve_shop_mailing_list(target, slug).await?;
+        let parcel = fetch_parcel_by_id(&self.pool, &list.parcel_id).await?;
+        let sender_has_subscription = self
+            .active_subscription_exists(list.id, sender_player_id)
             .await?;
+        if !sender_can_post_to_shop_chat(
+            parcel.owner_player_id.as_deref(),
+            sender_player_id,
+            sender_has_subscription,
+        ) {
+            return Err(StorageError::MailingListNotMember {
+                parcel_id: list.parcel_id,
+                slug: list.slug,
+            });
+        }
         let recipients = self.active_subscription_recipients(list.id).await?;
         let recipient_count = i64::try_from(recipients.len()).map_err(|_| {
             StorageError::InvalidMailingList("subscriber count exceeds supported range".to_owned())
@@ -370,8 +382,15 @@ impl PgStorage {
         let mut deliveries = Vec::with_capacity(recipients.len());
         for recipient in recipients {
             let body = format!(
-                "[{} / {}]\n{}\n\nUnsubscribe: /unsubscribe {} {}",
-                post.parcel_id, post.list_title, post.body, post.parcel_id, post.slug
+                "[{} / {}]\nFrom: {}\n{}\n\nReply: /chat {} {} -- <message>\nUnsubscribe: /unsubscribe {} {}",
+                post.parcel_id,
+                post.list_title,
+                post.sender_user,
+                post.body,
+                post.parcel_id,
+                post.slug,
+                post.parcel_id,
+                post.slug
             );
             let inbox_item = self
                 .create_inbox_item(NewInboxItem {
@@ -669,4 +688,12 @@ fn validate_body(body: &str) -> Result<(), StorageError> {
             "invalid mailing-list body".to_owned(),
         ))
     }
+}
+
+fn sender_can_post_to_shop_chat(
+    current_owner_player_id: Option<&str>,
+    sender_player_id: &str,
+    sender_has_subscription: bool,
+) -> bool {
+    current_owner_player_id == Some(sender_player_id) || sender_has_subscription
 }

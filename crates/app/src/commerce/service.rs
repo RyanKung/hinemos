@@ -99,10 +99,12 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Created mailing list {} for parcel {}: {}.\r\nSubscribe command: /subscribe {} {}\r\n",
+                "Created shop chat {} for parcel {}: {}.\r\nJoin: /subscribe {} {}\r\nPost: /chat {} {} -- <message>\r\n",
                 list.slug(),
                 list.parcel_id(),
                 list.title(),
+                list.parcel_id(),
+                list.slug(),
                 list.parcel_id(),
                 list.slug()
             ),
@@ -159,7 +161,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Closed mailing list {} for parcel {}. Existing subscribers remain recorded and can unsubscribe.\r\n",
+                "Closed shop chat {} for parcel {}. Existing members remain recorded and can unsubscribe.\r\n",
                 list.slug(),
                 list.parcel_id()
             ),
@@ -180,10 +182,12 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Subscribed to {} ({}) at {}.\r\nUnsubscribe: /unsubscribe {} {}\r\n",
+                "Joined shop chat {} ({}) at {}.\r\nPost: /chat {} {} -- <message>\r\nUnsubscribe: /unsubscribe {} {}\r\n",
                 subscription.list_title(),
                 subscription.slug(),
                 subscription.parcel_id(),
+                subscription.parcel_id(),
+                subscription.slug(),
                 subscription.parcel_id(),
                 subscription.slug()
             ),
@@ -204,7 +208,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Unsubscribed from {} ({}) at {}.\r\n",
+                "Left shop chat {} ({}) at {}.\r\n",
                 subscription.list_title(),
                 subscription.slug(),
                 subscription.parcel_id()
@@ -226,10 +230,10 @@ where
         })
     }
 
-    /// Sends a mailing-list post to all current active subscribers.
+    /// Sends an owner-authored mailing-list post to all current active members.
     pub async fn send_shop_mailing_list_post(
         &self,
-        parcel_id: &str,
+        target: &str,
         slug: &str,
         sender_user: &str,
         sender_player_id: &str,
@@ -240,12 +244,29 @@ where
         validate_mailing_list_subject(subject)?;
         validate_mailing_list_body(body)?;
         self.store
+            .send_shop_mailing_list_post(target, slug, sender_user, sender_player_id, subject, body)
+            .await
+    }
+
+    /// Posts a group-chat message to a shop mailing list.
+    pub async fn post_shop_mailing_list_chat(
+        &self,
+        target: &str,
+        slug: &str,
+        sender_user: &str,
+        sender_player_id: &str,
+        body: &str,
+    ) -> Result<super::contracts::ShopMailingListSend<S::MailingListPost, S::InboxItem>, E> {
+        validate_mailing_list_slug(slug)?;
+        validate_mailing_list_body(body)?;
+        let subject = format!("Shop chat: {slug}");
+        self.store
             .send_shop_mailing_list_post(
-                parcel_id,
+                target,
                 slug,
                 sender_user,
                 sender_player_id,
-                subject,
+                &subject,
                 body,
             )
             .await
@@ -510,21 +531,23 @@ where
 }
 
 fn render_shop_mailing_lists(parcel_id: &str, lists: &[impl ShopMailingListView]) -> String {
-    let mut lines = vec![format!("Mailing Lists for {parcel_id}")];
+    let mut lines = vec![format!("Shop Chats for {parcel_id}")];
     if lists.is_empty() {
         lines.push(
-            "No mailing lists. Create one with /shop mailing-list create <parcel> <slug> <title>."
+            "No shop chats. Create one with /shop mailing-list create <parcel> <slug> <title>."
                 .to_owned(),
         );
     } else {
         for list in lists {
             lines.push(format!(
-                "- {} [{}] {} subscribers={} created={}. Subscribe: /subscribe {} {}",
+                "- {} [{}] {} members={} created={}. Join: /subscribe {} {}. Post: /chat {} {} -- <message>",
                 list.slug(),
                 list.status(),
                 list.title(),
                 list.subscriber_count(),
                 list.created_at(),
+                list.parcel_id(),
+                list.slug(),
                 list.parcel_id(),
                 list.slug()
             ));
@@ -541,10 +564,10 @@ fn render_shop_mailing_list_subscribers(
     subscribers: &[impl ShopMailingListSubscriberView],
 ) -> String {
     let mut lines = vec![format!(
-        "Mailing List Subscribers for {parcel_id} {slug}: {total} active"
+        "Shop Chat Members for {parcel_id} {slug}: {total} active"
     )];
     if subscribers.is_empty() {
-        lines.push("No active subscribers.".to_owned());
+        lines.push("No active members.".to_owned());
     } else {
         for subscriber in subscribers {
             lines.push(format!(
@@ -562,21 +585,23 @@ fn render_shop_mailing_list_subscribers(
 fn render_shop_mailing_list_subscriptions(
     subscriptions: &[impl ShopMailingListSubscriptionView],
 ) -> String {
-    let mut lines = vec!["Shop Mailing List Subscriptions".to_owned()];
+    let mut lines = vec!["Shop Chat Memberships".to_owned()];
     if subscriptions.is_empty() {
-        lines.push("No active subscriptions.".to_owned());
+        lines.push("No active shop chats.".to_owned());
     } else {
         for subscription in subscriptions {
             let shop = subscription
                 .shop_title()
                 .unwrap_or(subscription.parcel_id());
             lines.push(format!(
-                "- {} / {} ({}) status={} updated={}. Unsubscribe: /unsubscribe {} {}",
+                "- {} / {} ({}) status={} updated={}. Post: /chat {} {} -- <message>. Unsubscribe: /unsubscribe {} {}",
                 shop,
                 subscription.list_title(),
                 subscription.slug(),
                 subscription.status(),
                 subscription.updated_at(),
+                subscription.parcel_id(),
+                subscription.slug(),
                 subscription.parcel_id(),
                 subscription.slug()
             ));

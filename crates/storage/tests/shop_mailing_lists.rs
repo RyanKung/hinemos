@@ -216,6 +216,45 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
         "1"
     );
 
+    assert!(matches!(
+        storage
+            .send_shop_mailing_list_post(
+                "N1",
+                "updates",
+                "late",
+                "player:late",
+                "Not Joined",
+                "Body"
+            )
+            .await,
+        Err(StorageError::MailingListNotMember { .. })
+    ));
+    let chat = storage
+        .send_shop_mailing_list_post(
+            "Offline Tool Broker",
+            "updates",
+            "customer",
+            "player:customer",
+            "Shop chat: updates",
+            "Hello from a member",
+        )
+        .await
+        .expect("member can post group chat");
+    assert_eq!(chat.post.recipient_count, 1);
+    assert_eq!(
+        db.query_value(
+            "select count(*)
+             from inbox_items
+             where kind = 'mail'
+               and source_kind = 'shop_mailing_list_post'
+               and sender_user = 'customer'
+               and subject = 'Shop chat: updates'
+               and body like '%Reply: /chat N1 updates -- <message>%'"
+        ),
+        "1",
+        "member chat delivery should include a reply command"
+    );
+
     storage
         .deliver_shop_mailing_list_post(sent.post.id)
         .await
@@ -323,7 +362,7 @@ async fn mailing_list_owner_permission_follows_current_parcel_owner() {
                 "Body"
             )
             .await,
-        Err(StorageError::NotParcelOwner(_))
+        Err(StorageError::MailingListNotMember { .. })
     ));
     let sent = storage
         .send_shop_mailing_list_post(

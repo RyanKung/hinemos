@@ -4,6 +4,12 @@ use std::path::Path;
 
 use common::*;
 
+#[derive(Clone, Copy)]
+struct SshAgent<'a> {
+    user: &'a str,
+    key: &'a Path,
+}
+
 #[test]
 fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     let root = workspace_root();
@@ -16,17 +22,35 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     let port = free_local_port();
     let owner = format!("owner_{}_{}", std::process::id(), epoch_seconds());
     let customer = format!("customer_{}_{}", std::process::id(), epoch_seconds());
+    let peer = format!("peer_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
 
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
     let owner_key = admitted_key(&temp, host, port, &owner);
     let customer_key = admitted_key(&temp, host, port, &customer);
+    let peer_key = admitted_key(&temp, host, port, &peer);
 
     assert_owner_shop_setup(host, port, &owner, &owner_key);
     assert_owner_mailing_list_setup(host, port, &owner, &owner_key);
     assert_customer_shop_visit(host, port, &customer, &customer_key);
-    assert_shop_mailing_list_flow(host, port, &owner, &owner_key, &customer, &customer_key);
+    assert_shop_mailing_list_flow(
+        &test_database,
+        host,
+        port,
+        SshAgent {
+            user: &owner,
+            key: &owner_key,
+        },
+        SshAgent {
+            user: &customer,
+            key: &customer_key,
+        },
+        SshAgent {
+            user: &peer,
+            key: &peer_key,
+        },
+    );
     assert_shop_badge_flow(host, port, &owner, &owner_key, &customer, &customer_key);
     assert_shop_mailbox_converged(&test_database);
     let request_id = request_shop_payment(host, port, &owner, &owner_key);
@@ -51,18 +75,18 @@ fn assert_owner_mailing_list_setup(host: &str, port: u16, owner: &str, owner_key
     );
     assert_contains(
         &owner_setup,
-        "Created mailing list updates for parcel N1: Shop Updates.",
-        "owner can create a shop mailing list",
+        "Created shop chat updates for parcel N1: Shop Updates.",
+        "owner can create a shop chat",
     );
     assert_contains(
         &owner_setup,
-        "Subscribe command: /subscribe N1 updates",
-        "create response gives subscriber command",
+        "Post: /chat N1 updates -- <message>",
+        "create response gives chat command",
     );
     assert_contains(
         &owner_setup,
-        "Mailing Lists for N1",
-        "owner can list shop mailing lists",
+        "Shop Chats for N1",
+        "owner can list shop chats",
     );
 }
 
@@ -193,8 +217,13 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
     assert_contains(
         &customer_visit,
-        "Mailing lists: Shop Updates (updates) subscribe: /subscribe N1 updates",
-        "customer sees the shop mailing list subscription command",
+        "Mailing lists: Shop Updates (updates) join: /subscribe N1 updates",
+        "customer sees the shop chat join command",
+    );
+    assert_contains(
+        &customer_visit,
+        "joining: /chat N1 updates -- <message>",
+        "customer sees the shop chat post command",
     );
     assert_contains(
         &customer_visit,
@@ -244,36 +273,54 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
 }
 
 fn assert_shop_mailing_list_flow(
+    test_database: &TestDatabase,
     host: &str,
     port: u16,
-    owner: &str,
-    owner_key: &Path,
-    customer: &str,
-    customer_key: &Path,
+    owner: SshAgent<'_>,
+    customer: SshAgent<'_>,
+    peer: SshAgent<'_>,
 ) {
     let customer_subscribe = run_ssh_batch_with_key(
         host,
         port,
-        customer,
-        customer_key,
+        customer.user,
+        customer.key,
         &["/subscribe N1 updates", "/subscriptions", "/quit"],
     );
     assert_contains(
         &customer_subscribe,
-        "Subscribed to Shop Updates (updates) at N1.",
+        "Joined shop chat Shop Updates (updates) at N1.",
         "customer can subscribe to the shop mailing list",
     );
     assert_contains(
         &customer_subscribe,
-        "Unsubscribe: /unsubscribe N1 updates",
-        "subscription list gives unsubscribe command",
+        "Post: /chat N1 updates -- <message>",
+        "subscription response gives chat command",
+    );
+
+    let peer_subscribe = run_ssh_batch_with_key(
+        host,
+        port,
+        peer.user,
+        peer.key,
+        &["/subscribe N1 updates", "/subscriptions", "/quit"],
+    );
+    assert_contains(
+        &peer_subscribe,
+        "Joined shop chat Shop Updates (updates) at N1.",
+        "peer can join the same shop chat",
+    );
+    assert_contains(
+        &peer_subscribe,
+        "Shop Chat Memberships",
+        "subscription list uses group-chat language",
     );
 
     let owner_send = run_ssh_batch_with_key(
         host,
         port,
-        owner,
-        owner_key,
+        owner.user,
+        owner.key,
         &[
             "/shop mailing-list subscribers N1 updates",
             "/shop mailing-list send N1 updates Weekly Deal -- Subscribers get first notice.",
@@ -282,22 +329,27 @@ fn assert_shop_mailing_list_flow(
     );
     assert_contains(
         &owner_send,
-        "Mailing List Subscribers for N1 updates: 1 active",
+        "Shop Chat Members for N1 updates: 2 active",
         "owner can inspect active subscriber count",
     );
     assert_contains(
         &owner_send,
-        "Sent mailing list post",
+        "Sent shop chat post",
         "owner can send a mailing-list post",
     );
     assert_contains(
         &owner_send,
-        "to 1 subscriber(s): Weekly Deal",
+        "to 2 member(s): Weekly Deal",
         "send response reports recipient count",
     );
 
-    let customer_mailbox =
-        run_ssh_batch_with_key(host, port, customer, customer_key, &["/mailbox", "/quit"]);
+    let customer_mailbox = run_ssh_batch_with_key(
+        host,
+        port,
+        customer.user,
+        customer.key,
+        &["/mailbox", "/quit"],
+    );
     assert_contains(
         &customer_mailbox,
         "Weekly Deal",
@@ -308,30 +360,94 @@ fn assert_shop_mailing_list_flow(
         "shop_mailing_list_post",
         "mailbox item keeps mailing-list source metadata",
     );
+    assert_contains(
+        &test_database.query_value(&format!(
+            "select count(*)
+             from inbox_items
+             where recipient_user = '{}'
+               and subject = 'Weekly Deal'
+               and body like '%Reply: /chat N1 updates -- <message>%'",
+            customer.user
+        )),
+        "1",
+        "mailing-list delivery carries group-chat reply command",
+    );
+
+    let customer_chat = run_ssh_batch_with_key(
+        host,
+        port,
+        customer.user,
+        customer.key,
+        &["/chat N1 updates -- I can vouch for this shop.", "/quit"],
+    );
+    assert_contains(
+        &customer_chat,
+        "Posted shop chat message",
+        "subscriber can post to the shop chat",
+    );
+
+    let peer_mailbox =
+        run_ssh_batch_with_key(host, port, peer.user, peer.key, &["/mailbox", "/quit"]);
+    assert_contains(
+        &peer_mailbox,
+        "Shop chat: updates",
+        "peer sees another member's shop chat subject",
+    );
+    assert_contains(
+        &peer_mailbox,
+        "from customer_",
+        "shop chat message preserves the member sender",
+    );
+    assert_contains(
+        &test_database.query_value(&format!(
+            "select count(*)
+             from inbox_items
+             where recipient_user = '{}'
+               and sender_user = '{}'
+               and subject = 'Shop chat: updates'
+               and body like '%I can vouch for this shop.%'",
+            peer.user, customer.user
+        )),
+        "1",
+        "peer receives another member's shop chat message",
+    );
 
     let customer_unsubscribe = run_ssh_batch_with_key(
         host,
         port,
-        customer,
-        customer_key,
+        customer.user,
+        customer.key,
         &["/unsubscribe N1 updates", "/subscriptions", "/quit"],
     );
     assert_contains(
         &customer_unsubscribe,
-        "Unsubscribed from Shop Updates (updates) at N1.",
+        "Left shop chat Shop Updates (updates) at N1.",
         "customer can unsubscribe",
     );
     assert_contains(
         &customer_unsubscribe,
-        "No active subscriptions.",
+        "No active shop chats.",
         "customer subscriptions list reflects unsubscribe",
+    );
+
+    let peer_unsubscribe = run_ssh_batch_with_key(
+        host,
+        port,
+        peer.user,
+        peer.key,
+        &["/unsubscribe N1 updates", "/subscriptions", "/quit"],
+    );
+    assert_contains(
+        &peer_unsubscribe,
+        "Left shop chat Shop Updates (updates) at N1.",
+        "peer can leave the shop chat",
     );
 
     let owner_send_after_unsubscribe = run_ssh_batch_with_key(
         host,
         port,
-        owner,
-        owner_key,
+        owner.user,
+        owner.key,
         &[
             "/shop mailing-list send N1 updates Hidden Deal -- No one should get this.",
             "/quit",
@@ -339,8 +455,8 @@ fn assert_shop_mailing_list_flow(
     );
     assert_contains(
         &owner_send_after_unsubscribe,
-        "mailing list has no active subscribers",
-        "send is blocked after the only subscriber leaves",
+        "shop chat has no active members",
+        "send is blocked after all members leave",
     );
 }
 

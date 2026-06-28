@@ -144,6 +144,11 @@ pub(super) enum ShopAppRequest<'a> {
         subject: &'a str,
         body: &'a str,
     },
+    MailingListChat {
+        target: &'a str,
+        slug: &'a str,
+        body: &'a str,
+    },
     MailingListClose {
         parcel_id: &'a str,
         slug: &'a str,
@@ -256,6 +261,7 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             | AppRequest::ShopMailingListList { .. }
             | AppRequest::ShopMailingListSubscribers { .. }
             | AppRequest::ShopMailingListSend { .. }
+            | AppRequest::ShopMailingListChat { .. }
             | AppRequest::ShopMailingListClose { .. }
             | AppRequest::ShopMailingListSubscribe { .. }
             | AppRequest::ShopMailingListUnsubscribe { .. }
@@ -467,6 +473,9 @@ fn route_shop(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
             subject,
             body,
         }),
+        AppRequest::ShopMailingListChat { target, slug, body } => {
+            RoutedAppRequest::Shop(ShopAppRequest::MailingListChat { target, slug, body })
+        }
         AppRequest::ShopMailingListClose { parcel_id, slug } => {
             RoutedAppRequest::Shop(ShopAppRequest::MailingListClose { parcel_id, slug })
         }

@@ -355,8 +355,8 @@ fn format_shop_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
     let rendered = open_shop_mailing_lists(binding)
         .map(|list| {
             format!(
-                "{} ({}) subscribe: /subscribe {} {}",
-                list.title, list.slug, binding.address, list.slug
+                "{} ({}) join: /subscribe {} {}; chat after joining: /chat {} {} -- <message>",
+                list.title, list.slug, binding.address, list.slug, binding.address, list.slug
             )
         })
         .collect::<Vec<_>>();

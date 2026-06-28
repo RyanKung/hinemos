@@ -694,6 +694,31 @@ pub(super) fn parse_unsubscribe_command<'a>(
     })
 }
 
+pub(super) fn parse_chat_command(trimmed: &str) -> Result<SemanticCommand, SlashParseError> {
+    let rest = rest_after_tokens(trimmed, 1)?;
+    let (target_and_slug, body) = rest
+        .split_once(" -- ")
+        .ok_or(SlashParseError::MissingArgument)?;
+    let body = body.trim();
+    if body.is_empty() {
+        return Err(SlashParseError::MissingArgument);
+    }
+    let parts = target_and_slug.split_whitespace().collect::<Vec<_>>();
+    let Some((slug, target_parts)) = parts.split_last() else {
+        return Err(SlashParseError::MissingArgument);
+    };
+    if target_parts.is_empty() {
+        return Err(SlashParseError::MissingArgument);
+    }
+    Ok(SemanticCommand::Subscription {
+        action: SubscriptionAction::Chat {
+            target: target_parts.join(" "),
+            slug: (*slug).to_owned(),
+            body: body.to_owned(),
+        },
+    })
+}
+
 fn subscription_target_and_slug<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<(String, String), SlashParseError> {

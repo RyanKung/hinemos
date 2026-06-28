@@ -163,6 +163,9 @@ pub(super) fn subscription_request(action: &SubscriptionAction) -> AppRequest<'_
         SubscriptionAction::Unsubscribe { target, slug } => {
             AppRequest::ShopMailingListUnsubscribe { target, slug }
         }
+        SubscriptionAction::Chat { target, slug, body } => {
+            AppRequest::ShopMailingListChat { target, slug, body }
+        }
         SubscriptionAction::List => AppRequest::ShopMailingListSubscriptions,
     }
 }

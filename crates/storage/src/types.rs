@@ -535,13 +535,13 @@ pub struct StoredShopMailingList {
     pub title: String,
     /// List status: open or closed.
     pub status: String,
-    /// Active subscriber count.
+    /// Active member count.
     pub subscriber_count: i64,
     /// Database formatted creation time.
     pub created_at: String,
 }
 
-/// Stored shop mailing-list subscriber row.
+/// Stored shop mailing-list member row.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopMailingListSubscriber {
     /// Subscriber username.
@@ -552,7 +552,7 @@ pub struct StoredShopMailingListSubscriber {
     pub updated_at: String,
 }
 
-/// Stored shop mailing-list subscription visible to a subscriber.
+/// Stored shop-chat membership visible to a member.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopMailingListSubscription {
     /// Parcel id for the shop.
@@ -588,7 +588,7 @@ pub struct StoredShopMailingListPost {
     pub subject: String,
     /// Inbox body.
     pub body: String,
-    /// Number of active subscribers resolved at send time.
+    /// Number of active members resolved at send time.
     pub recipient_count: i64,
     /// Database formatted creation time.
     pub created_at: String,

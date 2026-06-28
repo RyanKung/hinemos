@@ -156,7 +156,31 @@ where
                     )
                     .await?;
                 let mut events = vec![UiEvent::Text(format!(
-                    "Sent mailing list post #{} to {} subscriber(s): {}.\r\n",
+                    "Sent shop chat post #{} to {} member(s): {}.\r\n",
+                    result.post.id(),
+                    result.post.recipient_count(),
+                    result.post.subject()
+                ))];
+                events.extend(result.deliveries.into_iter().map(|delivery| {
+                    UiEvent::LiveInboxNotice {
+                        target_player_id: delivery.recipient_player_id,
+                        notice: LiveInboxNotice::from_item(&delivery.inbox_item),
+                    }
+                }));
+                Ok(events)
+            }
+            ShopAppRequest::MailingListChat { target, slug, body } => {
+                let result = self
+                    .post_shop_mailing_list_chat(
+                        target,
+                        slug,
+                        &identity.user,
+                        &identity.player_id,
+                        body,
+                    )
+                    .await?;
+                let mut events = vec![UiEvent::Text(format!(
+                    "Posted shop chat message #{} to {} member(s): {}.\r\n",
                     result.post.id(),
                     result.post.recipient_count(),
                     result.post.subject()
