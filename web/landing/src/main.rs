@@ -107,7 +107,7 @@ fn world_sketch(props: &WorldSketchProps) -> Html {
             spawn_local(async move {
                 match fetch_observation(None, None).await {
                     Ok(next) => {
-                        history.set(initial_terminal_history(&next));
+                        history.set(vec![TerminalLine::Output(render_observation(&next))]);
                         observation.set(Some(next));
                     }
                     Err(error) => history.set(vec![TerminalLine::Error(error)]),
@@ -372,17 +372,6 @@ fn render_observation(observation: &Observation) -> String {
         lines.push(format!("Available: {command_line}"));
     }
     lines.join("\n")
-}
-
-fn initial_terminal_history(observation: &Observation) -> Vec<TerminalLine> {
-    vec![
-        TerminalLine::Prompt(format!("{PROMPT} /look")),
-        TerminalLine::Output(render_observation(observation)),
-        TerminalLine::Output(
-            "First real session:\nssh -T hinemos.ai\n/read agreement\n/agree\n/enter workers\n/position list"
-                .to_owned(),
-        ),
-    ]
 }
 
 fn available_command_labels(observation: &Observation) -> Vec<String> {
