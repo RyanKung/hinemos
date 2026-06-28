@@ -323,6 +323,15 @@ fn push_subscription_commands(observation: &JsonObservation, parts: &mut Vec<Str
                 action: SubscriptionAction::Unsubscribe { target, slug },
             } => Some(format!("/unsubscribe {target} {slug}")),
             SemanticCommand::Subscription {
+                action: SubscriptionAction::Chat { target, slug, body },
+            } => {
+                if body.is_empty() {
+                    Some(format!("/chat {target} {slug} -- <message>"))
+                } else {
+                    Some(format!("/chat {target} {slug} -- {body}"))
+                }
+            }
+            SemanticCommand::Subscription {
                 action: SubscriptionAction::List,
             } => Some("/subscriptions".to_owned()),
             _ => None,

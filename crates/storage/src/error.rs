@@ -113,9 +113,17 @@ pub enum StorageError {
         /// Stable list slug.
         slug: String,
     },
-    /// Mailing list has no active subscribers.
-    #[error("mailing list has no active subscribers: {parcel_id}/{slug}")]
+    /// Mailing list has no active members.
+    #[error("shop chat has no active members: {parcel_id}/{slug}")]
     MailingListNoSubscribers {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Player is not a member of the shop mailing list.
+    #[error("join this shop chat before posting: {parcel_id}/{slug}")]
+    MailingListNotMember {
         /// Parcel id.
         parcel_id: String,
         /// Stable list slug.

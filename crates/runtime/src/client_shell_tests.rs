@@ -321,6 +321,18 @@ fn slash_parser_accepts_shop_mailing_list_actions() {
             }
         }
     );
+    assert_eq!(
+        chrome
+            .parse_command("/chat Offline Tool Broker updates -- Hello members")
+            .expect("shop chat parses"),
+        SemanticCommand::Subscription {
+            action: SubscriptionAction::Chat {
+                target: "Offline Tool Broker".to_owned(),
+                slug: "updates".to_owned(),
+                body: "Hello members".to_owned()
+            }
+        }
+    );
 }
 
 #[test]

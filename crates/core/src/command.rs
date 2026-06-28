@@ -548,7 +548,7 @@ pub enum ShopAction {
     },
 }
 
-/// Shop mailing-list owner actions.
+/// Shop mailing-list management actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ShopMailingListAction {
@@ -573,7 +573,7 @@ pub enum ShopMailingListAction {
         /// Stable list slug.
         slug: String,
     },
-    /// Send a post to current active subscribers.
+    /// Send an owner-authored post to current active members.
     Send {
         /// Parcel id.
         parcel_id: String,
@@ -665,6 +665,15 @@ pub enum SubscriptionAction {
         target: String,
         /// Stable list slug.
         slug: String,
+    },
+    /// Post a group-chat message to an active shop mailing list.
+    Chat {
+        /// Parcel id or visible shop title.
+        target: String,
+        /// Stable list slug.
+        slug: String,
+        /// Message body.
+        body: String,
     },
     /// List the current player's active subscriptions.
     List,

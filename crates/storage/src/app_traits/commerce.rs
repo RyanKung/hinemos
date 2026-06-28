@@ -622,7 +622,7 @@ impl ShopStore for PgStorage {
 
     async fn send_shop_mailing_list_post(
         &self,
-        parcel_id: &str,
+        target: &str,
         slug: &str,
         sender_user: &str,
         sender_player_id: &str,
@@ -631,7 +631,7 @@ impl ShopStore for PgStorage {
     ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error> {
         PgStorage::send_shop_mailing_list_post(
             self,
-            parcel_id,
+            target,
             slug,
             sender_user,
             sender_player_id,

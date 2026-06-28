@@ -305,6 +305,57 @@ fn shop_mailing_list_send_emits_live_inbox_notice() {
 }
 
 #[test]
+fn shop_mailing_list_chat_posts_as_member_message() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let app = AppService::new(TestCommercialStore {
+            parcel: Mutex::new(TestCommercialParcel {
+                parcel_id: "P1",
+                view_id: "parcel-view",
+                front_view_id: "street-a",
+                district: "north",
+                position: 1,
+                owner_user: Some("owner".to_owned()),
+                owner_player_id: Some("owner-player".to_owned()),
+                room_user: Some("room-user".to_owned()),
+                room_player_id: Some("room-player".to_owned()),
+                status: PARCEL_STATUS_BUILT,
+                title: Some("Parcel".to_owned()),
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: None,
+            }),
+            calls: Mutex::new(Vec::new()),
+        });
+        let identity = AppIdentity::new("visitor", "visitor-player");
+
+        let result = app
+            .post_shop_mailing_list_chat(
+                "Offline Tool Broker",
+                "updates",
+                &identity.user,
+                &identity.player_id,
+                "Hello members",
+            )
+            .await
+            .expect("post shop chat");
+
+        assert_eq!(result.post.recipient_count(), 1);
+        assert_eq!(
+            app.store().calls.lock().unwrap().clone(),
+            vec![
+                "mailing-list-send:Offline Tool Broker:updates:visitor:visitor-player:Shop chat: updates:Hello members"
+                    .to_owned()
+            ]
+        );
+    });
+}
+
+#[test]
 fn shop_badge_service_commands_render_expected_text() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()

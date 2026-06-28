@@ -167,7 +167,7 @@ pub enum AppRequest<'a> {
         /// Stable list slug.
         slug: &'a str,
     },
-    /// Send a mailing-list post.
+    /// Send an owner-authored mailing-list post.
     ShopMailingListSend {
         /// Parcel id.
         parcel_id: &'a str,
@@ -176,6 +176,15 @@ pub enum AppRequest<'a> {
         /// Inbox subject.
         subject: &'a str,
         /// Inbox body.
+        body: &'a str,
+    },
+    /// Post a group-chat message to a shop mailing list.
+    ShopMailingListChat {
+        /// Parcel id or visible shop title.
+        target: &'a str,
+        /// Stable list slug.
+        slug: &'a str,
+        /// Message body.
         body: &'a str,
     },
     /// Close a mailing list to new subscriptions.

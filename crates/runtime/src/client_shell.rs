@@ -79,7 +79,7 @@ impl Chrome {
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
-        Shop mailing lists: /subscribe <parcel-or-shop> <slug>, /unsubscribe <parcel-or-shop> <slug>, /subscriptions\n\
+        Shop chats: /subscribe <parcel-or-shop> <slug>, /chat <parcel-or-shop> <slug> -- <message>, /unsubscribe <parcel-or-shop> <slug>, /subscriptions\n\
         Shop badges: /badges, /badges <user>, /shop badge list <parcel>, /shop badge create <parcel> <slug> <title> [-- description], /shop badge award <parcel> <slug> <user> [note], /shop badge revoke <parcel> <slug> <user>\n\
         Memory: /memory, /memory self, /memory commitments, /memory recall <person>, /memory search <query>\n\
         Settings: /settings, /settings name <name>, /settings gender <male|female|none>, /settings mbti <type>, /settings intro <one line>, /settings intro clear, /settings mail-token\n\
@@ -87,7 +87,7 @@ impl Chrome {
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land token <parcel>, /land transfer <parcel> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
-        Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>; mailing lists use /shop mailing-list create <parcel> <slug> <title>, /shop mailing-list send <parcel> <slug> <subject> -- <body>\n\
+        Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>; shop chats use /shop mailing-list create <parcel> <slug> <title>, /chat <parcel-or-shop> <slug> -- <message>\n\
         Local extensions appear in Available inside their view.";
 
     /// Feedback line after inspecting an entity.
@@ -253,6 +253,7 @@ impl Chrome {
             "badges" => parse_badges_command(trimmed, rest, cmd.as_str(), &mut tokens),
             "subscribe" => parse_subscribe_command(&mut tokens),
             "unsubscribe" => parse_unsubscribe_command(&mut tokens),
+            "chat" => parse_chat_command(trimmed),
             "subscriptions" => Ok(SemanticCommand::Subscription {
                 action: SubscriptionAction::List,
             }),

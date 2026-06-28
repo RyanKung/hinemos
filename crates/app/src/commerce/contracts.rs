@@ -221,14 +221,14 @@ pub trait ShopMailingListView {
     /// List status.
     fn status(&self) -> &str;
 
-    /// Active subscriber count.
+    /// Active member count.
     fn subscriber_count(&self) -> i64;
 
     /// Creation timestamp.
     fn created_at(&self) -> &str;
 }
 
-/// Protocol-neutral view of a shop mailing-list subscriber.
+/// Protocol-neutral view of a shop mailing-list member.
 pub trait ShopMailingListSubscriberView {
     /// Subscriber username.
     fn subscriber_user(&self) -> &str;
@@ -240,7 +240,7 @@ pub trait ShopMailingListSubscriberView {
     fn updated_at(&self) -> &str;
 }
 
-/// Protocol-neutral view of the current player's mailing-list subscription.
+/// Protocol-neutral view of the current player's shop-chat membership.
 pub trait ShopMailingListSubscriptionView {
     /// Parcel id.
     fn parcel_id(&self) -> &str;
@@ -354,15 +354,15 @@ pub trait ShopBadgeAwardView {
     fn revoked_at(&self) -> Option<&str>;
 }
 
-/// Subscriber page for an owner mailing-list inspection.
+/// Member page for an owner mailing-list inspection.
 pub struct ShopMailingListSubscriberPage<S> {
-    /// Total active subscriber count.
+    /// Total active member count.
     pub total: i64,
-    /// Recent active subscribers.
+    /// Recent active members.
     pub subscribers: Vec<S>,
 }
 
-/// One inbox delivery created for a mailing-list post.
+/// One inbox delivery created for a mailing-list or shop-chat post.
 pub struct ShopMailingListDelivery<I> {
     /// Recipient player id for live notification routing.
     pub recipient_player_id: String,
@@ -370,7 +370,7 @@ pub struct ShopMailingListDelivery<I> {
     pub inbox_item: I,
 }
 
-/// Result from sending a mailing-list post.
+/// Result from sending a mailing-list or shop-chat post.
 pub struct ShopMailingListSend<P, I> {
     /// Stored post.
     pub post: P,
@@ -496,10 +496,10 @@ pub trait ShopStore {
         subscriber_player_id: &str,
     ) -> Result<Vec<Self::MailingListSubscription>, Self::Error>;
 
-    /// Sends one mailing-list post to all active subscribers.
+    /// Sends one mailing-list post to all active members.
     async fn send_shop_mailing_list_post(
         &self,
-        parcel_id: &str,
+        target: &str,
         slug: &str,
         sender_user: &str,
         sender_player_id: &str,
