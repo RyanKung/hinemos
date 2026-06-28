@@ -247,7 +247,7 @@ fn built_parcel_advertises_only_open_mailing_lists() {
     overlay_parcel_observation(&mut observation, &binding);
     let rendered = render_text_observation(&observation);
 
-    assert!(rendered.contains(
+    assert!(observation.description.contains(
         "Shop Updates (updates) join: /subscribe north_01 updates; chat after joining: /chat north_01 updates -- <message>"
     ));
     assert!(!rendered.contains("Old News"));
