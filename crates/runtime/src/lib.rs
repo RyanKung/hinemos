@@ -306,6 +306,11 @@ impl GameRuntime {
                     "Shop tools are available in SSH sessions.".to_owned(),
                 )]
             }
+            SemanticCommand::Badges { .. } => {
+                vec![message(
+                    "Shop badges are available in SSH sessions.".to_owned(),
+                )]
+            }
             SemanticCommand::Subscription { .. } => {
                 vec![message(
                     "Shop mailing-list subscriptions are available in SSH sessions.".to_owned(),
@@ -557,6 +562,9 @@ fn available_commands(
             action: hinemos_core::InboxAction::List {
                 filter: "unread".to_owned(),
             },
+        },
+        SemanticCommand::Badges {
+            action: hinemos_core::BadgeAction::ListMine,
         },
     ];
 

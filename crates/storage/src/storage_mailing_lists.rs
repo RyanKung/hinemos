@@ -412,7 +412,7 @@ impl PgStorage {
         Ok(deliveries)
     }
 
-    async fn owned_built_parcel(
+    pub(crate) async fn owned_built_parcel(
         &self,
         parcel_id: &str,
         owner_player_id: &str,

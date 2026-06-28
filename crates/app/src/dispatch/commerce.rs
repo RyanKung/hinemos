@@ -85,7 +85,7 @@ where
 impl<S, E> AppService<S>
 where
     S: ShopStore<Error = E> + LandStore<Error = E>,
-    E: FromMailingListValidation,
+    E: FromMailingListValidation + FromShopBadgeValidation,
 {
     pub(super) async fn handle_shop_request(
         &self,
@@ -202,6 +202,60 @@ where
                     .text,
                 None,
             )),
+            ShopAppRequest::BadgeList { parcel_id } => Ok(text_events(
+                self.list_shop_badges(parcel_id, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::BadgeCreate {
+                parcel_id,
+                slug,
+                title,
+                description,
+            } => Ok(text_events(
+                self.create_shop_badge(parcel_id, &identity.player_id, slug, title, description)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::BadgeAward {
+                parcel_id,
+                slug,
+                target,
+                note,
+            } => Ok(text_events(
+                self.award_shop_badge(
+                    parcel_id,
+                    slug,
+                    &identity.user,
+                    &identity.player_id,
+                    target,
+                    note,
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ShopAppRequest::BadgeRevoke {
+                parcel_id,
+                slug,
+                target,
+            } => Ok(text_events(
+                self.revoke_shop_badge(parcel_id, slug, &identity.player_id, target)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::BadgesMine => Ok(text_events(
+                self.player_badges(&identity.user, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::BadgesUser { target } => {
+                Ok(text_events(self.target_badges(target).await?.text, None))
+            }
         }
     }
 

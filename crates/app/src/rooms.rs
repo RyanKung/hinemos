@@ -355,7 +355,7 @@ where
         + PaymentStore<Error = E>
         + RoomStore<Error = E>
         + ShopStore<Error = E>,
-    E: FromMailingListValidation,
+    E: FromMailingListValidation + FromShopBadgeValidation,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding: RoomBindingEntryView
         + ParcelView

@@ -12,6 +12,18 @@ impl FromMailingListValidation for std::convert::Infallible {
     }
 }
 
+/// Error adapter for app-level shop badge validation.
+pub trait FromShopBadgeValidation {
+    /// Builds an invalid shop badge error.
+    fn invalid_shop_badge(message: &str) -> Self;
+}
+
+impl FromShopBadgeValidation for std::convert::Infallible {
+    fn invalid_shop_badge(_message: &str) -> Self {
+        unreachable!("infallible test stores do not reject shop badge validation")
+    }
+}
+
 /// Storage boundary for commercial parcel lookup.
 pub trait ParcelStore {
     /// Store error type.
@@ -270,6 +282,78 @@ pub trait ShopMailingListPostView {
     fn recipient_count(&self) -> i64;
 }
 
+/// Protocol-neutral view of a shop badge definition.
+pub trait ShopBadgeDefinitionView {
+    /// Badge definition id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable badge slug.
+    fn slug(&self) -> &str;
+
+    /// Player-facing badge title.
+    fn title(&self) -> &str;
+
+    /// Optional one-line description.
+    fn description(&self) -> Option<&str>;
+
+    /// Active award count for this badge.
+    fn active_award_count(&self) -> i64;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+
+    /// Last update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of a shop badge award.
+pub trait ShopBadgeAwardView {
+    /// Badge award id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Shop title, if the shop is built.
+    fn shop_title(&self) -> Option<&str>;
+
+    /// Stable badge slug.
+    fn slug(&self) -> &str;
+
+    /// Player-facing badge title.
+    fn badge_title(&self) -> &str;
+
+    /// Optional badge description.
+    fn badge_description(&self) -> Option<&str>;
+
+    /// Issuer username.
+    fn issuer_user(&self) -> &str;
+
+    /// Issuer player id.
+    fn issuer_player_id(&self) -> &str;
+
+    /// Recipient username.
+    fn recipient_user(&self) -> &str;
+
+    /// Recipient player id.
+    fn recipient_player_id(&self) -> &str;
+
+    /// Optional award note.
+    fn note(&self) -> Option<&str>;
+
+    /// Award status.
+    fn status(&self) -> &str;
+
+    /// Issue timestamp.
+    fn awarded_at(&self) -> &str;
+
+    /// Revocation timestamp.
+    fn revoked_at(&self) -> Option<&str>;
+}
+
 /// Subscriber page for an owner mailing-list inspection.
 pub struct ShopMailingListSubscriberPage<S> {
     /// Total active subscriber count.
@@ -314,6 +398,10 @@ pub trait ShopStore {
     type MailingListSubscription: ShopMailingListSubscriptionView;
     /// Stored shop mailing-list post type.
     type MailingListPost: ShopMailingListPostView;
+    /// Stored shop badge definition type.
+    type BadgeDefinition: ShopBadgeDefinitionView;
+    /// Stored shop badge award type.
+    type BadgeAward: ShopBadgeAwardView;
 
     /// Persists a visitor command for a shop operator.
     async fn save_operator_command<P>(
@@ -418,6 +506,57 @@ pub trait ShopStore {
         subject: &str,
         body: &str,
     ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error>;
+
+    /// Creates or updates a badge definition for an owned shop parcel.
+    async fn create_shop_badge(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+        description: Option<&str>,
+    ) -> Result<Self::BadgeDefinition, Self::Error>;
+
+    /// Lists badge definitions for an owned shop parcel.
+    async fn shop_badges(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::BadgeDefinition>, Self::Error>;
+
+    /// Awards a badge from an owned shop to a target player.
+    async fn award_shop_badge(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        issuer_user: &str,
+        issuer_player_id: &str,
+        target: &str,
+        note: Option<&str>,
+    ) -> Result<Self::BadgeAward, Self::Error>;
+
+    /// Revokes an active badge award from an owned shop.
+    async fn revoke_shop_badge(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        target: &str,
+    ) -> Result<Self::BadgeAward, Self::Error>;
+
+    /// Lists active badges for one player id.
+    async fn shop_badges_for_player(
+        &self,
+        player_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Self::BadgeAward>, Self::Error>;
+
+    /// Lists active public badges for one username or player id.
+    async fn shop_badges_for_target(
+        &self,
+        target: &str,
+        limit: i64,
+    ) -> Result<Vec<Self::BadgeAward>, Self::Error>;
 }
 
 /// Storage boundary for payment actions.

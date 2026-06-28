@@ -63,6 +63,10 @@ pub const SHOP_MAILING_LIST_STATUS_CLOSED: &str = "closed";
 pub const SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE: &str = "active";
 /// Shop mailing list subscription status indicating the player opted out.
 pub const SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED: &str = "unsubscribed";
+/// Shop badge award status indicating the badge is currently held.
+pub const SHOP_BADGE_AWARD_ACTIVE: &str = "active";
+/// Shop badge award status indicating the badge has been revoked.
+pub const SHOP_BADGE_AWARD_REVOKED: &str = "revoked";
 
 /// The mutable state of a world instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

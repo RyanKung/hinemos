@@ -1,7 +1,8 @@
 use hinemos_core::{
-    BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction, JsonObservation,
-    LandAction, MbtiType, PayAction, SemanticCommand, SettingsAction, ShopAction,
-    ShopMailingListAction, SubscriptionAction, role_card_intro_is_valid, role_card_name_is_valid,
+    BadgeAction, BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction,
+    JsonObservation, LandAction, MbtiType, PayAction, SemanticCommand, SettingsAction, ShopAction,
+    ShopBadgeAction, ShopMailingListAction, SubscriptionAction, role_card_intro_is_valid,
+    role_card_name_is_valid,
 };
 
 use super::{ENTER_VERBS, INSPECT_VERBS, READ_VERBS, SlashParseError, TAKE_VERBS, TALK_VERBS};
@@ -531,6 +532,11 @@ pub(super) fn parse_shop_command<'a>(
                 action: parse_shop_mailing_list_action(trimmed, tokens)?,
             },
         }),
+        "badge" | "badges" => Ok(SemanticCommand::Shop {
+            action: ShopAction::Badge {
+                action: parse_shop_badge_action(trimmed, tokens)?,
+            },
+        }),
         _ => Err(SlashParseError::UnknownCommand),
     }
 }
@@ -596,6 +602,78 @@ fn parse_shop_mailing_list_action<'a>(
         }),
         _ => Err(SlashParseError::UnknownCommand),
     }
+}
+
+fn parse_shop_badge_action<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<ShopBadgeAction, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "list" => Ok(ShopBadgeAction::List {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        "create" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let title_and_description = rest_after_tokens(trimmed, 5)?;
+            let (title, description) = optional_text_pair(title_and_description.as_str(), " -- ");
+            Ok(ShopBadgeAction::Create {
+                parcel_id: parcel_id.to_owned(),
+                slug: slug.to_owned(),
+                title,
+                description,
+            })
+        }
+        "award" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let note = optional_rest_after_tokens(trimmed, 6);
+            Ok(ShopBadgeAction::Award {
+                parcel_id: parcel_id.to_owned(),
+                slug: slug.to_owned(),
+                target: target.to_owned(),
+                note,
+            })
+        }
+        "revoke" => Ok(ShopBadgeAction::Revoke {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            target: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        _ => Err(SlashParseError::UnknownCommand),
+    }
+}
+
+pub(super) fn parse_badges_command<'a>(
+    trimmed: &str,
+    rest: &str,
+    command: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<SemanticCommand, SlashParseError> {
+    let action = match tokens.next() {
+        Some(_) => BadgeAction::ListUser {
+            target: rest_after_command(trimmed, rest, command)?,
+        },
+        None => BadgeAction::ListMine,
+    };
+    Ok(SemanticCommand::Badges { action })
 }
 
 pub(super) fn parse_subscribe_command<'a>(
@@ -683,4 +761,21 @@ pub(super) fn rest_after_tokens(
     }
 
     Err(SlashParseError::MissingArgument)
+}
+
+fn optional_rest_after_tokens(trimmed: &str, token_count: usize) -> Option<String> {
+    rest_after_tokens(trimmed, token_count).ok()
+}
+
+fn optional_text_pair(text: &str, separator: &str) -> (String, Option<String>) {
+    match text.split_once(separator) {
+        Some((head, tail)) => {
+            let tail = tail.trim();
+            (
+                head.trim().to_owned(),
+                (!tail.is_empty()).then(|| tail.to_owned()),
+            )
+        }
+        None => (text.trim().to_owned(), None),
+    }
 }

@@ -1,4 +1,6 @@
 use super::*;
+use crate::{StoredShopBadgeAward, StoredShopBadgeDefinition};
+use hinemos_app::{FromShopBadgeValidation, ShopBadgeAwardView, ShopBadgeDefinitionView};
 
 impl ParcelStore for PgStorage {
     type Error = StorageError;
@@ -216,6 +218,12 @@ impl FromMailingListValidation for StorageError {
     }
 }
 
+impl FromShopBadgeValidation for StorageError {
+    fn invalid_shop_badge(message: &str) -> Self {
+        Self::InvalidShopBadge(message.to_owned())
+    }
+}
+
 impl ShopMailingListView for StoredShopMailingList {
     fn id(&self) -> i64 {
         self.id
@@ -312,6 +320,98 @@ impl ShopMailingListPostView for StoredShopMailingListPost {
     }
 }
 
+impl ShopBadgeDefinitionView for StoredShopBadgeDefinition {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    fn active_award_count(&self) -> i64 {
+        self.active_award_count
+    }
+
+    fn created_at(&self) -> &str {
+        &self.created_at
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+}
+
+impl ShopBadgeAwardView for StoredShopBadgeAward {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn shop_title(&self) -> Option<&str> {
+        self.shop_title.as_deref()
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn badge_title(&self) -> &str {
+        &self.badge_title
+    }
+
+    fn badge_description(&self) -> Option<&str> {
+        self.badge_description.as_deref()
+    }
+
+    fn issuer_user(&self) -> &str {
+        &self.issuer_user
+    }
+
+    fn issuer_player_id(&self) -> &str {
+        &self.issuer_player_id
+    }
+
+    fn recipient_user(&self) -> &str {
+        &self.recipient_user
+    }
+
+    fn recipient_player_id(&self) -> &str {
+        &self.recipient_player_id
+    }
+
+    fn note(&self) -> Option<&str> {
+        self.note.as_deref()
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn awarded_at(&self) -> &str {
+        &self.awarded_at
+    }
+
+    fn revoked_at(&self) -> Option<&str> {
+        self.revoked_at.as_deref()
+    }
+}
+
 impl LandStore for PgStorage {
     type Error = StorageError;
     type Parcel = StoredParcel;
@@ -382,6 +482,8 @@ impl ShopStore for PgStorage {
     type MailingListSubscriber = StoredShopMailingListSubscriber;
     type MailingListSubscription = StoredShopMailingListSubscription;
     type MailingListPost = StoredShopMailingListPost;
+    type BadgeDefinition = StoredShopBadgeDefinition;
+    type BadgeAward = StoredShopBadgeAward;
 
     async fn save_operator_command<P>(
         &self,
@@ -537,6 +639,73 @@ impl ShopStore for PgStorage {
             body,
         )
         .await
+    }
+
+    async fn create_shop_badge(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+        description: Option<&str>,
+    ) -> Result<Self::BadgeDefinition, Self::Error> {
+        PgStorage::create_shop_badge(self, parcel_id, owner_player_id, slug, title, description)
+            .await
+    }
+
+    async fn shop_badges(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::BadgeDefinition>, Self::Error> {
+        PgStorage::shop_badges(self, parcel_id, owner_player_id).await
+    }
+
+    async fn award_shop_badge(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        issuer_user: &str,
+        issuer_player_id: &str,
+        target: &str,
+        note: Option<&str>,
+    ) -> Result<Self::BadgeAward, Self::Error> {
+        PgStorage::award_shop_badge(
+            self,
+            parcel_id,
+            slug,
+            issuer_user,
+            issuer_player_id,
+            target,
+            note,
+        )
+        .await
+    }
+
+    async fn revoke_shop_badge(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        target: &str,
+    ) -> Result<Self::BadgeAward, Self::Error> {
+        PgStorage::revoke_shop_badge(self, parcel_id, slug, owner_player_id, target).await
+    }
+
+    async fn shop_badges_for_player(
+        &self,
+        player_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Self::BadgeAward>, Self::Error> {
+        PgStorage::shop_badges_for_player(self, player_id, limit).await
+    }
+
+    async fn shop_badges_for_target(
+        &self,
+        target: &str,
+        limit: i64,
+    ) -> Result<Vec<Self::BadgeAward>, Self::Error> {
+        PgStorage::shop_badges_for_target(self, target, limit).await
     }
 }
 

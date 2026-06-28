@@ -303,3 +303,89 @@ fn shop_mailing_list_send_emits_live_inbox_notice() {
         assert_eq!(result.deliveries[0].inbox_item.subject(), "Weekly Deal");
     });
 }
+
+#[test]
+fn shop_badge_service_commands_render_expected_text() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let app = AppService::new(TestCommercialStore {
+            parcel: Mutex::new(TestCommercialParcel {
+                parcel_id: "P1",
+                view_id: "parcel-view",
+                front_view_id: "street-a",
+                district: "north",
+                position: 1,
+                owner_user: Some("owner".to_owned()),
+                owner_player_id: Some("owner-player".to_owned()),
+                room_user: Some("room-user".to_owned()),
+                room_player_id: Some("room-player".to_owned()),
+                status: PARCEL_STATUS_BUILT,
+                title: Some("Parcel".to_owned()),
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: None,
+            }),
+            calls: Mutex::new(Vec::new()),
+        });
+
+        let created = app
+            .create_shop_badge(
+                "P1",
+                "owner-player",
+                "patron",
+                "Good Patron",
+                Some("Paid and polite"),
+            )
+            .await
+            .expect("create badge");
+        assert!(created.text.contains("Saved badge patron for parcel P1"));
+        assert!(
+            created
+                .text
+                .contains("/shop badge award P1 patron <user> [note]")
+        );
+
+        let list = app
+            .list_shop_badges("P1", "owner-player")
+            .await
+            .expect("list badges");
+        assert!(list.text.contains("Shop Badges for P1"));
+        assert!(list.text.contains("Good Patron"));
+
+        let award = app
+            .award_shop_badge(
+                "P1",
+                "patron",
+                "owner",
+                "owner-player",
+                "visitor",
+                Some("great work"),
+            )
+            .await
+            .expect("award badge");
+        assert!(award.text.contains("Awarded badge Good Patron (patron)"));
+        assert!(award.text.contains("Issued: awarded by owner"));
+
+        let badges = app
+            .player_badges("visitor", "visitor-player")
+            .await
+            .expect("player badges");
+        assert!(badges.text.contains("Badges for visitor"));
+        assert!(
+            badges
+                .text
+                .contains("Good Patron (patron) from Parcel [P1]")
+        );
+        assert!(badges.text.contains("Note: great work"));
+
+        let revoke = app
+            .revoke_shop_badge("P1", "patron", "owner-player", "visitor")
+            .await
+            .expect("revoke badge");
+        assert!(revoke.text.contains("Revoked badge Good Patron (patron)"));
+    });
+}
