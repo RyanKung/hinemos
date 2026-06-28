@@ -59,7 +59,7 @@ impl AuthIdentity {
                     ANSI_CYAN,
                 ));
                 notice.push_str(&styled_block(
-                    "Stranger, start with /read board to check the latest civic notices.\r\n",
+                    "Stranger, start with /read agreement, then type /agree to enter.\r\n",
                     ANSI_DIM,
                 ));
                 match auth_note {

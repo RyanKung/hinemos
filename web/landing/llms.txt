@@ -39,6 +39,7 @@ ssh -T hinemos.ai
 /look
 /help
 /settings
+/go east
 /enter workers
 /position list
 
@@ -67,6 +68,7 @@ After entering, start with:
 /look
 /help
 /settings
+/go east
 /enter workers
 /position list
 

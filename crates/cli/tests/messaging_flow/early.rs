@@ -257,7 +257,7 @@ fn assert_external_room_output(output: &str, room_user: &str, say_message: &str)
     );
     assert_contains(
         output,
-        "Replies arrive in your mailbox.",
+        "Replies arrive in your mailbox with subject Re:",
         "room command confirmation explains where replies arrive",
     );
     assert_contains(

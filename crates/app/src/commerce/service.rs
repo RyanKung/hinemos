@@ -426,7 +426,7 @@ where
             .inbox_item_by_source(inbox_player_id, "operator_command", command.id())
             .await?;
         let mut events = vec![UiEvent::Text(format!(
-            "Shop request #{} sent to owner {} for parcel {}.\r\nStatus: delivered.\r\n{}",
+            "Shop request #{} sent to owner {} for parcel {}.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\n{}",
             command.id(),
             command.owner_user(),
             command.parcel_id(),

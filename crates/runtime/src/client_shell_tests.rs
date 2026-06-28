@@ -174,7 +174,7 @@ fn text_renderer_shows_agreement_command_when_available() {
         events: Vec::new(),
     });
 
-    assert!(rendered.contains("read: /read"));
+    assert!(rendered.contains("read: /read agreement"));
     assert!(rendered.contains("/agree"));
     assert!(!rendered.contains("/map"));
     assert!(!rendered.contains("/history"));
