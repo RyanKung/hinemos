@@ -470,7 +470,7 @@ pub(crate) fn world_error_feedback(message: &str) -> String {
     if message == "you do not own this parcel"
         || message.starts_with("you do not own this parcel: ")
     {
-        return "The Guild will not accept that build sheet here; you do not own this parcel."
+        return "The Guild will not accept that parcel action; you do not own this parcel."
             .to_owned();
     }
     if let Some(id) = message.strip_prefix("shop command not found: ") {

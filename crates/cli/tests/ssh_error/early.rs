@@ -674,7 +674,7 @@ fn business_command_errors_do_not_close_ssh_session() {
 
     session.write_line("/build title Should not disconnect");
     session.wait_for_stdout(
-        "The Guild will not accept that build sheet here; you do not own this parcel.",
+        "The Guild will not accept that parcel action; you do not own this parcel.",
         Duration::from_secs(10),
     );
     session.write_line("/look");
@@ -707,7 +707,7 @@ fn business_command_errors_do_not_close_ssh_session() {
     );
     assert_contains(
         &output,
-        "The Guild will not accept that build sheet here; you do not own this parcel.",
+        "The Guild will not accept that parcel action; you do not own this parcel.",
         "build ownership error",
     );
     assert_contains(

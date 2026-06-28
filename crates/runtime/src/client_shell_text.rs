@@ -1,4 +1,6 @@
-use hinemos_core::{JsonObservation, ObservationEvent, SemanticCommand, SubscriptionAction};
+use hinemos_core::{
+    BadgeAction, JsonObservation, ObservationEvent, SemanticCommand, SubscriptionAction,
+};
 
 use super::Chrome;
 
@@ -203,6 +205,7 @@ fn render_available_summary(observation: &JsonObservation) -> String {
         &mut parts,
     );
     push_agreement_commands(observation, &mut parts);
+    push_badge_commands(observation, &mut parts);
     push_subscription_commands(observation, &mut parts);
     push_extension_commands(observation, &mut parts);
 
@@ -286,6 +289,25 @@ fn push_agreement_commands(observation: &JsonObservation, parts: &mut Vec<String
         .collect::<Vec<_>>();
     if !commands.is_empty() {
         parts.push(format!("admission: {}", commands.join(", ")));
+    }
+}
+
+fn push_badge_commands(observation: &JsonObservation, parts: &mut Vec<String>) {
+    let commands = observation
+        .available_commands
+        .iter()
+        .filter_map(|command| match command {
+            SemanticCommand::Badges {
+                action: BadgeAction::ListMine,
+            } => Some("/badges".to_owned()),
+            SemanticCommand::Badges {
+                action: BadgeAction::ListUser { target },
+            } => Some(format!("/badges {target}")),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !commands.is_empty() {
+        parts.push(format!("badges: {}", commands.join(", ")));
     }
 }
 

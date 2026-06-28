@@ -201,6 +201,49 @@ pub enum AppRequest<'a> {
     },
     /// List the current player's shop mailing-list subscriptions.
     ShopMailingListSubscriptions,
+    /// List badge definitions for an owned shop.
+    ShopBadgeList {
+        /// Parcel id.
+        parcel_id: &'a str,
+    },
+    /// Create or update a badge definition for an owned shop.
+    ShopBadgeCreate {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable badge slug.
+        slug: &'a str,
+        /// Player-facing badge title.
+        title: &'a str,
+        /// Optional one-line description.
+        description: Option<&'a str>,
+    },
+    /// Award a shop badge to a user.
+    ShopBadgeAward {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable badge slug.
+        slug: &'a str,
+        /// Target username or player id.
+        target: &'a str,
+        /// Optional one-line award note.
+        note: Option<&'a str>,
+    },
+    /// Revoke an active shop badge award.
+    ShopBadgeRevoke {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable badge slug.
+        slug: &'a str,
+        /// Target username or player id.
+        target: &'a str,
+    },
+    /// List active badges held by the current player.
+    BadgesMine,
+    /// List active public badges held by another player.
+    BadgesUser {
+        /// Target username or player id.
+        target: &'a str,
+    },
     /// Persist a same-view say message and emit live delivery events.
     Say {
         /// Current room view id.

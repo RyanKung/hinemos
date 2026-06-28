@@ -594,6 +594,62 @@ pub struct StoredShopMailingListPost {
     pub created_at: String,
 }
 
+/// Stored shop badge definition summary.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopBadgeDefinition {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the shop.
+    pub parcel_id: String,
+    /// Current owner player id captured when the badge was saved.
+    pub owner_player_id: String,
+    /// Stable badge slug.
+    pub slug: String,
+    /// Player-facing title.
+    pub title: String,
+    /// Optional one-line description.
+    pub description: Option<String>,
+    /// Active award count.
+    pub active_award_count: i64,
+    /// Database formatted creation time.
+    pub created_at: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
+/// Stored shop badge award visible in badge listings.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopBadgeAward {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the issuing shop.
+    pub parcel_id: String,
+    /// Built shop title.
+    pub shop_title: Option<String>,
+    /// Stable badge slug.
+    pub slug: String,
+    /// Player-facing badge title.
+    pub badge_title: String,
+    /// Optional badge description.
+    pub badge_description: Option<String>,
+    /// Issuer username.
+    pub issuer_user: String,
+    /// Issuer player id.
+    pub issuer_player_id: String,
+    /// Recipient username.
+    pub recipient_user: String,
+    /// Recipient player id.
+    pub recipient_player_id: String,
+    /// Optional award note.
+    pub note: Option<String>,
+    /// Award status.
+    pub status: String,
+    /// Database formatted issue time.
+    pub awarded_at: String,
+    /// Database formatted revoke time.
+    pub revoked_at: Option<String>,
+}
+
 /// Stored active marriage certificate.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredMarriageCertificate {

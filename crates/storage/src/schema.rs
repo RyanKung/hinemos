@@ -16,6 +16,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_commercial_parcels(pool).await?;
     migrate_service_rooms(pool).await?;
     migrate_shop_mailing_lists(pool).await?;
+    migrate_shop_badges(pool).await?;
     migrate_shop_payments(pool).await?;
     migrate_marriage_certificates(pool).await?;
     migrate_memory_events(pool).await?;
@@ -1074,6 +1075,86 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
                 created_at timestamptz not null default now(),
                 unique (post_id, recipient_player_id)
             )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists shop_badges (
+                id bigserial primary key,
+                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                owner_player_id text not null,
+                slug text not null,
+                title text not null,
+                description text,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (parcel_id, slug)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_badges_owner_idx
+            on shop_badges (owner_player_id, parcel_id, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_badge_awards (
+                id bigserial primary key,
+                badge_id bigint not null references shop_badges(id) on delete cascade,
+                issuer_user text not null,
+                issuer_player_id text not null,
+                recipient_user text not null,
+                recipient_player_id text not null,
+                note text,
+                status text not null default 'active'
+                    check (status in ('active', 'revoked')),
+                awarded_at timestamptz not null default now(),
+                revoked_at timestamptz,
+                updated_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            alter table shop_badge_awards
+            drop constraint if exists shop_badge_awards_badge_id_recipient_player_id_key
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create unique index if not exists shop_badge_awards_active_unique_idx
+            on shop_badge_awards (badge_id, recipient_player_id)
+            where status = 'active'
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_badge_awards_recipient_idx
+            on shop_badge_awards (recipient_player_id, status, awarded_at desc)
             "#,
     )
     .execute(pool)

@@ -10,6 +10,7 @@ mod messages;
 mod parcels;
 mod room_mail;
 mod schema;
+mod storage_badges;
 mod storage_ext;
 mod storage_mailing_lists;
 mod storage_marriage;
@@ -33,7 +34,8 @@ pub use hinemos_core::{
     OPERATOR_COMMAND_STATUS_DELIVERED, OPERATOR_COMMAND_STATUS_HANDLED,
     OPERATOR_COMMAND_STATUS_PENDING, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED,
     PARCEL_STATUS_VACANT, PAYMENT_REQUEST_STATUS_CANCELLED, PAYMENT_REQUEST_STATUS_PAID,
-    PAYMENT_REQUEST_STATUS_PENDING, SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_STATUS_OPEN,
+    PAYMENT_REQUEST_STATUS_PENDING, SHOP_BADGE_AWARD_ACTIVE, SHOP_BADGE_AWARD_REVOKED,
+    SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_STATUS_OPEN,
     SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE, SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED,
 };
 pub(crate) use messages::NewInboxItem;
@@ -42,9 +44,9 @@ pub use types::{
     StoredBalance, StoredIdentity, StoredInboxItem, StoredMailAuthToken, StoredMarriageCertificate,
     StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
     StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind,
-    StoredRoomCommandPolicy, StoredServiceRoom, StoredShopMailingList, StoredShopMailingListPost,
-    StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredSocialEdge,
-    StoredTransfer, StoredWorldMessage,
+    StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward, StoredShopBadgeDefinition,
+    StoredShopMailingList, StoredShopMailingListPost, StoredShopMailingListSubscriber,
+    StoredShopMailingListSubscription, StoredSocialEdge, StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.

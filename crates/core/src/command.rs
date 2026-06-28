@@ -198,6 +198,11 @@ pub enum SemanticCommand {
         /// Shop command action.
         action: ShopAction,
     },
+    /// Inspect shop-issued badges.
+    Badges {
+        /// Badge inspection action.
+        action: BadgeAction,
+    },
     /// Manage the current player's shop mailing-list subscriptions.
     Subscription {
         /// Subscription command action.
@@ -536,6 +541,11 @@ pub enum ShopAction {
         /// Mailing-list owner action.
         action: ShopMailingListAction,
     },
+    /// Manage shop-issued badges.
+    Badge {
+        /// Badge owner action.
+        action: ShopBadgeAction,
+    },
 }
 
 /// Shop mailing-list owner actions.
@@ -583,6 +593,61 @@ pub enum ShopMailingListAction {
     },
 }
 
+/// Shop badge owner actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ShopBadgeAction {
+    /// List badge definitions for an owned shop parcel.
+    List {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Create or update a badge definition for an owned shop parcel.
+    Create {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable badge slug.
+        slug: String,
+        /// Player-facing badge title.
+        title: String,
+        /// Optional one-line description.
+        description: Option<String>,
+    },
+    /// Award a shop badge to a target player.
+    Award {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable badge slug.
+        slug: String,
+        /// Target username or player id.
+        target: String,
+        /// Optional one-line award note.
+        note: Option<String>,
+    },
+    /// Revoke an active shop badge award.
+    Revoke {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable badge slug.
+        slug: String,
+        /// Target username or player id.
+        target: String,
+    },
+}
+
+/// Shop badge reader actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BadgeAction {
+    /// List badges for the current player.
+    ListMine,
+    /// List public badges for another player.
+    ListUser {
+        /// Target username or player id.
+        target: String,
+    },
+}
+
 /// Shop mailing-list subscriber actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -620,6 +685,21 @@ pub const SHOP_MAILING_LIST_BODY_MAX_CHARS: usize = 2_000;
 /// Maximum number of mailing lists a single shop parcel can own.
 pub const SHOP_MAILING_LISTS_PER_PARCEL_MAX: usize = 10;
 
+/// Maximum badge slug length, counted in Unicode scalar values.
+pub const SHOP_BADGE_SLUG_MAX_CHARS: usize = 32;
+
+/// Maximum badge title length, counted in Unicode scalar values.
+pub const SHOP_BADGE_TITLE_MAX_CHARS: usize = 80;
+
+/// Maximum badge description length, counted in Unicode scalar values.
+pub const SHOP_BADGE_DESCRIPTION_MAX_CHARS: usize = 240;
+
+/// Maximum badge award note length, counted in Unicode scalar values.
+pub const SHOP_BADGE_NOTE_MAX_CHARS: usize = 240;
+
+/// Maximum number of badge definitions a single shop parcel can own.
+pub const SHOP_BADGES_PER_PARCEL_MAX: usize = 50;
+
 /// Returns true when a mailing-list slug is admissible.
 #[must_use]
 pub fn shop_mailing_list_slug_is_valid(slug: &str) -> bool {
@@ -654,4 +734,34 @@ pub fn shop_mailing_list_subject_is_valid(subject: &str) -> bool {
 pub fn shop_mailing_list_body_is_valid(body: &str) -> bool {
     let body = body.trim();
     !body.is_empty() && body.chars().count() <= SHOP_MAILING_LIST_BODY_MAX_CHARS
+}
+
+/// Returns true when a badge slug is admissible.
+#[must_use]
+pub fn shop_badge_slug_is_valid(slug: &str) -> bool {
+    shop_mailing_list_slug_is_valid(slug)
+}
+
+/// Returns true when a badge title is admissible.
+#[must_use]
+pub fn shop_badge_title_is_valid(title: &str) -> bool {
+    let title = title.trim();
+    !title.is_empty()
+        && title.chars().count() <= SHOP_BADGE_TITLE_MAX_CHARS
+        && !contains_line_break(title)
+}
+
+/// Returns true when a badge description is admissible.
+#[must_use]
+pub fn shop_badge_description_is_valid(description: &str) -> bool {
+    let description = description.trim();
+    description.chars().count() <= SHOP_BADGE_DESCRIPTION_MAX_CHARS
+        && !contains_line_break(description)
+}
+
+/// Returns true when a badge award note is admissible.
+#[must_use]
+pub fn shop_badge_note_is_valid(note: &str) -> bool {
+    let note = note.trim();
+    note.chars().count() <= SHOP_BADGE_NOTE_MAX_CHARS && !contains_line_break(note)
 }

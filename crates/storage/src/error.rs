@@ -121,6 +121,37 @@ pub enum StorageError {
         /// Stable list slug.
         slug: String,
     },
+    /// Shop badge input is invalid.
+    #[error("invalid shop badge: {0}")]
+    InvalidShopBadge(String),
+    /// Shop badge was not found.
+    #[error("shop badge not found: {parcel_id}/{slug}")]
+    ShopBadgeNotFound {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable badge slug.
+        slug: String,
+    },
+    /// Shop badge award was not found.
+    #[error("shop badge award not found: {parcel_id}/{slug} for {target}")]
+    ShopBadgeAwardNotFound {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable badge slug.
+        slug: String,
+        /// Target username or player id.
+        target: String,
+    },
+    /// Shop badge award is not currently active.
+    #[error("shop badge award is not active: {parcel_id}/{slug} for {target}")]
+    ShopBadgeAwardNotActive {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable badge slug.
+        slug: String,
+        /// Target username or player id.
+        target: String,
+    },
 }
 
 impl StorageError {

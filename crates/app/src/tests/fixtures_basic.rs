@@ -89,6 +89,21 @@ pub(super) struct TestMailingListSubscription {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TestMailingListPost;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestShopBadge {
+    pub(super) slug: String,
+    pub(super) title: String,
+    pub(super) description: Option<String>,
+    pub(super) active_award_count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestShopBadgeAward {
+    pub(super) status: String,
+    pub(super) recipient_user: String,
+    pub(super) note: Option<String>,
+}
+
 impl WorldMessageView for TestWorldMessage {
     fn kind(&self) -> &str {
         "say"
@@ -633,6 +648,98 @@ impl ShopMailingListPostView for TestMailingListPost {
     }
 }
 
+impl ShopBadgeDefinitionView for TestShopBadge {
+    fn id(&self) -> i64 {
+        11
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    fn active_award_count(&self) -> i64 {
+        self.active_award_count
+    }
+
+    fn created_at(&self) -> &str {
+        "created"
+    }
+
+    fn updated_at(&self) -> &str {
+        "updated"
+    }
+}
+
+impl ShopBadgeAwardView for TestShopBadgeAward {
+    fn id(&self) -> i64 {
+        17
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn shop_title(&self) -> Option<&str> {
+        Some("Parcel")
+    }
+
+    fn slug(&self) -> &str {
+        "patron"
+    }
+
+    fn badge_title(&self) -> &str {
+        "Good Patron"
+    }
+
+    fn badge_description(&self) -> Option<&str> {
+        Some("Paid and polite")
+    }
+
+    fn issuer_user(&self) -> &str {
+        "owner"
+    }
+
+    fn issuer_player_id(&self) -> &str {
+        "owner-player"
+    }
+
+    fn recipient_user(&self) -> &str {
+        &self.recipient_user
+    }
+
+    fn recipient_player_id(&self) -> &str {
+        "visitor-player"
+    }
+
+    fn note(&self) -> Option<&str> {
+        self.note.as_deref()
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn awarded_at(&self) -> &str {
+        "awarded"
+    }
+
+    fn revoked_at(&self) -> Option<&str> {
+        None
+    }
+}
+
 impl TestCommercialStore {
     fn parcel(&self) -> TestCommercialParcel {
         self.parcel.lock().unwrap().clone()
@@ -762,6 +869,8 @@ impl ShopStore for TestCommercialStore {
     type MailingListSubscriber = TestMailingListSubscriber;
     type MailingListSubscription = TestMailingListSubscription;
     type MailingListPost = TestMailingListPost;
+    type BadgeDefinition = TestShopBadge;
+    type BadgeAward = TestShopBadgeAward;
 
     async fn save_operator_command<P>(
         &self,
@@ -950,6 +1059,112 @@ impl ShopStore for TestCommercialStore {
                 },
             }],
         })
+    }
+
+    async fn create_shop_badge(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+        description: Option<&str>,
+    ) -> Result<Self::BadgeDefinition, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "badge-create:{parcel_id}:{owner_player_id}:{slug}:{title}:{}",
+            description.unwrap_or_default()
+        ));
+        Ok(TestShopBadge {
+            slug: slug.to_owned(),
+            title: title.to_owned(),
+            description: description.map(str::to_owned),
+            active_award_count: 0,
+        })
+    }
+
+    async fn shop_badges(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::BadgeDefinition>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("badge-list:{parcel_id}:{owner_player_id}"));
+        Ok(vec![TestShopBadge {
+            slug: "patron".to_owned(),
+            title: "Good Patron".to_owned(),
+            description: Some("Paid and polite".to_owned()),
+            active_award_count: 1,
+        }])
+    }
+
+    async fn award_shop_badge(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        issuer_user: &str,
+        issuer_player_id: &str,
+        target: &str,
+        note: Option<&str>,
+    ) -> Result<Self::BadgeAward, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "badge-award:{parcel_id}:{slug}:{issuer_user}:{issuer_player_id}:{target}:{}",
+            note.unwrap_or_default()
+        ));
+        Ok(TestShopBadgeAward {
+            status: "active".to_owned(),
+            recipient_user: target.to_owned(),
+            note: note.map(str::to_owned),
+        })
+    }
+
+    async fn revoke_shop_badge(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        target: &str,
+    ) -> Result<Self::BadgeAward, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "badge-revoke:{parcel_id}:{slug}:{owner_player_id}:{target}"
+        ));
+        Ok(TestShopBadgeAward {
+            status: "revoked".to_owned(),
+            recipient_user: target.to_owned(),
+            note: None,
+        })
+    }
+
+    async fn shop_badges_for_player(
+        &self,
+        player_id: &str,
+        _limit: i64,
+    ) -> Result<Vec<Self::BadgeAward>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("badge-player:{player_id}"));
+        Ok(vec![TestShopBadgeAward {
+            status: "active".to_owned(),
+            recipient_user: "visitor".to_owned(),
+            note: Some("great work".to_owned()),
+        }])
+    }
+
+    async fn shop_badges_for_target(
+        &self,
+        target: &str,
+        _limit: i64,
+    ) -> Result<Vec<Self::BadgeAward>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("badge-target:{target}"));
+        Ok(vec![TestShopBadgeAward {
+            status: "active".to_owned(),
+            recipient_user: target.to_owned(),
+            note: None,
+        }])
     }
 }
 

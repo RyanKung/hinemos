@@ -111,6 +111,47 @@ pub(super) fn shop_request(action: &ShopAction) -> AppRequest<'_> {
                 AppRequest::ShopMailingListClose { parcel_id, slug }
             }
         },
+        ShopAction::Badge { action } => match action {
+            ShopBadgeAction::List { parcel_id } => AppRequest::ShopBadgeList { parcel_id },
+            ShopBadgeAction::Create {
+                parcel_id,
+                slug,
+                title,
+                description,
+            } => AppRequest::ShopBadgeCreate {
+                parcel_id,
+                slug,
+                title,
+                description: description.as_deref(),
+            },
+            ShopBadgeAction::Award {
+                parcel_id,
+                slug,
+                target,
+                note,
+            } => AppRequest::ShopBadgeAward {
+                parcel_id,
+                slug,
+                target,
+                note: note.as_deref(),
+            },
+            ShopBadgeAction::Revoke {
+                parcel_id,
+                slug,
+                target,
+            } => AppRequest::ShopBadgeRevoke {
+                parcel_id,
+                slug,
+                target,
+            },
+        },
+    }
+}
+
+pub(super) fn badge_request(action: &BadgeAction) -> AppRequest<'_> {
+    match action {
+        BadgeAction::ListMine => AppRequest::BadgesMine,
+        BadgeAction::ListUser { target } => AppRequest::BadgesUser { target },
     }
 }
 

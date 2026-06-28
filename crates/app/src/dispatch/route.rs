@@ -157,6 +157,30 @@ pub(super) enum ShopAppRequest<'a> {
         slug: &'a str,
     },
     MailingListSubscriptions,
+    BadgeList {
+        parcel_id: &'a str,
+    },
+    BadgeCreate {
+        parcel_id: &'a str,
+        slug: &'a str,
+        title: &'a str,
+        description: Option<&'a str>,
+    },
+    BadgeAward {
+        parcel_id: &'a str,
+        slug: &'a str,
+        target: &'a str,
+        note: Option<&'a str>,
+    },
+    BadgeRevoke {
+        parcel_id: &'a str,
+        slug: &'a str,
+        target: &'a str,
+    },
+    BadgesMine,
+    BadgesUser {
+        target: &'a str,
+    },
 }
 
 pub(super) enum ServiceRoomAppRequest<'a> {
@@ -235,7 +259,13 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             | AppRequest::ShopMailingListClose { .. }
             | AppRequest::ShopMailingListSubscribe { .. }
             | AppRequest::ShopMailingListUnsubscribe { .. }
-            | AppRequest::ShopMailingListSubscriptions) => route_shop(request),
+            | AppRequest::ShopMailingListSubscriptions
+            | AppRequest::ShopBadgeList { .. }
+            | AppRequest::ShopBadgeCreate { .. }
+            | AppRequest::ShopBadgeAward { .. }
+            | AppRequest::ShopBadgeRevoke { .. }
+            | AppRequest::BadgesMine
+            | AppRequest::BadgesUser { .. }) => route_shop(request),
             request @ (AppRequest::ServiceRoomInput { .. }
             | AppRequest::ServiceRoomHelp { .. }
             | AppRequest::ServiceRoomObservation { .. }
@@ -448,6 +478,44 @@ fn route_shop(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
         }
         AppRequest::ShopMailingListSubscriptions => {
             RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscriptions)
+        }
+        AppRequest::ShopBadgeList { parcel_id } => {
+            RoutedAppRequest::Shop(ShopAppRequest::BadgeList { parcel_id })
+        }
+        AppRequest::ShopBadgeCreate {
+            parcel_id,
+            slug,
+            title,
+            description,
+        } => RoutedAppRequest::Shop(ShopAppRequest::BadgeCreate {
+            parcel_id,
+            slug,
+            title,
+            description,
+        }),
+        AppRequest::ShopBadgeAward {
+            parcel_id,
+            slug,
+            target,
+            note,
+        } => RoutedAppRequest::Shop(ShopAppRequest::BadgeAward {
+            parcel_id,
+            slug,
+            target,
+            note,
+        }),
+        AppRequest::ShopBadgeRevoke {
+            parcel_id,
+            slug,
+            target,
+        } => RoutedAppRequest::Shop(ShopAppRequest::BadgeRevoke {
+            parcel_id,
+            slug,
+            target,
+        }),
+        AppRequest::BadgesMine => RoutedAppRequest::Shop(ShopAppRequest::BadgesMine),
+        AppRequest::BadgesUser { target } => {
+            RoutedAppRequest::Shop(ShopAppRequest::BadgesUser { target })
         }
         _ => unreachable!("shop request route called with non-shop request"),
     }

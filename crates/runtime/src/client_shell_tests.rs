@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use hinemos_core::{
-    ActionKind, BuildAction, Direction, EntityKind, EntityObservation, EntityRef, Gender,
-    InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand, SettingsAction,
-    ShopAction, ShopMailingListAction, SubscriptionAction,
+    ActionKind, BadgeAction, BuildAction, Direction, EntityKind, EntityObservation, EntityRef,
+    Gender, InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand,
+    SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
 };
 
 use super::{Chrome, SlashParseError, render_text_observation};
@@ -318,6 +318,92 @@ fn slash_parser_accepts_shop_mailing_list_actions() {
                     subject: "Hello".to_owned(),
                     body: "Body".to_owned()
                 }
+            }
+        }
+    );
+}
+
+#[test]
+fn slash_parser_accepts_shop_badge_actions() {
+    let chrome = Chrome::with_aliases(HashMap::new());
+
+    assert_eq!(
+        chrome
+            .parse_command("/shop badge list N1")
+            .expect("shop badge list parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Badge {
+                action: ShopBadgeAction::List {
+                    parcel_id: "N1".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command(
+                "/shop badge create N1 reliable-worker Reliable Worker -- Finished cleanly"
+            )
+            .expect("shop badge create parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Badge {
+                action: ShopBadgeAction::Create {
+                    parcel_id: "N1".to_owned(),
+                    slug: "reliable-worker".to_owned(),
+                    title: "Reliable Worker".to_owned(),
+                    description: Some("Finished cleanly".to_owned())
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop badge award N1 reliable-worker ada paid invoice 42")
+            .expect("shop badge award parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Badge {
+                action: ShopBadgeAction::Award {
+                    parcel_id: "N1".to_owned(),
+                    slug: "reliable-worker".to_owned(),
+                    target: "ada".to_owned(),
+                    note: Some("paid invoice 42".to_owned())
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop badge revoke N1 reliable-worker ada")
+            .expect("shop badge revoke parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Badge {
+                action: ShopBadgeAction::Revoke {
+                    parcel_id: "N1".to_owned(),
+                    slug: "reliable-worker".to_owned(),
+                    target: "ada".to_owned()
+                }
+            }
+        }
+    );
+}
+
+#[test]
+fn slash_parser_accepts_badge_lookup_actions() {
+    let chrome = Chrome::with_aliases(HashMap::new());
+
+    assert_eq!(
+        chrome.parse_command("/badges").expect("badges parses"),
+        SemanticCommand::Badges {
+            action: BadgeAction::ListMine
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/badges Ada Lovelace")
+            .expect("badge lookup parses"),
+        SemanticCommand::Badges {
+            action: BadgeAction::ListUser {
+                target: "Ada Lovelace".to_owned()
             }
         }
     );

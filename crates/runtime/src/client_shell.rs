@@ -80,6 +80,7 @@ impl Chrome {
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
         Shop mailing lists: /subscribe <parcel-or-shop> <slug>, /unsubscribe <parcel-or-shop> <slug>, /subscriptions\n\
+        Shop badges: /badges, /badges <user>, /shop badge list <parcel>, /shop badge create <parcel> <slug> <title> [-- description], /shop badge award <parcel> <slug> <user> [note], /shop badge revoke <parcel> <slug> <user>\n\
         Memory: /memory, /memory self, /memory commitments, /memory recall <person>, /memory search <query>\n\
         Settings: /settings, /settings name <name>, /settings gender <male|female|none>, /settings mbti <type>, /settings intro <one line>, /settings intro clear, /settings mail-token\n\
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
@@ -249,6 +250,7 @@ impl Chrome {
             "land" => parse_land_command(&mut tokens),
             "build" => parse_build_command(trimmed, &mut tokens),
             "shop" => parse_shop_command(trimmed, &mut tokens),
+            "badges" => parse_badges_command(trimmed, rest, cmd.as_str(), &mut tokens),
             "subscribe" => parse_subscribe_command(&mut tokens),
             "unsubscribe" => parse_unsubscribe_command(&mut tokens),
             "subscriptions" => Ok(SemanticCommand::Subscription {

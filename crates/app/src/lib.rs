@@ -42,13 +42,14 @@ pub(crate) use anyhow::{Context, Result};
 #[cfg(test)]
 pub(crate) use commerce::render_parcel_list;
 pub(crate) use hinemos_core::{
-    BuildAction, BuildSheet, Direction, EntityRef, ExitObservation, FEEDBACK_QUIT, Gender,
-    INBOX_STATUS_ACKED, INBOX_STATUS_ARCHIVED, InboxAction, JsonObservation, LandAction, MbtiType,
-    PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PayAction, PlayerState, SemanticCommand,
-    SettingsAction, ShopAction, ShopMailingListAction, SubscriptionAction, WorldMetadata,
-    WorldState, extension_commands, role_card_name_is_valid, shop_mailing_list_body_is_valid,
-    shop_mailing_list_slug_is_valid, shop_mailing_list_subject_is_valid,
-    shop_mailing_list_title_is_valid,
+    BadgeAction, BuildAction, BuildSheet, Direction, EntityRef, ExitObservation, FEEDBACK_QUIT,
+    Gender, INBOX_STATUS_ACKED, INBOX_STATUS_ARCHIVED, InboxAction, JsonObservation, LandAction,
+    MbtiType, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PayAction, PlayerState, SemanticCommand,
+    SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
+    WorldMetadata, WorldState, extension_commands, role_card_name_is_valid,
+    shop_badge_description_is_valid, shop_badge_note_is_valid, shop_badge_slug_is_valid,
+    shop_badge_title_is_valid, shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
+    shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
 };
 pub(crate) use inbox::{enabled_label, format_mail_user};
 pub(crate) use memory::memory_command_rest;

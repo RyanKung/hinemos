@@ -1,7 +1,8 @@
 use super::contracts::{
-    BuildStore, FromMailingListValidation, LandStore, ParcelStore, ParcelView, PaymentRequestView,
-    PaymentStore, ShopMailingListSubscriberView, ShopMailingListSubscriptionView,
-    ShopMailingListView, ShopStore, TransferView,
+    BuildStore, FromMailingListValidation, FromShopBadgeValidation, LandStore, ParcelStore,
+    ParcelView, PaymentRequestView, PaymentStore, ShopBadgeAwardView, ShopBadgeDefinitionView,
+    ShopMailingListSubscriberView, ShopMailingListSubscriptionView, ShopMailingListView, ShopStore,
+    TransferView,
 };
 use super::rendering::{
     custom_command_preview, is_custom_command_input, non_empty, render_parcel_detail,
@@ -15,14 +16,15 @@ use super::results::{
 use crate::{
     AppIdentity, AppService, BuildSheet, LiveInboxNotice, MailAuthTokenView, OperatorCommandView,
     PARCEL_STATUS_BUILT, RoomBindingKindView, RoomCommandPolicyView, UiEvent,
-    shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
+    shop_badge_description_is_valid, shop_badge_note_is_valid, shop_badge_slug_is_valid,
+    shop_badge_title_is_valid, shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
     shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
 };
 
 impl<S, E> AppService<S>
 where
     S: ShopStore<Error = E>,
-    E: FromMailingListValidation,
+    E: FromMailingListValidation + FromShopBadgeValidation,
 {
     /// Builds the shop operator inbox text.
     pub async fn shop_inbox(&self, owner_player_id: &str) -> Result<BusinessListResult, E> {
@@ -249,6 +251,118 @@ where
             .await
     }
 
+    /// Creates or updates a badge definition for an owned shop parcel.
+    pub async fn create_shop_badge(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+        description: Option<&str>,
+    ) -> Result<BusinessListResult, E> {
+        validate_badge_slug(slug)?;
+        validate_badge_title(title)?;
+        validate_badge_description(description)?;
+        let badge = self
+            .store
+            .create_shop_badge(parcel_id, owner_player_id, slug, title, description)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Saved badge {} for parcel {}: {}.\r\nAward command: /shop badge award {} {} <user> [note]\r\n",
+                badge.slug(),
+                badge.parcel_id(),
+                badge.title(),
+                badge.parcel_id(),
+                badge.slug()
+            ),
+        })
+    }
+
+    /// Lists badge definitions for an owned shop parcel.
+    pub async fn list_shop_badges(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let badges = self.store.shop_badges(parcel_id, owner_player_id).await?;
+        Ok(BusinessListResult {
+            text: render_shop_badges(parcel_id, &badges).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Awards a shop badge to a target player.
+    pub async fn award_shop_badge(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        issuer_user: &str,
+        issuer_player_id: &str,
+        target: &str,
+        note: Option<&str>,
+    ) -> Result<BusinessListResult, E> {
+        validate_badge_slug(slug)?;
+        validate_badge_note(note)?;
+        let award = self
+            .store
+            .award_shop_badge(parcel_id, slug, issuer_user, issuer_player_id, target, note)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Awarded badge {} ({}) from {} to {}.\r\nIssued: {} by {}.\r\n",
+                award.badge_title(),
+                award.slug(),
+                award.parcel_id(),
+                award.recipient_user(),
+                award.awarded_at(),
+                award.issuer_user()
+            ),
+        })
+    }
+
+    /// Revokes an active shop badge award.
+    pub async fn revoke_shop_badge(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        target: &str,
+    ) -> Result<BusinessListResult, E> {
+        validate_badge_slug(slug)?;
+        let award = self
+            .store
+            .revoke_shop_badge(parcel_id, slug, owner_player_id, target)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Revoked badge {} ({}) from {}.\r\n",
+                award.badge_title(),
+                award.slug(),
+                award.recipient_user()
+            ),
+        })
+    }
+
+    /// Lists active badges held by a player id.
+    pub async fn player_badges(
+        &self,
+        owner_label: &str,
+        player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let awards = self.store.shop_badges_for_player(player_id, 50).await?;
+        Ok(BusinessListResult {
+            text: render_badge_awards(owner_label, &awards).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Lists active badges held by a public user target.
+    pub async fn target_badges(&self, target: &str) -> Result<BusinessListResult, E> {
+        let awards = self.store.shop_badges_for_target(target, 50).await?;
+        Ok(BusinessListResult {
+            text: render_badge_awards(target, &awards).replace('\n', "\r\n"),
+        })
+    }
+
     /// Handles a raw or slash-prefixed input line inside a commercial parcel room.
     pub async fn handle_commercial_parcel_input<P>(
         &self,
@@ -351,6 +465,50 @@ where
     }
 }
 
+fn validate_badge_slug<E>(slug: &str) -> Result<(), E>
+where
+    E: FromShopBadgeValidation,
+{
+    if shop_badge_slug_is_valid(slug) {
+        Ok(())
+    } else {
+        Err(E::invalid_shop_badge("invalid badge slug"))
+    }
+}
+
+fn validate_badge_title<E>(title: &str) -> Result<(), E>
+where
+    E: FromShopBadgeValidation,
+{
+    if shop_badge_title_is_valid(title) {
+        Ok(())
+    } else {
+        Err(E::invalid_shop_badge("invalid badge title"))
+    }
+}
+
+fn validate_badge_description<E>(description: Option<&str>) -> Result<(), E>
+where
+    E: FromShopBadgeValidation,
+{
+    if description.is_none_or(shop_badge_description_is_valid) {
+        Ok(())
+    } else {
+        Err(E::invalid_shop_badge("invalid badge description"))
+    }
+}
+
+fn validate_badge_note<E>(note: Option<&str>) -> Result<(), E>
+where
+    E: FromShopBadgeValidation,
+{
+    if note.is_none_or(shop_badge_note_is_valid) {
+        Ok(())
+    } else {
+        Err(E::invalid_shop_badge("invalid badge note"))
+    }
+}
+
 fn render_shop_mailing_lists(parcel_id: &str, lists: &[impl ShopMailingListView]) -> String {
     let mut lines = vec![format!("Mailing Lists for {parcel_id}")];
     if lists.is_empty() {
@@ -421,6 +579,62 @@ fn render_shop_mailing_list_subscriptions(
                 subscription.updated_at(),
                 subscription.parcel_id(),
                 subscription.slug()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_shop_badges(parcel_id: &str, badges: &[impl ShopBadgeDefinitionView]) -> String {
+    let mut lines = vec![format!("Shop Badges for {parcel_id}")];
+    if badges.is_empty() {
+        lines.push(
+            "No badges. Create one with /shop badge create <parcel> <slug> <title> [-- description]."
+                .to_owned(),
+        );
+    } else {
+        for badge in badges {
+            let description = badge
+                .description()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| format!(" - {value}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "- {}: {}{} awards={} updated={}",
+                badge.slug(),
+                badge.title(),
+                description,
+                badge.active_award_count(),
+                badge.updated_at()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_badge_awards(owner_label: &str, awards: &[impl ShopBadgeAwardView]) -> String {
+    let mut lines = vec![format!("Badges for {owner_label}")];
+    if awards.is_empty() {
+        lines.push("No active badges.".to_owned());
+    } else {
+        for award in awards {
+            let shop = award.shop_title().unwrap_or(award.parcel_id());
+            let note = award
+                .note()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| format!(" Note: {value}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "- {} ({}) from {} [{}], issued by {} at {}.{}",
+                award.badge_title(),
+                award.slug(),
+                shop,
+                award.parcel_id(),
+                award.issuer_user(),
+                award.awarded_at(),
+                note
             ));
         }
     }

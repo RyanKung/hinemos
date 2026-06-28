@@ -77,7 +77,7 @@ pub struct AppViewCommandContext<'a, B> {
 impl<S> AppService<S>
 where
     S: AppDispatchStore,
-    <S as AppDispatchStore>::Error: FromMailingListValidation,
+    <S as AppDispatchStore>::Error: FromMailingListValidation + FromShopBadgeValidation,
     <S as RoomStore>::RoomBinding: RoomBindingKindView + RoomMailboxView + ServiceRoomView + Sync,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
 {

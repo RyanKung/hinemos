@@ -27,6 +27,7 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     assert_owner_mailing_list_setup(host, port, &owner, &owner_key);
     assert_customer_shop_visit(host, port, &customer, &customer_key);
     assert_shop_mailing_list_flow(host, port, &owner, &owner_key, &customer, &customer_key);
+    assert_shop_badge_flow(host, port, &owner, &owner_key, &customer, &customer_key);
     assert_shop_mailbox_converged(&test_database);
     let request_id = request_shop_payment(host, port, &owner, &owner_key);
     assert_customer_paid_request(host, port, &customer, &customer_key, request_id);
@@ -207,6 +208,11 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
     assert_contains(
         &customer_visit,
+        "badges: /badges",
+        "customer sees badge lookup command in Available",
+    );
+    assert_contains(
+        &customer_visit,
         "Operator prompt: Parse visitor requests",
         "customer sees the edited operator prompt",
     );
@@ -335,6 +341,106 @@ fn assert_shop_mailing_list_flow(
         &owner_send_after_unsubscribe,
         "mailing list has no active subscribers",
         "send is blocked after the only subscriber leaves",
+    );
+}
+
+fn assert_shop_badge_flow(
+    host: &str,
+    port: u16,
+    owner: &str,
+    owner_key: &Path,
+    customer: &str,
+    customer_key: &Path,
+) {
+    let owner_create = run_ssh_batch_with_key(
+        host,
+        port,
+        owner,
+        owner_key,
+        &[
+            "/shop badge create N1 patron Good Patron -- Paid and polite",
+            "/shop badge list N1",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &owner_create,
+        "Saved badge patron for parcel N1: Good Patron.",
+        "owner can create a shop badge",
+    );
+    assert_contains(
+        &owner_create,
+        "/shop badge award N1 patron <user> [note]",
+        "create response gives award command",
+    );
+    assert_contains(
+        &owner_create,
+        "Shop Badges for N1",
+        "owner can list shop badges",
+    );
+
+    let customer_award = run_ssh_batch_with_key(
+        host,
+        port,
+        customer,
+        customer_key,
+        &[
+            &format!("/shop badge award N1 patron {customer} not allowed"),
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &customer_award,
+        "The Guild will not accept that parcel action; you do not own this parcel.",
+        "non-owner cannot award shop badges",
+    );
+
+    let owner_award = run_ssh_batch_with_key(
+        host,
+        port,
+        owner,
+        owner_key,
+        &[
+            &format!("/shop badge award N1 patron {customer} first visit"),
+            &format!("/shop badge award N1 patron {customer} duplicate"),
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &owner_award,
+        "Awarded badge Good Patron (patron) from N1",
+        "owner can award a shop badge",
+    );
+
+    let customer_badges =
+        run_ssh_batch_with_key(host, port, customer, customer_key, &["/badges", "/quit"]);
+    assert_contains(
+        &customer_badges,
+        "Badges for",
+        "customer can inspect own badges",
+    );
+    assert_contains(
+        &customer_badges,
+        "Good Patron (patron) from Offline Tool Broker [N1]",
+        "badge output includes shop identity and badge title",
+    );
+    assert_contains(
+        &customer_badges,
+        "issued by",
+        "badge output includes issuer and issue time",
+    );
+
+    let public_badges = run_ssh_batch_with_key(
+        host,
+        port,
+        owner,
+        owner_key,
+        &[&format!("/badges {customer}"), "/quit"],
+    );
+    assert_contains(
+        &public_badges,
+        "Good Patron (patron) from Offline Tool Broker [N1]",
+        "other players can inspect public badges",
     );
 }
 

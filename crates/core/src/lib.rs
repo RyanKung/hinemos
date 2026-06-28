@@ -9,13 +9,16 @@ pub mod observation;
 pub mod sample_world;
 
 pub use command::{
-    BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction, LandAction, MbtiType,
-    PayAction, ROLE_CARD_INTRO_MAX_CHARS, ROLE_CARD_NAME_MAX_CHARS,
-    SHOP_MAILING_LIST_BODY_MAX_CHARS, SHOP_MAILING_LIST_SLUG_MAX_CHARS,
-    SHOP_MAILING_LIST_SUBJECT_MAX_CHARS, SHOP_MAILING_LIST_TITLE_MAX_CHARS,
-    SHOP_MAILING_LISTS_PER_PARCEL_MAX, SemanticCommand, SettingsAction, ShopAction,
-    ShopMailingListAction, SubscriptionAction, extension_commands, role_card_intro_is_valid,
-    role_card_name_is_valid, shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
+    BadgeAction, BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction, LandAction,
+    MbtiType, PayAction, ROLE_CARD_INTRO_MAX_CHARS, ROLE_CARD_NAME_MAX_CHARS,
+    SHOP_BADGE_DESCRIPTION_MAX_CHARS, SHOP_BADGE_NOTE_MAX_CHARS, SHOP_BADGE_SLUG_MAX_CHARS,
+    SHOP_BADGE_TITLE_MAX_CHARS, SHOP_BADGES_PER_PARCEL_MAX, SHOP_MAILING_LIST_BODY_MAX_CHARS,
+    SHOP_MAILING_LIST_SLUG_MAX_CHARS, SHOP_MAILING_LIST_SUBJECT_MAX_CHARS,
+    SHOP_MAILING_LIST_TITLE_MAX_CHARS, SHOP_MAILING_LISTS_PER_PARCEL_MAX, SemanticCommand,
+    SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
+    extension_commands, role_card_intro_is_valid, role_card_name_is_valid,
+    shop_badge_description_is_valid, shop_badge_note_is_valid, shop_badge_slug_is_valid,
+    shop_badge_title_is_valid, shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
     shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
 };
 pub use ids::{EntityId, PlayerId, ViewId};
@@ -29,9 +32,10 @@ pub use model::{
     OPERATOR_COMMAND_STATUS_PENDING, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED,
     PARCEL_STATUS_VACANT, PAYMENT_REQUEST_STATUS_CANCELLED, PAYMENT_REQUEST_STATUS_PAID,
     PAYMENT_REQUEST_STATUS_PENDING, PlayerState, Requirement, RuntimeSnapshot,
-    SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_STATUS_OPEN,
-    SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE, SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED, View,
-    ViewLayout, WorldDefinition, WorldMetadata, WorldState,
+    SHOP_BADGE_AWARD_ACTIVE, SHOP_BADGE_AWARD_REVOKED, SHOP_MAILING_LIST_STATUS_CLOSED,
+    SHOP_MAILING_LIST_STATUS_OPEN, SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE,
+    SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED, View, ViewLayout, WorldDefinition, WorldMetadata,
+    WorldState,
 };
 pub use observation::{
     EntityObservation, ExitObservation, JsonObservation, ObservationEvent, TextObservation,
