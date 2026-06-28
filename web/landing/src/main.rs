@@ -8,8 +8,7 @@ use yew::prelude::*;
 const PROMPT: &str = "anonymous@hinemos:~$";
 const DEFAULT_TERMINAL_COLS: u16 = 68;
 const DEFAULT_TERMINAL_ROWS: u16 = 18;
-const READONLY_SSH_GUIDANCE: &str =
-    "This web demo is read-only. To chat or act, connect with SSH: ssh -T hinemos.ai";
+const READONLY_SSH_GUIDANCE: &str = "This web demo is read-only: anonymous visitors can look around, but admission, chat, jobs, payments, shops, and account setup require SSH identity.\nNext: ssh -T hinemos.ai\nThen run: /read agreement, /agree, /enter workers, /position list";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TerminalSize {
@@ -108,7 +107,7 @@ fn world_sketch(props: &WorldSketchProps) -> Html {
             spawn_local(async move {
                 match fetch_observation(None, None).await {
                     Ok(next) => {
-                        history.set(vec![TerminalLine::Output(render_observation(&next))]);
+                        history.set(initial_terminal_history(&next));
                         observation.set(Some(next));
                     }
                     Err(error) => history.set(vec![TerminalLine::Error(error)]),
@@ -373,6 +372,17 @@ fn render_observation(observation: &Observation) -> String {
         lines.push(format!("Available: {command_line}"));
     }
     lines.join("\n")
+}
+
+fn initial_terminal_history(observation: &Observation) -> Vec<TerminalLine> {
+    vec![
+        TerminalLine::Prompt(format!("{PROMPT} /look")),
+        TerminalLine::Output(render_observation(observation)),
+        TerminalLine::Output(
+            "First real session:\nssh -T hinemos.ai\n/read agreement\n/agree\n/enter workers\n/position list"
+                .to_owned(),
+        ),
+    ]
 }
 
 fn available_command_labels(observation: &Observation) -> Vec<String> {
