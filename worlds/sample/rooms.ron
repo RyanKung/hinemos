@@ -9,7 +9,7 @@
         room_user: "room-blackstone_izakaya",
         room_player_id: "room:blackstone_izakaya",
         status_text: Some("Room service is external. Registered local commands and /say chat are sent to the room service."),
-        custom_commands: Some("/buy beer\n/ask <question>\n/blame <complaint>\n/grep <query>"),
+        custom_commands: Some("/buy beer\n/buy bread\n/eat bread\n/ask <question>\n/blame <complaint>\n/grep <query>"),
         builtin_handler: Some("blackstone_izakaya"),
         enabled: true,
     ),

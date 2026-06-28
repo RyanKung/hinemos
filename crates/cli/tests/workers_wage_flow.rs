@@ -149,6 +149,67 @@ async fn credit_player_mark_is_idempotent_by_key() {
 }
 
 #[tokio::test]
+async fn food_debit_is_idempotent_and_hunger_restores() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    let storage = hinemos_storage::PgStorage::connect(&test_database.url)
+        .await
+        .expect("connect test database");
+    storage.migrate().await.expect("migrate test database");
+    storage
+        .ensure_player_wallet("alice", "player:alice")
+        .await
+        .expect("wallet");
+    storage
+        .record_hunger_interaction("player:alice", 12)
+        .await
+        .expect("hunger");
+
+    let first = storage
+        .debit_player_mark(
+            "alice",
+            "player:alice",
+            20,
+            "room_food",
+            "Blackstone Izakaya food for request #9",
+            "blackstone:food:9",
+        )
+        .await
+        .expect("first food debit");
+    let second = storage
+        .debit_player_mark(
+            "alice",
+            "player:alice",
+            20,
+            "room_food",
+            "Blackstone Izakaya food for request #9",
+            "blackstone:food:9",
+        )
+        .await
+        .expect("idempotent food debit");
+    let restored = storage
+        .restore_player_hunger("player:alice", "bread")
+        .await
+        .expect("restore hunger");
+
+    assert_eq!(first.amount, 980);
+    assert_eq!(second.amount, 980);
+    assert_eq!(restored.hunger_points, 0);
+    let ledger = test_database.query_value(
+        "select count(*) || ':' || coalesce(sum(amount), 0)
+         from world_ledger_entries
+         where idempotency_key = 'blackstone:food:9'
+           and debit_account_id = 'player:player:alice'
+           and credit_account_id = 'system:mark'",
+    );
+    assert_eq!(
+        ledger, "1:20",
+        "same food idempotency key must not duplicate debit ledger entries"
+    );
+}
+
+#[tokio::test]
 async fn migration_converts_legacy_one_sided_ledger_entries() {
     let root = workspace_root();
     let env = load_local_env(&root);

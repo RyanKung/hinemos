@@ -18,7 +18,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use handler_helpers::*;
 use hinemos_app::{
-    AppCommandContext, AppIdentity, AppRequest, AppViewCommandContext,
+    AppCommandContext, AppIdentity, AppRequest, AppViewCommandContext, HungerGateOutcome,
     PendingAdmissionCommandOutcome, RecentPresenceUser, RoomBindingKindView, UiEvent,
     WhoPopulation, service_room_unavailable_text,
 };
@@ -246,6 +246,19 @@ impl ConnectionHandler {
         .await?;
         let room_binding = state.room_context.room_binding.as_ref();
         if self
+            .handle_hunger_for_room_binding_line(
+                channel,
+                session,
+                &app_identity,
+                room_binding,
+                line,
+                prompt,
+            )
+            .await?
+        {
+            return Ok(());
+        }
+        if self
             .handle_room_binding_line(channel, session, &app_identity, room_binding, line, prompt)
             .await?
         {
@@ -266,6 +279,9 @@ impl ConnectionHandler {
         if self
             .handle_pending_admission_command(channel, session, &app_identity, &command, prompt)
             .await?
+            || self
+                .handle_hunger_for_command(channel, session, &state.identity, &command, prompt)
+                .await?
             || self
                 .handle_app_view_command(
                     channel,
@@ -417,6 +433,73 @@ impl ConnectionHandler {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    async fn handle_hunger_for_room_binding_line(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        app_identity: &AppIdentity,
+        room_binding: Option<&StoredRoomBinding>,
+        line: &str,
+        prompt: bool,
+    ) -> Result<bool> {
+        let Some(binding) = room_binding else {
+            return Ok(false);
+        };
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with('/') {
+            return Ok(false);
+        }
+        let app = self.shared.app_service().await;
+        if !app.room_binding_accepts_input(binding, trimmed) {
+            return Ok(false);
+        }
+        self.handle_hunger_outcome(
+            channel,
+            session,
+            app.check_hunger_raw_line(&app_identity.player_id, trimmed)
+                .await?,
+            prompt,
+        )
+        .await
+    }
+
+    async fn handle_hunger_for_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        identity: &AuthIdentity,
+        command: &SemanticCommand,
+        prompt: bool,
+    ) -> Result<bool> {
+        let app = self.shared.app_service().await;
+        self.handle_hunger_outcome(
+            channel,
+            session,
+            app.check_hunger_command(&identity.player_id, command)
+                .await?,
+            prompt,
+        )
+        .await
+    }
+
+    async fn handle_hunger_outcome(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        outcome: HungerGateOutcome,
+        prompt: bool,
+    ) -> Result<bool> {
+        match outcome {
+            HungerGateOutcome::Allow => Ok(false),
+            HungerGateOutcome::Block(text) => {
+                self.send_ui_events(channel, session, vec![UiEvent::Text(text)])
+                    .await?;
+                send_prompt_if_requested(session, channel, prompt)?;
+                Ok(true)
+            }
+        }
     }
 
     fn parse_command_line_or_reply(

@@ -12,7 +12,7 @@
                 (
                     id: "tavern_sign",
                     title: "Blackstone",
-                    body: "Use /enter H1 or /enter blackstone from West Hinemos Blvd. Room commands are registered by the external room service.",
+                    body: "Use /enter H1 or /enter blackstone from West Hinemos Blvd. Buy bread with /buy bread to restore hunger; other tavern commands are registered by the external room service.",
                 ),
             ],
         )),

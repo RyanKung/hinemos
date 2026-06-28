@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use libhinemos_room::{IncomingMail, OutgoingMail, RoomMailbox, RoomReply, RoomService};
+use libhinemos_room::{
+    DebitReason, IncomingMail, OutgoingMail, RoomEffect, RoomMailbox, RoomReply, RoomService,
+};
 
 const ROOM_USER: &str = "room-blackstone_izakaya";
 const ROOM_PLAYER_ID: &str = "room:blackstone_izakaya";
 const MAX_BODY_BYTES: usize = 4096;
 const MAX_GREP_RESULTS: usize = 5;
+const BREAD_PRICE_MARK: i64 = 20;
 
 #[derive(Debug)]
 pub struct BlackstoneIzakaya {
@@ -41,8 +44,12 @@ impl BlackstoneIzakaya {
     }
 
     pub fn handle(&mut self, item: &IncomingMail) -> OutgoingMail {
-        let body = if item.body.len() > MAX_BODY_BYTES {
-            "The keeper refuses to read a message that large.".to_owned()
+        self.handle_reply(item).mail
+    }
+
+    pub fn handle_reply(&mut self, item: &IncomingMail) -> RoomReply {
+        let reply = if item.body.len() > MAX_BODY_BYTES {
+            ReplyBody::text("The keeper refuses to read a message that large.")
         } else {
             self.reply_body(item)
         };
@@ -52,8 +59,9 @@ impl BlackstoneIzakaya {
             sender_user: ROOM_USER.to_owned(),
             sender_player_id: ROOM_PLAYER_ID.to_owned(),
             subject: "Izakaya reply".to_owned(),
-            body,
+            body: reply.body,
         }
+        .into_room_reply(reply.effects)
     }
 
     pub fn status_text(&self) -> String {
@@ -68,16 +76,32 @@ impl BlackstoneIzakaya {
         lines.join("\n")
     }
 
-    fn reply_body(&mut self, item: &IncomingMail) -> String {
+    fn reply_body(&mut self, item: &IncomingMail) -> ReplyBody {
         let body = item.body.trim();
+        if body == "/buy bread" || body == "/eat bread" {
+            return ReplyBody {
+                body: format!(
+                    "The keeper sells you warm bread for {BREAD_PRICE_MARK} MARK. You eat it and feel steady again."
+                ),
+                effects: vec![
+                    RoomEffect::DebitPlayerMark {
+                        amount: BREAD_PRICE_MARK,
+                        reason: DebitReason::BlackstoneFood,
+                    },
+                    RoomEffect::RestorePlayerHunger {
+                        food: "bread".to_owned(),
+                    },
+                ],
+            };
+        }
         if body == "/buy beer" {
             self.drinks
                 .insert(item.sender_user.clone(), Instant::now() + self.drink_ttl);
-            return "The keeper sets a beer in front of you.".to_owned();
+            return ReplyBody::text("The keeper sets a beer in front of you.");
         }
 
         if matches_gated_command(body) && !self.has_drink(&item.sender_user) {
-            return "You should buy a drink first.".to_owned();
+            return ReplyBody::text("You should buy a drink first.");
         }
 
         if let Some(question) = body.strip_prefix("/ask ") {
@@ -94,19 +118,19 @@ impl BlackstoneIzakaya {
             if question.contains("storm ledger") {
                 reply.push_str(&self.gossip_about("storm ledger"));
             }
-            return reply;
+            return ReplyBody::text(reply);
         }
 
         if let Some(blame) = body.strip_prefix("/blame ") {
             self.gossip.push(blame.to_owned());
-            return format!("The keeper writes down the blame: {blame}");
+            return ReplyBody::text(format!("The keeper writes down the blame: {blame}"));
         }
 
         if let Some(query) = body.strip_prefix("/grep ") {
-            return self.grep_gossip(query);
+            return ReplyBody::text(self.grep_gossip(query));
         }
 
-        format!("The keeper replies from the counter: {body}")
+        ReplyBody::text(format!("The keeper replies from the counter: {body}"))
     }
 
     fn has_drink(&self, user: &str) -> bool {
@@ -161,11 +185,39 @@ impl BlackstoneIzakaya {
 
 impl RoomService for BlackstoneIzakaya {
     fn handle(&mut self, item: &IncomingMail, _context: &()) -> RoomReply {
-        RoomReply::mail(Self::handle(self, item))
+        self.handle_reply(item)
     }
 
     fn status_text(&self) -> String {
         Self::status_text(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReplyBody {
+    body: String,
+    effects: Vec<RoomEffect>,
+}
+
+impl ReplyBody {
+    fn text(body: impl Into<String>) -> Self {
+        Self {
+            body: body.into(),
+            effects: Vec::new(),
+        }
+    }
+}
+
+trait OutgoingMailExt {
+    fn into_room_reply(self, effects: Vec<RoomEffect>) -> RoomReply;
+}
+
+impl OutgoingMailExt for OutgoingMail {
+    fn into_room_reply(self, effects: Vec<RoomEffect>) -> RoomReply {
+        RoomReply {
+            mail: self,
+            effects,
+        }
     }
 }
 
@@ -199,7 +251,7 @@ fn gossip_matches(entry: &str, terms: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libhinemos_room::FakeMailbox;
+    use libhinemos_room::{DebitReason, FakeMailbox, RoomEffect};
 
     fn send_turn(
         mailbox: &mut FakeMailbox,
@@ -280,6 +332,28 @@ mod tests {
                 "/ask is the drink still good?"
             )
             .contains("buy a drink first")
+        );
+    }
+
+    #[test]
+    fn buy_bread_requests_wallet_debit_and_hunger_restore() {
+        let mut service = BlackstoneIzakaya::new();
+        let mut mailbox = FakeMailbox::default();
+
+        let reply = send_turn(&mut mailbox, &mut service, "alice", "/buy bread");
+
+        assert!(reply.contains("warm bread"));
+        assert_eq!(
+            mailbox.effects,
+            vec![
+                RoomEffect::DebitPlayerMark {
+                    amount: BREAD_PRICE_MARK,
+                    reason: DebitReason::BlackstoneFood,
+                },
+                RoomEffect::RestorePlayerHunger {
+                    food: "bread".to_owned(),
+                }
+            ]
         );
     }
 

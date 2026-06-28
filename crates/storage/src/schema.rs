@@ -8,6 +8,7 @@ use crate::parcels::seed_commercial_parcels;
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_player_profiles(pool).await?;
+    migrate_player_hunger(pool).await?;
     migrate_identity_tables(pool).await?;
     migrate_user_accounts(pool).await?;
     migrate_world_messages(pool).await?;
@@ -22,6 +23,24 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_memory_events(pool).await?;
     migrate_memory_atoms(pool).await?;
     migrate_social_memory(pool).await?;
+    Ok(())
+}
+
+async fn migrate_player_hunger(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists player_hunger (
+                player_id text primary key,
+                hunger_points integer not null default 0 check (hunger_points >= 0),
+                last_hungry_broke_allowed_at timestamptz,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
 

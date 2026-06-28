@@ -73,6 +73,18 @@ pub enum RoomEffect {
         /// Domain reason for the credit.
         reason: CreditReason,
     },
+    /// Debit MARK from the player who sent the room request.
+    DebitPlayerMark {
+        /// Positive MARK amount to debit.
+        amount: i64,
+        /// Domain reason for the debit.
+        reason: DebitReason,
+    },
+    /// Restore the requester's hunger state after eating.
+    RestorePlayerHunger {
+        /// Player-facing food item consumed by the requester.
+        food: String,
+    },
     /// Publish a room-authored broadcast message.
     PublishBroadcast {
         /// Broadcast body to persist in the host world.
@@ -90,6 +102,13 @@ pub enum RoomEffect {
 pub enum CreditReason {
     /// Wage paid by the Workers Society room.
     WorkerWage,
+}
+
+/// Domain reason for a player MARK debit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DebitReason {
+    /// Food sold by the Blackstone Izakaya room.
+    BlackstoneFood,
 }
 
 /// Host-side marriage registry operation.

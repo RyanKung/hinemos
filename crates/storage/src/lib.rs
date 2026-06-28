@@ -41,12 +41,13 @@ pub use hinemos_core::{
 pub(crate) use messages::NewInboxItem;
 pub use types::{
     NewMemoryAtom, NewMemoryEvent, StoredAccountSettings, StoredAdmission, StoredAgentSelfModel,
-    StoredBalance, StoredIdentity, StoredInboxItem, StoredMailAuthToken, StoredMarriageCertificate,
-    StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
-    StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind,
-    StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward, StoredShopBadgeDefinition,
-    StoredShopMailingList, StoredShopMailingListPost, StoredShopMailingListSubscriber,
-    StoredShopMailingListSubscription, StoredSocialEdge, StoredTransfer, StoredWorldMessage,
+    StoredBalance, StoredHungerState, StoredIdentity, StoredInboxItem, StoredMailAuthToken,
+    StoredMarriageCertificate, StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand,
+    StoredParcel, StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding,
+    StoredRoomBindingKind, StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward,
+    StoredShopBadgeDefinition, StoredShopMailingList, StoredShopMailingListPost,
+    StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredSocialEdge,
+    StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.

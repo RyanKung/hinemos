@@ -176,6 +176,15 @@ pub struct StoredBalance {
     pub amount: i64,
 }
 
+/// Stored hunger state for a player.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredHungerState {
+    /// Stable player id used by the runtime.
+    pub player_id: String,
+    /// Accumulated hunger points from meaningful interactions.
+    pub hunger_points: i32,
+}
+
 /// Completed MARK transfer summary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredTransfer {

@@ -11,6 +11,10 @@ const MAX_BODY_BYTES: usize = 4096;
 #[derive(Debug, Clone)]
 struct Position {
     title: &'static str,
+    provider: &'static str,
+    location: &'static str,
+    behavior: &'static str,
+    payout: &'static str,
     wage: i64,
 }
 
@@ -242,34 +246,130 @@ impl OutgoingMailExt for OutgoingMail {
 }
 
 fn position_list_reply() -> String {
-    positions()
-        .iter()
-        .map(|(id, position)| format!("{id}: {} pays {} MARK", position.title, position.wage))
-        .collect::<Vec<_>>()
-        .join("; ")
+    let mut lines = vec!["Open Workers Society positions:".to_owned()];
+    for (id, position) in positions() {
+        lines.push(format!(
+            "- {id}: {title} | Provider: {provider} | Location: {location} | Behavior: {behavior} | Payout: {payout}",
+            title = position.title,
+            provider = position.provider,
+            location = position.location,
+            behavior = position.behavior,
+            payout = position.payout,
+        ));
+    }
+    lines.join("\n")
 }
 
 fn positions() -> Vec<(&'static str, Position)> {
     vec![
         (
-            "dock-runner",
+            "street-promoter",
             Position {
-                title: "Dock Runner",
+                title: "Street Promoter",
+                provider: "Harbor Square Notice Board",
+                location: "Harbor Square",
+                behavior: "Invite newcomers to active shops and public rooms.",
+                payout: "30 MARK after a completed promotion round",
+                wage: 30,
+            },
+        ),
+        (
+            "bartender",
+            Position {
+                title: "Bartender",
+                provider: "Blackstone Izakaya",
+                location: "Blackstone Izakaya",
+                behavior: "Serve food and drinks while keeping tavern gossip moving.",
+                payout: "45 MARK per finished shift",
+                wage: 45,
+            },
+        ),
+        (
+            "city-guide",
+            Position {
+                title: "City Guide",
+                provider: "Hinemos Civic Guides",
+                location: "Harbor Square and main streets",
+                behavior: "Guide lost players to admission, jobs, shops, and public services.",
+                payout: "40 MARK per completed guide route",
                 wage: 40,
             },
         ),
         (
-            "ledger-clerk",
+            "courier",
             Position {
-                title: "Ledger Clerk",
+                title: "Courier",
+                provider: "Hinemos Post",
+                location: "Mailbox routes",
+                behavior: "Carry messages between active rooms and operators.",
+                payout: "35 MARK per delivery run",
+                wage: 35,
+            },
+        ),
+        (
+            "greeter",
+            Position {
+                title: "Greeter",
+                provider: "Harbor Welcome Desk",
+                location: "Arrival Street",
+                behavior: "Welcome new arrivals and point them to setup commands.",
+                payout: "25 MARK per welcome shift",
+                wage: 25,
+            },
+        ),
+        (
+            "market-crier",
+            Position {
+                title: "Market Crier",
+                provider: "Agentopia Boulevard Shops",
+                location: "Shop streets",
+                behavior: "Announce active shop offers and public proof-of-work needs.",
+                payout: "35 MARK per announcement round",
+                wage: 35,
+            },
+        ),
+        (
+            "bank-clerk",
+            Position {
+                title: "Bank Clerk",
+                provider: "Hinemos Bank",
+                location: "Hinemos Bank",
+                behavior: "Explain balances, payments, and pending payment requests.",
+                payout: "50 MARK per ledger desk shift",
+                wage: 50,
+            },
+        ),
+        (
+            "newspaper-stringer",
+            Position {
+                title: "Newspaper Stringer",
+                provider: "Daily Seer",
+                location: "News desk",
+                behavior: "Collect reports from public events and active shops.",
+                payout: "45 MARK per filed note",
+                wage: 45,
+            },
+        ),
+        (
+            "recruiter",
+            Position {
+                title: "Recruiter",
+                provider: "Workers Society",
+                location: "Workers Society",
+                behavior: "Match idle players with work and collect feedback.",
+                payout: "55 MARK per recruiting shift",
                 wage: 55,
             },
         ),
         (
-            "street-sweeper",
+            "street-performer",
             Position {
-                title: "Street Sweeper",
-                wage: 25,
+                title: "Street Performer",
+                provider: "Harbor Square Buskers",
+                location: "Public squares",
+                behavior: "Perform in public chat and create visible social activity.",
+                payout: "30 MARK per performance",
+                wage: 30,
             },
         ),
     ]
@@ -277,6 +377,12 @@ fn positions() -> Vec<(&'static str, Position)> {
 
 fn find_position(input: &str) -> Option<(&'static str, Position)> {
     let normalized = normalize(input);
+    let normalized = match normalized.as_str() {
+        "dock-runner" => "city-guide",
+        "ledger-clerk" => "bank-clerk",
+        "street-sweeper" => "greeter",
+        value => value,
+    };
     positions()
         .into_iter()
         .find(|(id, position)| *id == normalized || normalize(position.title) == normalized)
@@ -311,9 +417,12 @@ mod tests {
 
         let reply = send_turn(&mut mailbox, &mut service, "alice", "/position list");
 
-        assert!(reply.contains("Dock Runner"));
-        assert!(reply.contains("40 MARK"));
-        assert!(reply.contains("Ledger Clerk"));
+        assert!(reply.contains("Street Promoter"));
+        assert!(reply.contains("Blackstone Izakaya"));
+        assert!(reply.contains("Newspaper Stringer"));
+        assert!(reply.contains("Provider:"));
+        assert!(reply.contains("Payout:"));
+        assert_eq!(reply.matches("\n- ").count(), 10);
     }
 
     #[test]
@@ -546,7 +655,7 @@ mod tests {
             "/position start dock-runner",
         );
 
-        assert!(mailbox.status.contains("alice is working dock-runner"));
+        assert!(mailbox.status.contains("alice is working city-guide"));
     }
 
     #[test]
@@ -571,7 +680,12 @@ mod tests {
 
         assert_eq!(service.poll_once(&mut mailbox), 1);
         assert_eq!(mailbox.acked, vec![1]);
-        assert!(mailbox.last_reply_to("alice").body.contains("Dock Runner"));
+        assert!(
+            mailbox
+                .last_reply_to("alice")
+                .body
+                .contains("Street Promoter")
+        );
     }
 
     fn mail(id: i64, sender: &str, player_id: &str, body: &str) -> IncomingMail {
