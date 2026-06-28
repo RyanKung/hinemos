@@ -1125,9 +1125,27 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
                     check (status in ('active', 'revoked')),
                 awarded_at timestamptz not null default now(),
                 revoked_at timestamptz,
-                updated_at timestamptz not null default now(),
-                unique (badge_id, recipient_player_id)
+                updated_at timestamptz not null default now()
             )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            alter table shop_badge_awards
+            drop constraint if exists shop_badge_awards_badge_id_recipient_player_id_key
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create unique index if not exists shop_badge_awards_active_unique_idx
+            on shop_badge_awards (badge_id, recipient_player_id)
+            where status = 'active'
             "#,
     )
     .execute(pool)

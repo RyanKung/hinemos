@@ -235,6 +235,48 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
             .len(),
         0
     );
+
+    let reawarded = storage
+        .award_shop_badge(
+            "N1",
+            "patron",
+            "owner",
+            "player:owner",
+            "customer",
+            Some("return visit"),
+        )
+        .await
+        .expect("re-award badge");
+    assert_ne!(
+        reawarded.id, award.id,
+        "re-awarding after revoke should append a new audit row"
+    );
+    assert_eq!(reawarded.status, SHOP_BADGE_AWARD_ACTIVE);
+    assert_eq!(
+        db.query_value("select count(*) from shop_badge_awards where recipient_user = 'customer'"),
+        "2"
+    );
+    assert_eq!(
+        db.query_value("select count(*) from shop_badge_awards where status = 'active'"),
+        "1"
+    );
+    assert_eq!(
+        db.query_value("select count(*) from shop_badge_awards where status = 'revoked'"),
+        "1"
+    );
+    assert_eq!(
+        db.query_value(&format!(
+            "select revoked_at is not null from shop_badge_awards where id = {}",
+            award.id
+        )),
+        "t"
+    );
+    let visible_after_reaward = storage
+        .shop_badges_for_player("player:customer", 10)
+        .await
+        .expect("badges after re-award");
+    assert_eq!(visible_after_reaward.len(), 1);
+    assert_eq!(visible_after_reaward[0].id, reawarded.id);
 }
 
 #[tokio::test]

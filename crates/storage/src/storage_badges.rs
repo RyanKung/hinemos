@@ -114,13 +114,14 @@ impl PgStorage {
         let mut tx = self.pool.begin().await?;
         let recipient = resolve_badge_target(&mut tx, target).await?;
         let existing = sqlx::query_as::<_, StoredShopBadgeAward>(&award_select_sql(
-            "where a.badge_id = $1 and a.recipient_player_id = $2",
+            "where a.badge_id = $1 and a.recipient_player_id = $2 and a.status = $3",
         ))
         .bind(badge.id)
         .bind(&recipient.player_id)
+        .bind(SHOP_BADGE_AWARD_ACTIVE)
         .fetch_optional(&mut *tx)
         .await?;
-        if let Some(existing) = existing.filter(|award| award.status == SHOP_BADGE_AWARD_ACTIVE) {
+        if let Some(existing) = existing {
             tx.commit().await?;
             return Ok(existing);
         }
@@ -131,15 +132,7 @@ impl PgStorage {
                 recipient_player_id, note, status, awarded_at, revoked_at, updated_at
             )
             values ($1, $2, $3, $4, $5, $6, $7, now(), null, now())
-            on conflict (badge_id, recipient_player_id) do update
-            set issuer_user = excluded.issuer_user,
-                issuer_player_id = excluded.issuer_player_id,
-                recipient_user = excluded.recipient_user,
-                note = excluded.note,
-                status = excluded.status,
-                awarded_at = now(),
-                revoked_at = null,
-                updated_at = now()
+            on conflict (badge_id, recipient_player_id) where status = 'active' do nothing
             returning id
             "#,
         )
@@ -150,9 +143,21 @@ impl PgStorage {
         .bind(&recipient.player_id)
         .bind(note.map(str::trim).filter(|value| !value.is_empty()))
         .bind(SHOP_BADGE_AWARD_ACTIVE)
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
-        let row = self.shop_badge_award_by_id_in_tx(&mut tx, award_id).await?;
+        let row = match award_id {
+            Some(award_id) => self.shop_badge_award_by_id_in_tx(&mut tx, award_id).await?,
+            None => {
+                sqlx::query_as::<_, StoredShopBadgeAward>(&award_select_sql(
+                    "where a.badge_id = $1 and a.recipient_player_id = $2 and a.status = $3",
+                ))
+                .bind(badge.id)
+                .bind(&recipient.player_id)
+                .bind(SHOP_BADGE_AWARD_ACTIVE)
+                .fetch_one(&mut *tx)
+                .await?
+            }
+        };
         tx.commit().await?;
         Ok(row)
     }
@@ -172,24 +177,37 @@ impl PgStorage {
         let mut tx = self.pool.begin().await?;
         let recipient = resolve_badge_target(&mut tx, target).await?;
         let existing = sqlx::query_as::<_, StoredShopBadgeAward>(&award_select_sql(
-            "where a.badge_id = $1 and a.recipient_player_id = $2",
+            "where a.badge_id = $1 and a.recipient_player_id = $2 and a.status = $3",
         ))
         .bind(badge.id)
         .bind(&recipient.player_id)
+        .bind(SHOP_BADGE_AWARD_ACTIVE)
         .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| StorageError::ShopBadgeAwardNotFound {
-            parcel_id: parcel_id.to_owned(),
-            slug: slug.to_owned(),
-            target: target.to_owned(),
-        })?;
-        if existing.status != SHOP_BADGE_AWARD_ACTIVE {
-            return Err(StorageError::ShopBadgeAwardNotActive {
-                parcel_id: parcel_id.to_owned(),
-                slug: slug.to_owned(),
-                target: target.to_owned(),
-            });
-        }
+        .await?;
+        let existing = match existing {
+            Some(existing) => existing,
+            None => {
+                let historical = sqlx::query_as::<_, StoredShopBadgeAward>(&award_select_sql(
+                    "where a.badge_id = $1 and a.recipient_player_id = $2 order by a.awarded_at desc limit 1",
+                ))
+                .bind(badge.id)
+                .bind(&recipient.player_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                return match historical {
+                    Some(_) => Err(StorageError::ShopBadgeAwardNotActive {
+                        parcel_id: parcel_id.to_owned(),
+                        slug: slug.to_owned(),
+                        target: target.to_owned(),
+                    }),
+                    None => Err(StorageError::ShopBadgeAwardNotFound {
+                        parcel_id: parcel_id.to_owned(),
+                        slug: slug.to_owned(),
+                        target: target.to_owned(),
+                    }),
+                };
+            }
+        };
         let award_id = sqlx::query_scalar::<_, i64>(
             r#"
             update shop_badge_awards
