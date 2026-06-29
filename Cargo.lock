@@ -1266,6 +1266,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hinemos-admin-protocol",
+ "hinemos-app",
  "hinemos-builtin-rooms",
  "hinemos-core",
  "hinemos-http",

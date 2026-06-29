@@ -1,23 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use libhinemos_room::{
-    CreditReason, IncomingMail, OutgoingMail, RoomEffect, RoomMailbox, RoomReply, RoomService,
+    CreditReason, IncomingMail, JobOffer, JobOfferProvider, OutgoingMail, RoomEffect, RoomMailbox,
+    RoomReply, RoomService, default_job_offer_providers,
 };
 
 const ROOM_USER: &str = "room-workers_society";
 const ROOM_PLAYER_ID: &str = "room:workers_society";
 const MAX_BODY_BYTES: usize = 4096;
-
-#[derive(Debug, Clone)]
-struct Position {
-    title: &'static str,
-    provider_venue_id: &'static str,
-    provider: &'static str,
-    location: &'static str,
-    behavior: &'static str,
-    payout: &'static str,
-    wage: i64,
-}
 
 #[derive(Debug, Clone, Default)]
 struct WorkerState {
@@ -27,6 +17,12 @@ struct WorkerState {
     owed: i64,
     claimed: i64,
     feedback: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct IndexedJobOffer {
+    provider: &'static JobOfferProvider,
+    offer: &'static JobOffer,
 }
 
 #[derive(Debug, Default)]
@@ -101,38 +97,45 @@ impl WorkersSociety {
 
     fn position_apply_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
         let position = body.strip_prefix("/position apply ")?;
-        let Some((id, position)) = find_position(position) else {
+        let Some(position) = find_position(position) else {
             return Some(format!("No position named {position}. Try /position list."));
         };
         self.worker_mut(&item.sender_user)
             .applied
-            .insert(id.to_owned());
-        Some(format!("Application recorded for {}.", position.title))
+            .insert(position.offer.id.to_owned());
+        Some(format!(
+            "Application recorded for {}.",
+            position.offer.title
+        ))
     }
 
     fn position_start_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
         let position = body.strip_prefix("/position start ")?;
-        let Some((id, position)) = find_position(position) else {
+        let Some(position) = find_position(position) else {
             return Some(format!("No position named {position}. Try /position list."));
         };
+        let id = position.offer.id;
         if !self
             .workers
             .get(&item.sender_user)
             .is_some_and(|worker| worker.applied.contains(id))
         {
-            return Some(format!("Apply for {} before starting.", position.title));
+            return Some(format!(
+                "Apply for {} before starting.",
+                position.offer.title
+            ));
         }
         if let Some(worker) = self.active_by_position.get(id)
             && worker != &item.sender_user
         {
             return Some(format!(
                 "{position_title} is already assigned to {worker}.",
-                position_title = position.title
+                position_title = position.offer.title
             ));
         }
         let worker = self.worker_mut(&item.sender_user);
         if worker.active.as_deref() == Some(id) {
-            return Some(format!("You are already working {}.", position.title));
+            return Some(format!("You are already working {}.", position.offer.title));
         }
         if worker.active.is_some() {
             return Some("Finish your active position before starting another.".to_owned());
@@ -140,7 +143,7 @@ impl WorkersSociety {
         worker.active = Some(id.to_owned());
         self.active_by_position
             .insert(id.to_owned(), item.sender_user.clone());
-        Some(format!("Started {}.", position.title))
+        Some(format!("Started {}.", position.offer.title))
     }
 
     fn position_finish_reply(&mut self, item: &IncomingMail) -> String {
@@ -151,7 +154,7 @@ impl WorkersSociety {
         else {
             return "You have no active position to finish.".to_owned();
         };
-        let Some((_, position)) = find_position(&active) else {
+        let Some(position) = find_position(&active) else {
             let worker = self.worker_mut(&item.sender_user);
             worker.active = None;
             self.active_by_position.remove(&active);
@@ -160,11 +163,11 @@ impl WorkersSociety {
         let worker = self.worker_mut(&item.sender_user);
         worker.active = None;
         worker.completed.push(active.clone());
-        worker.owed += position.wage;
+        worker.owed += position.offer.wage;
         self.active_by_position.remove(&active);
         format!(
             "Finished {}. Wage owed: {} MARK.",
-            position.title, position.wage
+            position.offer.title, position.offer.wage
         )
     }
 
@@ -248,146 +251,31 @@ impl OutgoingMailExt for OutgoingMail {
 
 fn position_list_reply() -> String {
     let mut lines = vec!["Open Workers Society positions:".to_owned()];
-    for (id, position) in positions() {
+    for position in positions() {
         lines.push(format!(
             "- {id}: {title} | Provider: {provider} ({provider_venue_id}) | Location: {location} | Behavior: {behavior} | Payout: {payout}",
-            title = position.title,
-            provider = position.provider,
-            provider_venue_id = position.provider_venue_id,
-            location = position.location,
-            behavior = position.behavior,
-            payout = position.payout,
+            id = position.offer.id,
+            title = position.offer.title,
+            provider = position.provider.label,
+            provider_venue_id = position.provider.venue_id,
+            location = position.offer.location,
+            behavior = position.offer.behavior,
+            payout = position.offer.payout,
         ));
     }
     lines.join("\n")
 }
 
-fn positions() -> Vec<(&'static str, Position)> {
-    vec![
-        (
-            "street-promoter",
-            Position {
-                title: "Street Promoter",
-                provider_venue_id: "workers_society",
-                provider: "Workers Society",
-                location: "Harbor Square",
-                behavior: "Invite newcomers to active shops and public rooms.",
-                payout: "30 MARK after a completed promotion round",
-                wage: 30,
-            },
-        ),
-        (
-            "bartender",
-            Position {
-                title: "Bartender",
-                provider_venue_id: "blackstone_izakaya",
-                provider: "Blackstone Izakaya",
-                location: "Blackstone Izakaya",
-                behavior: "Serve food and drinks while keeping tavern gossip moving.",
-                payout: "45 MARK per finished shift",
-                wage: 45,
-            },
-        ),
-        (
-            "city-guide",
-            Position {
-                title: "City Guide",
-                provider_venue_id: "hinemos_school",
-                provider: "Hinemos School",
-                location: "Harbor Square and main streets",
-                behavior: "Guide lost players to admission, jobs, shops, and public services.",
-                payout: "40 MARK per completed guide route",
-                wage: 40,
-            },
-        ),
-        (
-            "courier",
-            Position {
-                title: "Courier",
-                provider_venue_id: "hinemos_daily_seer",
-                provider: "Hinemos Daily Seer",
-                location: "Mailbox routes",
-                behavior: "Carry messages between active rooms and operators.",
-                payout: "35 MARK per delivery run",
-                wage: 35,
-            },
-        ),
-        (
-            "greeter",
-            Position {
-                title: "Greeter",
-                provider_venue_id: "workers_society",
-                provider: "Workers Society",
-                location: "Arrival Street",
-                behavior: "Welcome new arrivals and point them to setup commands.",
-                payout: "25 MARK per welcome shift",
-                wage: 25,
-            },
-        ),
-        (
-            "market-crier",
-            Position {
-                title: "Market Crier",
-                provider_venue_id: "hinemos_daily_seer",
-                provider: "Hinemos Daily Seer",
-                location: "Shop streets",
-                behavior: "Announce active shop offers and public proof-of-work needs.",
-                payout: "35 MARK per announcement round",
-                wage: 35,
-            },
-        ),
-        (
-            "bank-clerk",
-            Position {
-                title: "Bank Clerk",
-                provider_venue_id: "hinemos_bank",
-                provider: "Hinemos Bank",
-                location: "Hinemos Bank",
-                behavior: "Explain balances, payments, and pending payment requests.",
-                payout: "50 MARK per ledger desk shift",
-                wage: 50,
-            },
-        ),
-        (
-            "newspaper-stringer",
-            Position {
-                title: "Newspaper Stringer",
-                provider_venue_id: "hinemos_daily_seer",
-                provider: "Hinemos Daily Seer",
-                location: "News desk",
-                behavior: "Collect reports from public events and active shops.",
-                payout: "45 MARK per filed note",
-                wage: 45,
-            },
-        ),
-        (
-            "recruiter",
-            Position {
-                title: "Recruiter",
-                provider_venue_id: "workers_society",
-                provider: "Workers Society",
-                location: "Workers Society",
-                behavior: "Match idle players with work and collect feedback.",
-                payout: "55 MARK per recruiting shift",
-                wage: 55,
-            },
-        ),
-        (
-            "street-performer",
-            Position {
-                title: "Street Performer",
-                provider_venue_id: "blackstone_izakaya",
-                provider: "Blackstone Izakaya",
-                location: "Public squares",
-                behavior: "Perform in public chat and create visible social activity.",
-                payout: "30 MARK per performance",
-                wage: 30,
-            },
-        ),
-    ]
+fn positions() -> impl Iterator<Item = IndexedJobOffer> {
+    default_job_offer_providers().iter().flat_map(|provider| {
+        provider
+            .offers
+            .iter()
+            .map(move |offer| IndexedJobOffer { provider, offer })
+    })
 }
 
-fn find_position(input: &str) -> Option<(&'static str, Position)> {
+fn find_position(input: &str) -> Option<IndexedJobOffer> {
     let normalized = normalize(input);
     let normalized = match normalized.as_str() {
         "dock-runner" => "city-guide",
@@ -395,9 +283,9 @@ fn find_position(input: &str) -> Option<(&'static str, Position)> {
         "street-sweeper" => "greeter",
         value => value,
     };
-    positions()
-        .into_iter()
-        .find(|(id, position)| *id == normalized || normalize(position.title) == normalized)
+    positions().find(|position| {
+        position.offer.id == normalized || normalize(position.offer.title) == normalized
+    })
 }
 
 fn normalize(input: &str) -> String {
@@ -446,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn default_job_providers_resolve_to_sample_service_rooms() {
+    fn default_job_offer_providers_resolve_to_sample_service_rooms() {
         let room_path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds/sample/rooms.ron");
         let sample_rooms = std::fs::read_to_string(&room_path).expect("sample rooms.ron");
@@ -456,13 +344,26 @@ mod tests {
             .into_iter()
             .map(|room| room.view_id)
             .collect::<HashSet<_>>();
+        let mut offer_ids = HashSet::new();
 
-        for (id, position) in positions() {
+        for provider in default_job_offer_providers() {
             assert!(
-                room_view_ids.contains(position.provider_venue_id),
-                "{id} provider venue {} should exist in sample rooms.ron",
-                position.provider_venue_id
+                room_view_ids.contains(provider.venue_id),
+                "job offer provider venue {} should exist in sample rooms.ron",
+                provider.venue_id
             );
+            assert!(
+                !provider.offers.is_empty(),
+                "provider {} should own at least one job offer",
+                provider.venue_id
+            );
+            for offer in provider.offers {
+                assert!(
+                    offer_ids.insert(offer.id),
+                    "job offer id {} should be globally unique",
+                    offer.id
+                );
+            }
         }
     }
 

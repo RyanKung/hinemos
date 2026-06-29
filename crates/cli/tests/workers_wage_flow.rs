@@ -90,6 +90,106 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
 }
 
 #[tokio::test]
+async fn hungry_player_buys_bread_through_blackstone_and_resumes_interacting() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-hunger-bread-loop");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("hungry{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+    let key = admitted_key(&temp, host, port, &user);
+    let player_id = test_database.query_value(&format!(
+        "select player_id from ssh_identities where username = '{user}'"
+    ));
+    let player_account_id = format!("player:{player_id}");
+    let storage = hinemos_storage::PgStorage::connect(&test_database.url)
+        .await
+        .expect("connect test database");
+    storage.migrate().await.expect("migrate test database");
+    storage
+        .record_hunger_interaction(&player_id, hinemos_app::HUNGER_THRESHOLD_POINTS)
+        .await
+        .expect("seed player hunger at threshold");
+
+    let blocked = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &["/say too hungry to work", "/quit"],
+    );
+    assert_contains(
+        &blocked,
+        "You are too hungry to keep working.",
+        "hungry player with MARK is blocked before recovery",
+    );
+
+    let queued = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &["/go west", "/enter H1", "/buy bread", "/quit"],
+    );
+    assert_contains(
+        &queued,
+        "Sent to room service room-blackstone_izakaya",
+        "bread purchase is forwarded to Blackstone instead of being blocked",
+    );
+
+    let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
+    assert_contains(
+        &rooms_output,
+        "Processed 1 room request(s).",
+        "room runner handles the queued bread purchase",
+    );
+
+    let balance = run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/quit"]);
+    assert_contains(
+        &balance,
+        "Balance: 980 MARK",
+        "Blackstone bread purchase debits the player wallet",
+    );
+    assert_eq!(
+        test_database.query_value(&format!(
+            "select count(*) || ':' || coalesce(sum(amount), 0)
+             from world_ledger_entries
+             where reason = 'room_food'
+               and memo like 'Blackstone Izakaya food for request #%'
+               and amount = 20
+               and debit_account_id = '{player_account_id}'
+               and credit_account_id = 'system:mark'"
+        )),
+        "1:20",
+        "Blackstone bread purchase creates one room food debit"
+    );
+    assert_eq!(
+        test_database.query_value(&format!(
+            "select hunger_points from player_hunger where player_id = '{player_id}'"
+        )),
+        "0",
+        "Blackstone bread effect restores hunger"
+    );
+
+    let allowed = run_ssh_batch_with_key(host, port, &user, &key, &["/say fed and ready", "/quit"]);
+    assert_contains(
+        &allowed,
+        "You say: fed and ready",
+        "meaningful SSH command is allowed after hunger recovery",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[tokio::test]
 async fn credit_player_mark_is_idempotent_by_key() {
     let root = workspace_root();
     let env = load_local_env(&root);
