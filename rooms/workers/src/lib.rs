@@ -11,6 +11,7 @@ const MAX_BODY_BYTES: usize = 4096;
 #[derive(Debug, Clone)]
 struct Position {
     title: &'static str,
+    provider_venue_id: &'static str,
     provider: &'static str,
     location: &'static str,
     behavior: &'static str,
@@ -249,9 +250,10 @@ fn position_list_reply() -> String {
     let mut lines = vec!["Open Workers Society positions:".to_owned()];
     for (id, position) in positions() {
         lines.push(format!(
-            "- {id}: {title} | Provider: {provider} | Location: {location} | Behavior: {behavior} | Payout: {payout}",
+            "- {id}: {title} | Provider: {provider} ({provider_venue_id}) | Location: {location} | Behavior: {behavior} | Payout: {payout}",
             title = position.title,
             provider = position.provider,
+            provider_venue_id = position.provider_venue_id,
             location = position.location,
             behavior = position.behavior,
             payout = position.payout,
@@ -266,7 +268,8 @@ fn positions() -> Vec<(&'static str, Position)> {
             "street-promoter",
             Position {
                 title: "Street Promoter",
-                provider: "Harbor Square Notice Board",
+                provider_venue_id: "workers_society",
+                provider: "Workers Society",
                 location: "Harbor Square",
                 behavior: "Invite newcomers to active shops and public rooms.",
                 payout: "30 MARK after a completed promotion round",
@@ -277,6 +280,7 @@ fn positions() -> Vec<(&'static str, Position)> {
             "bartender",
             Position {
                 title: "Bartender",
+                provider_venue_id: "blackstone_izakaya",
                 provider: "Blackstone Izakaya",
                 location: "Blackstone Izakaya",
                 behavior: "Serve food and drinks while keeping tavern gossip moving.",
@@ -288,7 +292,8 @@ fn positions() -> Vec<(&'static str, Position)> {
             "city-guide",
             Position {
                 title: "City Guide",
-                provider: "Hinemos Civic Guides",
+                provider_venue_id: "hinemos_school",
+                provider: "Hinemos School",
                 location: "Harbor Square and main streets",
                 behavior: "Guide lost players to admission, jobs, shops, and public services.",
                 payout: "40 MARK per completed guide route",
@@ -299,7 +304,8 @@ fn positions() -> Vec<(&'static str, Position)> {
             "courier",
             Position {
                 title: "Courier",
-                provider: "Hinemos Post",
+                provider_venue_id: "hinemos_daily_seer",
+                provider: "Hinemos Daily Seer",
                 location: "Mailbox routes",
                 behavior: "Carry messages between active rooms and operators.",
                 payout: "35 MARK per delivery run",
@@ -310,7 +316,8 @@ fn positions() -> Vec<(&'static str, Position)> {
             "greeter",
             Position {
                 title: "Greeter",
-                provider: "Harbor Welcome Desk",
+                provider_venue_id: "workers_society",
+                provider: "Workers Society",
                 location: "Arrival Street",
                 behavior: "Welcome new arrivals and point them to setup commands.",
                 payout: "25 MARK per welcome shift",
@@ -321,7 +328,8 @@ fn positions() -> Vec<(&'static str, Position)> {
             "market-crier",
             Position {
                 title: "Market Crier",
-                provider: "Agentopia Boulevard Shops",
+                provider_venue_id: "hinemos_daily_seer",
+                provider: "Hinemos Daily Seer",
                 location: "Shop streets",
                 behavior: "Announce active shop offers and public proof-of-work needs.",
                 payout: "35 MARK per announcement round",
@@ -332,6 +340,7 @@ fn positions() -> Vec<(&'static str, Position)> {
             "bank-clerk",
             Position {
                 title: "Bank Clerk",
+                provider_venue_id: "hinemos_bank",
                 provider: "Hinemos Bank",
                 location: "Hinemos Bank",
                 behavior: "Explain balances, payments, and pending payment requests.",
@@ -343,7 +352,8 @@ fn positions() -> Vec<(&'static str, Position)> {
             "newspaper-stringer",
             Position {
                 title: "Newspaper Stringer",
-                provider: "Daily Seer",
+                provider_venue_id: "hinemos_daily_seer",
+                provider: "Hinemos Daily Seer",
                 location: "News desk",
                 behavior: "Collect reports from public events and active shops.",
                 payout: "45 MARK per filed note",
@@ -354,6 +364,7 @@ fn positions() -> Vec<(&'static str, Position)> {
             "recruiter",
             Position {
                 title: "Recruiter",
+                provider_venue_id: "workers_society",
                 provider: "Workers Society",
                 location: "Workers Society",
                 behavior: "Match idle players with work and collect feedback.",
@@ -365,7 +376,8 @@ fn positions() -> Vec<(&'static str, Position)> {
             "street-performer",
             Position {
                 title: "Street Performer",
-                provider: "Harbor Square Buskers",
+                provider_venue_id: "blackstone_izakaya",
+                provider: "Blackstone Izakaya",
                 location: "Public squares",
                 behavior: "Perform in public chat and create visible social activity.",
                 payout: "30 MARK per performance",
@@ -396,6 +408,12 @@ fn normalize(input: &str) -> String {
 mod tests {
     use super::*;
     use libhinemos_room::{CreditReason, FakeMailbox, RoomEffect};
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize)]
+    struct SampleRoom {
+        view_id: String,
+    }
 
     fn send_turn(
         mailbox: &mut FakeMailbox,
@@ -421,8 +439,31 @@ mod tests {
         assert!(reply.contains("Blackstone Izakaya"));
         assert!(reply.contains("Newspaper Stringer"));
         assert!(reply.contains("Provider:"));
+        assert!(reply.contains("(workers_society)"));
+        assert!(reply.contains("(blackstone_izakaya)"));
         assert!(reply.contains("Payout:"));
         assert_eq!(reply.matches("\n- ").count(), 10);
+    }
+
+    #[test]
+    fn default_job_providers_resolve_to_sample_service_rooms() {
+        let room_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds/sample/rooms.ron");
+        let sample_rooms = std::fs::read_to_string(&room_path).expect("sample rooms.ron");
+        let sample_rooms =
+            ron::from_str::<Vec<SampleRoom>>(&sample_rooms).expect("parse sample rooms.ron");
+        let room_view_ids = sample_rooms
+            .into_iter()
+            .map(|room| room.view_id)
+            .collect::<HashSet<_>>();
+
+        for (id, position) in positions() {
+            assert!(
+                room_view_ids.contains(position.provider_venue_id),
+                "{id} provider venue {} should exist in sample rooms.ron",
+                position.provider_venue_id
+            );
+        }
     }
 
     #[test]

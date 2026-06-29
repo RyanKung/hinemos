@@ -191,15 +191,16 @@ fn profile_for_raw_line(raw_line: &str) -> HungerCommandProfile {
         "help" | "look" | "map" | "inventory" | "history" | "news" | "who" | "balance"
         | "mailbox" | "mail" | "settings" | "quit" => HungerCommandProfile::EXEMPT,
         "go" | "enter" | "position" => HungerCommandProfile::RECOVERY,
-        "buy" | "eat" if raw_line_contains_bread(trimmed) => HungerCommandProfile::RECOVERY,
+        "buy" | "eat" if is_exact_bread_recovery_line(trimmed) => HungerCommandProfile::RECOVERY,
         _ => HungerCommandProfile::MEANINGFUL,
     }
 }
 
-fn raw_line_contains_bread(raw_line: &str) -> bool {
-    raw_line
-        .split_whitespace()
-        .any(|part| part.eq_ignore_ascii_case("bread"))
+fn is_exact_bread_recovery_line(raw_line: &str) -> bool {
+    matches!(
+        raw_line.trim().to_ascii_lowercase().as_str(),
+        "/buy bread" | "/eat bread"
+    )
 }
 
 fn hungry_with_money_text(balance: i64) -> String {
@@ -501,5 +502,23 @@ mod tests {
 
         assert_eq!(outcome, HungerGateOutcome::Allow);
         assert!(app.store().calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn exact_bread_commands_are_recovery_but_suffixes_are_metered() {
+        let store = store(HUNGER_THRESHOLD_POINTS, BREAD_PRICE_MARK, Vec::new());
+        let app = AppService::new(store);
+
+        let exact = app
+            .check_hunger_raw_line("player", " /BUY bread ")
+            .await
+            .expect("exact bread command");
+        let suffixed = app
+            .check_hunger_raw_line("player", "/buy bread please")
+            .await
+            .expect("suffixed bread command");
+
+        assert_eq!(exact, HungerGateOutcome::Allow);
+        assert!(matches!(suffixed, HungerGateOutcome::Block(text) if text.contains("/buy bread")));
     }
 }

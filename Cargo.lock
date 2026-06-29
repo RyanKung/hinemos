@@ -4125,6 +4125,8 @@ name = "workers-society-room"
 version = "0.1.0"
 dependencies = [
  "libhinemos-room",
+ "ron",
+ "serde",
 ]
 
 [[package]]
