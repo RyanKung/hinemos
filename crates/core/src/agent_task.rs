@@ -1,0 +1,900 @@
+//! Controller-side task mode for autonomous Hinemos agents.
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use crate::{
+    BadgeAction, BuildAction, EntityRef, InboxAction, JsonObservation, LandAction, PayAction,
+    SemanticCommand, SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction,
+    SubscriptionAction,
+};
+
+/// Persistent controller state for one autonomous task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskMode {
+    /// Human-authored objective the controller optimizes.
+    pub objective: String,
+    /// Reward function used to evaluate observed state transitions.
+    pub reward: RewardSpec,
+    /// Hard constraints checked before a candidate command can be executed.
+    pub constraints: TaskConstraints,
+    /// Last observed world snapshot for delta evaluation.
+    pub last_snapshot: Option<TaskSnapshot>,
+    /// Validated command history emitted by the controller.
+    pub command_history: Vec<TaskCommandRecord>,
+}
+
+impl TaskMode {
+    /// Creates task mode with the default reward and constraint policy.
+    ///
+    /// Pre: `objective` is authored outside the Hinemos protocol.
+    /// Post: no world-visible command has been emitted.
+    pub fn new(objective: impl Into<String>) -> Result<Self, TaskModeError> {
+        let objective = objective.into();
+        if objective.trim().is_empty() {
+            return Err(TaskModeError::EmptyObjective);
+        }
+        Ok(Self {
+            objective,
+            reward: RewardSpec::default(),
+            constraints: TaskConstraints::default(),
+            last_snapshot: None,
+            command_history: Vec::new(),
+        })
+    }
+
+    /// Replaces the reward function.
+    #[must_use]
+    pub fn with_reward(mut self, reward: RewardSpec) -> Self {
+        self.reward = reward;
+        self
+    }
+
+    /// Replaces task constraints.
+    #[must_use]
+    pub fn with_constraints(mut self, constraints: TaskConstraints) -> Self {
+        self.constraints = constraints;
+        self
+    }
+
+    /// Builds a task snapshot from a Hinemos observation plus observed controller meters.
+    ///
+    /// The snapshot carries only server-visible observations and controller-owned
+    /// task progress. It does not read model private reasoning.
+    #[must_use]
+    pub fn snapshot(
+        &self,
+        observation: &JsonObservation,
+        observed: ObservedTaskState,
+    ) -> TaskSnapshot {
+        TaskSnapshot::from_observation(observation, observed)
+    }
+
+    /// Validates a candidate command against the current observation and task constraints.
+    pub fn validate_command(
+        &self,
+        snapshot: &TaskSnapshot,
+        command: SemanticCommand,
+    ) -> Result<TaskCommand, TaskCommandError> {
+        let line = command_line(&command).ok_or(TaskCommandError::UnrenderableCommand)?;
+        if command_line_leaks_task_protocol(&line) {
+            return Err(TaskCommandError::TaskProtocolLeak);
+        }
+        if !command_is_available(&command, &snapshot.available_commands) {
+            return Err(TaskCommandError::CommandNotAvailable);
+        }
+        if self.constraints.hunger.requires_recovery(snapshot.hunger)
+            && !command_is_hunger_recovery(&command)
+        {
+            return Err(TaskCommandError::HungerRequiresRecovery);
+        }
+        Ok(TaskCommand { command, line })
+    }
+
+    /// Evaluates one observed transition after a validated command has executed.
+    #[must_use]
+    pub fn evaluate_step(
+        &self,
+        before: &TaskSnapshot,
+        command: TaskCommand,
+        after: TaskSnapshot,
+    ) -> TaskStepEvaluation {
+        let mark_delta = optional_delta(before.total_mark(), after.total_mark());
+        let progress_delta = after.progress_units.saturating_sub(before.progress_units);
+        let reward = self
+            .reward
+            .mark_delta_weight
+            .saturating_mul(mark_delta)
+            .saturating_add(
+                self.reward
+                    .progress_delta_weight
+                    .saturating_mul(progress_delta),
+            );
+
+        TaskStepEvaluation {
+            command,
+            before: before.clone(),
+            after,
+            mark_delta,
+            progress_delta,
+            reward,
+        }
+    }
+
+    /// Records a completed task step and advances the last snapshot.
+    pub fn record_step(&mut self, evaluation: TaskStepEvaluation) {
+        let TaskStepEvaluation {
+            command,
+            after,
+            reward,
+            ..
+        } = evaluation;
+        self.command_history.push(TaskCommandRecord {
+            command_line: command.line,
+            reward,
+            snapshot: after.clone(),
+        });
+        self.last_snapshot = Some(after);
+    }
+
+    /// Returns the world-visible command transcript emitted by this task.
+    #[must_use]
+    pub fn command_transcript(&self) -> Vec<&str> {
+        self.command_history
+            .iter()
+            .map(|record| record.command_line.as_str())
+            .collect()
+    }
+}
+
+/// Reward weights for observed task deltas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RewardSpec {
+    /// Reward multiplier for delta in usable MARK plus banked MARK.
+    pub mark_delta_weight: i64,
+    /// Reward multiplier for controller-owned progress units.
+    pub progress_delta_weight: i64,
+}
+
+impl Default for RewardSpec {
+    fn default() -> Self {
+        Self {
+            mark_delta_weight: 1,
+            progress_delta_weight: 10,
+        }
+    }
+}
+
+/// Constraint policy applied before command execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskConstraints {
+    /// Hunger policy for candidate commands.
+    pub hunger: HungerPolicy,
+}
+
+impl Default for TaskConstraints {
+    fn default() -> Self {
+        Self {
+            hunger: HungerPolicy::RequireRecoveryWhenGated,
+        }
+    }
+}
+
+/// How the task controller treats observed hunger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HungerPolicy {
+    /// Do not constrain candidate commands by hunger.
+    Ignore,
+    /// When the observation says the player is gated by hunger, allow only recovery commands.
+    RequireRecoveryWhenGated,
+}
+
+impl HungerPolicy {
+    fn requires_recovery(self, hunger: HungerSignal) -> bool {
+        matches!(self, Self::RequireRecoveryWhenGated) && hunger.requires_recovery()
+    }
+}
+
+/// Hunger state inferred from existing Hinemos observations or commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HungerSignal {
+    /// The controller has not observed hunger state.
+    Unknown,
+    /// The player is not currently constrained by hunger.
+    Clear,
+    /// Hunger is near a gate but the server has not blocked commands.
+    NearGate,
+    /// Hunger blocks ordinary commands and the player can recover with food.
+    GatedCanBuyFood,
+    /// Hunger blocks ordinary commands and the player must earn before buying food.
+    GatedNeedsWork,
+}
+
+impl HungerSignal {
+    /// Infers hunger from world-visible event text.
+    #[must_use]
+    pub fn from_observation(observation: &JsonObservation) -> Self {
+        let mut gated = Self::Unknown;
+        for event in &observation.events {
+            let crate::ObservationEvent::Message { text } = event else {
+                continue;
+            };
+            let text = text.to_ascii_lowercase();
+            if text.contains("hungry and broke") {
+                return Self::GatedNeedsWork;
+            }
+            if text.contains("too hungry") {
+                gated = Self::GatedCanBuyFood;
+            }
+        }
+        gated
+    }
+
+    fn requires_recovery(self) -> bool {
+        matches!(self, Self::GatedCanBuyFood | Self::GatedNeedsWork)
+    }
+}
+
+/// Controller-observed meters used to build a task snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObservedTaskState {
+    /// MARK available in the player's wallet, when observed.
+    pub usable_mark: Option<i64>,
+    /// MARK deposited in the bank, when observed.
+    pub bank_mark: Option<i64>,
+    /// Hunger signal inferred from existing observations.
+    pub hunger: HungerSignal,
+    /// Monotonic task progress units tracked by the external controller.
+    pub progress_units: i64,
+}
+
+impl Default for ObservedTaskState {
+    fn default() -> Self {
+        Self {
+            usable_mark: None,
+            bank_mark: None,
+            hunger: HungerSignal::Unknown,
+            progress_units: 0,
+        }
+    }
+}
+
+/// A controller snapshot built from one Hinemos observation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSnapshot {
+    /// Player id from the observation.
+    pub player_id: String,
+    /// Current view id from the observation.
+    pub view_id: String,
+    /// Commands exposed by the current observation.
+    pub available_commands: Vec<SemanticCommand>,
+    /// MARK available in the player's wallet, when observed.
+    pub usable_mark: Option<i64>,
+    /// MARK deposited in the bank, when observed.
+    pub bank_mark: Option<i64>,
+    /// Current hunger signal.
+    pub hunger: HungerSignal,
+    /// Monotonic task progress units tracked by the controller.
+    pub progress_units: i64,
+}
+
+impl TaskSnapshot {
+    /// Builds a snapshot from existing world observation data.
+    #[must_use]
+    pub fn from_observation(observation: &JsonObservation, observed: ObservedTaskState) -> Self {
+        Self {
+            player_id: observation.player_id.clone(),
+            view_id: observation.view_id.clone(),
+            available_commands: observation.available_commands.clone(),
+            usable_mark: observed.usable_mark,
+            bank_mark: observed.bank_mark,
+            hunger: observed.hunger,
+            progress_units: observed.progress_units,
+        }
+    }
+
+    /// Returns total observed MARK when at least one MARK source is known.
+    #[must_use]
+    pub fn total_mark(&self) -> Option<i64> {
+        match (self.usable_mark, self.bank_mark) {
+            (None, None) => None,
+            (Some(usable), None) => Some(usable),
+            (None, Some(bank)) => Some(bank),
+            (Some(usable), Some(bank)) => usable.checked_add(bank),
+        }
+    }
+}
+
+/// A validated command the controller may send to Hinemos.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCommand {
+    /// Semantic command accepted by the current task snapshot.
+    pub command: SemanticCommand,
+    /// World-visible command line to send over the existing protocol.
+    pub line: String,
+}
+
+impl TaskCommand {
+    /// Returns the world-visible command line.
+    #[must_use]
+    pub fn line(&self) -> &str {
+        &self.line
+    }
+}
+
+/// Evaluation of one validated command after observing the next state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskStepEvaluation {
+    /// Validated command that was executed.
+    pub command: TaskCommand,
+    /// Snapshot before execution.
+    pub before: TaskSnapshot,
+    /// Snapshot after execution.
+    pub after: TaskSnapshot,
+    /// Observed delta in total MARK.
+    pub mark_delta: i64,
+    /// Observed delta in task progress units.
+    pub progress_delta: i64,
+    /// Weighted reward score.
+    pub reward: i64,
+}
+
+/// One persisted command-history entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCommandRecord {
+    /// World-visible command line sent to Hinemos.
+    pub command_line: String,
+    /// Weighted reward observed after the command.
+    pub reward: i64,
+    /// Snapshot reached after the command.
+    pub snapshot: TaskSnapshot,
+}
+
+/// Errors constructing task mode.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TaskModeError {
+    /// Empty objectives do not define a task.
+    #[error("task objective must not be empty")]
+    EmptyObjective,
+}
+
+/// Errors validating a candidate command.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TaskCommandError {
+    /// Candidate command is not exposed by the current observation.
+    #[error("candidate command is not available in the current observation")]
+    CommandNotAvailable,
+    /// Hunger currently permits only recovery commands.
+    #[error("hunger constraint requires a recovery command")]
+    HungerRequiresRecovery,
+    /// Candidate tries to add a task-planning protocol to Hinemos.
+    #[error("task mode must not emit plan/act or task-state protocol commands")]
+    TaskProtocolLeak,
+    /// Candidate command cannot be rendered as an existing Hinemos command line.
+    #[error("candidate command cannot be rendered as a Hinemos command line")]
+    UnrenderableCommand,
+}
+
+fn optional_delta(before: Option<i64>, after: Option<i64>) -> i64 {
+    match (before, after) {
+        (Some(before), Some(after)) => after.saturating_sub(before),
+        _ => 0,
+    }
+}
+
+fn command_is_available(command: &SemanticCommand, available: &[SemanticCommand]) -> bool {
+    available
+        .iter()
+        .any(|template| command_matches_template(command, template))
+}
+
+fn command_matches_template(command: &SemanticCommand, template: &SemanticCommand) -> bool {
+    match (command, template) {
+        (SemanticCommand::Say { .. }, SemanticCommand::Say { .. })
+        | (SemanticCommand::Mail { .. }, SemanticCommand::Mail { .. })
+        | (SemanticCommand::Broadcast { .. }, SemanticCommand::Broadcast { .. })
+        | (SemanticCommand::Settings { .. }, SemanticCommand::Settings { .. })
+        | (SemanticCommand::Inbox { .. }, SemanticCommand::Inbox { .. })
+        | (SemanticCommand::Pay { .. }, SemanticCommand::Pay { .. })
+        | (SemanticCommand::Land { .. }, SemanticCommand::Land { .. })
+        | (SemanticCommand::Build { .. }, SemanticCommand::Build { .. })
+        | (SemanticCommand::Shop { .. }, SemanticCommand::Shop { .. })
+        | (SemanticCommand::Badges { .. }, SemanticCommand::Badges { .. })
+        | (SemanticCommand::Subscription { .. }, SemanticCommand::Subscription { .. }) => true,
+        (
+            SemanticCommand::Extension { input, .. },
+            SemanticCommand::Extension {
+                input: template, ..
+            },
+        ) => extension_template_matches(template, input),
+        (SemanticCommand::Agree { phrase }, SemanticCommand::Agree { phrase: template }) => {
+            template.is_empty() || phrase == template
+        }
+        _ => command == template,
+    }
+}
+
+fn extension_template_matches(template: &str, input: &str) -> bool {
+    let template = template.trim();
+    let input = input.trim();
+    if !template.contains('<') && !template.contains('|') {
+        return template.eq_ignore_ascii_case(input);
+    }
+    let template_literals = template
+        .split_whitespace()
+        .take_while(|token| !token.contains('<') && !token.contains('|'))
+        .map(|token| token.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if template_literals.is_empty() {
+        return false;
+    }
+    let input_literals = input
+        .split_whitespace()
+        .take(template_literals.len())
+        .map(|token| token.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    template_literals == input_literals && input.split_whitespace().count() > input_literals.len()
+}
+
+fn command_is_hunger_recovery(command: &SemanticCommand) -> bool {
+    matches!(
+        command,
+        SemanticCommand::Move { .. }
+            | SemanticCommand::Enter { .. }
+            | SemanticCommand::Balance
+            | SemanticCommand::Inventory
+            | SemanticCommand::Help
+    ) || matches!(command, SemanticCommand::Extension { input, .. } if extension_input_is_recovery(input))
+}
+
+fn extension_input_is_recovery(input: &str) -> bool {
+    let normalized = input.trim().to_ascii_lowercase();
+    matches!(normalized.as_str(), "/buy bread" | "/eat bread")
+        || normalized.starts_with("/position ")
+}
+
+fn command_line_leaks_task_protocol(line: &str) -> bool {
+    let lower = line.trim_start().to_ascii_lowercase();
+    lower.starts_with("/plan")
+        || lower.starts_with("/act")
+        || ((lower.contains("\"objective\"")
+            || lower.contains("\"goal_state\"")
+            || lower.contains("\"short_term\"")
+            || lower.contains("\"long_term\""))
+            && (line.contains('{') || line.contains('}')))
+}
+
+fn command_line(command: &SemanticCommand) -> Option<String> {
+    let line = match command {
+        SemanticCommand::Look => "/look".to_owned(),
+        SemanticCommand::Map => "/map".to_owned(),
+        SemanticCommand::Move { direction } => format!("/go {}", direction.as_str()),
+        SemanticCommand::Enter { target } => format!("/enter {target}"),
+        SemanticCommand::Inspect { target } => target_command("inspect", target),
+        SemanticCommand::Read { target } => target_command("read", target),
+        SemanticCommand::Take { target } => target_command("take", target),
+        SemanticCommand::Talk { target } => target_command("talk", target),
+        SemanticCommand::Agree { phrase } if phrase.is_empty() => "/agree".to_owned(),
+        SemanticCommand::Agree { phrase } => format!("/agree {phrase}"),
+        SemanticCommand::Say { text } => format!("/say {text}"),
+        SemanticCommand::Mail { target, text } => format!("/mail {target} {text}"),
+        SemanticCommand::Settings { action } => settings_line(action),
+        SemanticCommand::Inbox { action } => inbox_line(action),
+        SemanticCommand::Broadcast { text } => format!("/broadcast {text}"),
+        SemanticCommand::Mailbox => "/mailbox".to_owned(),
+        SemanticCommand::History => "/history".to_owned(),
+        SemanticCommand::News => "/news".to_owned(),
+        SemanticCommand::Who => "/who".to_owned(),
+        SemanticCommand::Balance => "/balance".to_owned(),
+        SemanticCommand::Pay { action } => pay_line(action),
+        SemanticCommand::Land { action } => land_line(action),
+        SemanticCommand::Build { action } => build_line(action)?,
+        SemanticCommand::Shop { action } => shop_line(action),
+        SemanticCommand::Badges { action } => badges_line(action),
+        SemanticCommand::Subscription { action } => subscription_line(action),
+        SemanticCommand::Extension { input, .. } => input.clone(),
+        SemanticCommand::Inventory => "/inventory".to_owned(),
+        SemanticCommand::Help => "/help".to_owned(),
+        SemanticCommand::Quit => "/quit".to_owned(),
+    };
+    Some(line)
+}
+
+fn target_command(verb: &str, target: &EntityRef) -> String {
+    format!("/{verb} {}", target.id)
+}
+
+fn settings_line(action: &SettingsAction) -> String {
+    match action {
+        SettingsAction::Show => "/settings".to_owned(),
+        SettingsAction::MailToken => "/settings mail-token".to_owned(),
+        SettingsAction::Name { name } => format!("/settings name {name}"),
+        SettingsAction::Gender { gender } => format!("/settings gender {}", gender.as_str()),
+        SettingsAction::Mbti { mbti } => format!("/settings mbti {}", mbti.as_str()),
+        SettingsAction::Intro { intro: None } => "/settings intro clear".to_owned(),
+        SettingsAction::Intro { intro: Some(intro) } => format!("/settings intro {intro}"),
+    }
+}
+
+fn inbox_line(action: &InboxAction) -> String {
+    match action {
+        InboxAction::List { filter } => format!("/mail list {filter}"),
+        InboxAction::Read { item_id } => format!("/mail read {item_id}"),
+        InboxAction::Claim { item_id } => format!("/mail claim {item_id}"),
+        InboxAction::Ack { item_id } => format!("/mail ack {item_id}"),
+        InboxAction::Archive { item_id } => format!("/mail archive {item_id}"),
+    }
+}
+
+fn pay_line(action: &PayAction) -> String {
+    match action {
+        PayAction::Direct {
+            target,
+            amount,
+            memo,
+        } if memo.is_empty() => format!("/pay {target} {amount}"),
+        PayAction::Direct {
+            target,
+            amount,
+            memo,
+        } => format!("/pay {target} {amount} {memo}"),
+        PayAction::Requests => "/pay requests".to_owned(),
+        PayAction::Accept { request_id } => format!("/pay accept {request_id}"),
+    }
+}
+
+fn land_line(action: &LandAction) -> String {
+    match action {
+        LandAction::List => "/land list".to_owned(),
+        LandAction::Info { parcel_id } => format!("/land info {parcel_id}"),
+        LandAction::Claim { parcel_id } => format!("/land claim {parcel_id}"),
+        LandAction::Transfer { parcel_id, target } => {
+            format!("/land transfer {parcel_id} {target}")
+        }
+        LandAction::Token { parcel_id } => format!("/land token {parcel_id}"),
+    }
+}
+
+fn build_line(action: &BuildAction) -> Option<String> {
+    match action {
+        BuildAction::Help => Some("/build".to_owned()),
+        BuildAction::Apply { .. } => None,
+        BuildAction::Set { field, value } => Some(format!("/build {field} {value}")),
+        BuildAction::Publish => Some("/build publish".to_owned()),
+    }
+}
+
+fn shop_line(action: &ShopAction) -> String {
+    match action {
+        ShopAction::Inbox => "/shop inbox".to_owned(),
+        ShopAction::RequestPayment {
+            command_id,
+            amount,
+            delivery,
+        } => {
+            format!("/shop request-payment {command_id} {amount} {delivery}")
+        }
+        ShopAction::MailingList { action } => shop_mailing_list_line(action),
+        ShopAction::Badge { action } => shop_badge_line(action),
+    }
+}
+
+fn shop_mailing_list_line(action: &ShopMailingListAction) -> String {
+    match action {
+        ShopMailingListAction::Create {
+            parcel_id,
+            slug,
+            title,
+        } => {
+            format!("/shop mailing-list create {parcel_id} {slug} {title}")
+        }
+        ShopMailingListAction::List { parcel_id } => {
+            format!("/shop mailing-list list {parcel_id}")
+        }
+        ShopMailingListAction::Subscribers { parcel_id, slug } => {
+            format!("/shop mailing-list subscribers {parcel_id} {slug}")
+        }
+        ShopMailingListAction::Send {
+            parcel_id,
+            slug,
+            subject,
+            body,
+        } => {
+            format!("/shop mailing-list send {parcel_id} {slug} {subject} -- {body}")
+        }
+        ShopMailingListAction::Close { parcel_id, slug } => {
+            format!("/shop mailing-list close {parcel_id} {slug}")
+        }
+    }
+}
+
+fn shop_badge_line(action: &ShopBadgeAction) -> String {
+    match action {
+        ShopBadgeAction::List { parcel_id } => format!("/shop badge list {parcel_id}"),
+        ShopBadgeAction::Create {
+            parcel_id,
+            slug,
+            title,
+            description: None,
+        } => format!("/shop badge create {parcel_id} {slug} {title}"),
+        ShopBadgeAction::Create {
+            parcel_id,
+            slug,
+            title,
+            description: Some(description),
+        } => format!("/shop badge create {parcel_id} {slug} {title} -- {description}"),
+        ShopBadgeAction::Award {
+            parcel_id,
+            slug,
+            target,
+            note: None,
+        } => format!("/shop badge award {parcel_id} {slug} {target}"),
+        ShopBadgeAction::Award {
+            parcel_id,
+            slug,
+            target,
+            note: Some(note),
+        } => format!("/shop badge award {parcel_id} {slug} {target} {note}"),
+        ShopBadgeAction::Revoke {
+            parcel_id,
+            slug,
+            target,
+        } => format!("/shop badge revoke {parcel_id} {slug} {target}"),
+    }
+}
+
+fn badges_line(action: &BadgeAction) -> String {
+    match action {
+        BadgeAction::ListMine => "/badges".to_owned(),
+        BadgeAction::ListUser { target } => format!("/badges {target}"),
+    }
+}
+
+fn subscription_line(action: &SubscriptionAction) -> String {
+    match action {
+        SubscriptionAction::Subscribe { target, slug } => format!("/subscribe {target} {slug}"),
+        SubscriptionAction::Unsubscribe { target, slug } => {
+            format!("/unsubscribe {target} {slug}")
+        }
+        SubscriptionAction::Chat { target, slug, body } => {
+            format!("/chat {target} {slug} -- {body}")
+        }
+        SubscriptionAction::List => "/subscriptions".to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Direction, ExitObservation, ObservationEvent, ViewId};
+
+    use super::*;
+
+    #[test]
+    fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
+        let task = TaskMode::new("earn MARK and build standing").expect("task");
+        let observation = observation(vec![
+            SemanticCommand::Say {
+                text: String::new(),
+            },
+            SemanticCommand::Extension {
+                name: "position".to_owned(),
+                input: "/position start <position>".to_owned(),
+            },
+        ]);
+        let snapshot = task.snapshot(
+            &observation,
+            ObservedTaskState {
+                usable_mark: Some(1_000),
+                bank_mark: Some(0),
+                hunger: HungerSignal::Clear,
+                progress_units: 0,
+            },
+        );
+
+        let command = task
+            .validate_command(
+                &snapshot,
+                SemanticCommand::Extension {
+                    name: "position".to_owned(),
+                    input: "/position start greeter".to_owned(),
+                },
+            )
+            .expect("position command is available");
+
+        assert_eq!(command.line(), "/position start greeter");
+        assert!(!command.line().contains("earn MARK"));
+        assert!(!command.line().to_ascii_lowercase().contains("/plan"));
+        assert!(!command.line().to_ascii_lowercase().contains("/act"));
+    }
+
+    #[test]
+    fn hunger_gate_allows_recovery_and_rejects_ordinary_action() {
+        let task = TaskMode::new("make money").expect("task");
+        let observation = observation(vec![
+            SemanticCommand::Say {
+                text: String::new(),
+            },
+            SemanticCommand::Extension {
+                name: "buy".to_owned(),
+                input: "/buy bread".to_owned(),
+            },
+        ]);
+        let snapshot = task.snapshot(
+            &observation,
+            ObservedTaskState {
+                usable_mark: Some(100),
+                bank_mark: None,
+                hunger: HungerSignal::GatedCanBuyFood,
+                progress_units: 0,
+            },
+        );
+
+        let blocked = task.validate_command(
+            &snapshot,
+            SemanticCommand::Say {
+                text: "I will keep chatting".to_owned(),
+            },
+        );
+        let recovery = task.validate_command(
+            &snapshot,
+            SemanticCommand::Extension {
+                name: "buy".to_owned(),
+                input: "/buy bread".to_owned(),
+            },
+        );
+
+        assert_eq!(blocked, Err(TaskCommandError::HungerRequiresRecovery));
+        assert_eq!(recovery.expect("recovery command").line(), "/buy bread");
+    }
+
+    #[test]
+    fn reward_uses_observed_mark_and_progress_deltas() {
+        let task = TaskMode::new("save money")
+            .expect("task")
+            .with_reward(RewardSpec {
+                mark_delta_weight: 2,
+                progress_delta_weight: 5,
+            });
+        let before = task.snapshot(
+            &observation(vec![SemanticCommand::Balance]),
+            ObservedTaskState {
+                usable_mark: Some(100),
+                bank_mark: Some(50),
+                hunger: HungerSignal::Clear,
+                progress_units: 1,
+            },
+        );
+        let after = task.snapshot(
+            &observation(vec![SemanticCommand::Balance]),
+            ObservedTaskState {
+                usable_mark: Some(140),
+                bank_mark: Some(70),
+                hunger: HungerSignal::Clear,
+                progress_units: 3,
+            },
+        );
+        let command = task
+            .validate_command(&before, SemanticCommand::Balance)
+            .expect("balance available");
+
+        let evaluation = task.evaluate_step(&before, command, after);
+
+        assert_eq!(evaluation.mark_delta, 60);
+        assert_eq!(evaluation.progress_delta, 2);
+        assert_eq!(evaluation.reward, 130);
+    }
+
+    #[test]
+    fn task_history_transcript_contains_only_world_commands() {
+        let mut task = TaskMode::new("own a shop").expect("task");
+        let before = task.snapshot(
+            &observation(vec![SemanticCommand::Move {
+                direction: Direction::North,
+            }]),
+            ObservedTaskState::default(),
+        );
+        let command = task
+            .validate_command(
+                &before,
+                SemanticCommand::Move {
+                    direction: Direction::North,
+                },
+            )
+            .expect("move available");
+        let after = TaskSnapshot {
+            progress_units: 1,
+            ..before.clone()
+        };
+
+        let evaluation = task.evaluate_step(&before, command, after);
+        task.record_step(evaluation);
+
+        assert_eq!(task.command_transcript(), vec!["/go north"]);
+        assert!(
+            task.command_transcript()
+                .iter()
+                .all(|line| !line.contains("own a shop"))
+        );
+    }
+
+    #[test]
+    fn plan_act_and_goal_json_are_rejected_as_protocol_leaks() {
+        let task = TaskMode::new("become a shopkeeper").expect("task");
+        let observation = observation(vec![SemanticCommand::Extension {
+            name: "plan".to_owned(),
+            input: "/plan <json>".to_owned(),
+        }]);
+        let snapshot = task.snapshot(&observation, ObservedTaskState::default());
+
+        let plan = task.validate_command(
+            &snapshot,
+            SemanticCommand::Extension {
+                name: "plan".to_owned(),
+                input: "/plan {\"objective\":\"become a shopkeeper\"}".to_owned(),
+            },
+        );
+
+        assert_eq!(plan, Err(TaskCommandError::TaskProtocolLeak));
+    }
+
+    #[test]
+    fn unavailable_command_is_rejected() {
+        let task = TaskMode::new("deposit money").expect("task");
+        let snapshot = task.snapshot(
+            &observation(vec![SemanticCommand::Balance]),
+            ObservedTaskState::default(),
+        );
+
+        let result = task.validate_command(
+            &snapshot,
+            SemanticCommand::Extension {
+                name: "bank".to_owned(),
+                input: "/bank deposit 10".to_owned(),
+            },
+        );
+
+        assert_eq!(result, Err(TaskCommandError::CommandNotAvailable));
+    }
+
+    #[test]
+    fn hunger_signal_is_inferred_from_existing_event_text() {
+        let mut observation = observation(Vec::new());
+        observation.events.push(ObservationEvent::Message {
+            text: "You are hungry and broke. Recovery commands still work.".to_owned(),
+        });
+
+        assert_eq!(
+            HungerSignal::from_observation(&observation),
+            HungerSignal::GatedNeedsWork
+        );
+    }
+
+    fn observation(available_commands: Vec<SemanticCommand>) -> JsonObservation {
+        JsonObservation {
+            player_id: "player:alice".to_owned(),
+            view_id: ViewId::from("harbor_square"),
+            title: "Harbor Square".to_owned(),
+            ascii_art: Vec::new(),
+            description: "A place where agents can act.".to_owned(),
+            exits: vec![ExitObservation {
+                direction: Direction::North,
+                target_known: true,
+                label: Some("North".to_owned()),
+            }],
+            entities: Vec::new(),
+            online_users: Vec::new(),
+            available_commands,
+            events: Vec::new(),
+        }
+    }
+}

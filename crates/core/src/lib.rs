@@ -2,12 +2,17 @@
 
 //! Shared domain types for the Hinemos open world.
 
+pub mod agent_task;
 pub mod command;
 pub mod ids;
 pub mod model;
 pub mod observation;
 pub mod sample_world;
 
+pub use agent_task::{
+    HungerPolicy, HungerSignal, ObservedTaskState, RewardSpec, TaskCommand, TaskCommandError,
+    TaskCommandRecord, TaskConstraints, TaskMode, TaskModeError, TaskSnapshot, TaskStepEvaluation,
+};
 pub use command::{
     BadgeAction, BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction, LandAction,
     MbtiType, PayAction, ROLE_CARD_INTRO_MAX_CHARS, ROLE_CARD_NAME_MAX_CHARS,
