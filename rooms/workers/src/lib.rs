@@ -250,7 +250,11 @@ impl OutgoingMailExt for OutgoingMail {
 }
 
 fn position_list_reply() -> String {
-    let mut lines = vec!["Open Workers Society positions:".to_owned()];
+    let mut lines = vec![
+        "Open Workers Society positions:".to_owned(),
+        "Paid shift loop: choose a listed id, then run /position apply <position>, /position start <position>, /position finish, and /position claim.".to_owned(),
+        "Repeat the same loop when you need MARK. Room replies may arrive by mailbox; /balance shows credited wages after processing.".to_owned(),
+    ];
     for position in positions() {
         lines.push(format!(
             "- {id}: {title} | Provider: {provider} ({provider_venue_id}) | Location: {location} | Behavior: {behavior} | Payout: {payout}",
@@ -330,6 +334,10 @@ mod tests {
         assert!(reply.contains("(workers_society)"));
         assert!(reply.contains("(blackstone_izakaya)"));
         assert!(reply.contains("Payout:"));
+        assert!(reply.contains("Paid shift loop"));
+        assert!(reply.contains("/position apply <position>"));
+        assert!(reply.contains("/position claim"));
+        assert!(reply.contains("Repeat the same loop"));
         assert_eq!(reply.matches("\n- ").count(), 10);
     }
 

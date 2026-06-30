@@ -85,6 +85,7 @@ impl Chrome {
         Settings: /settings, /settings name <name>, /settings gender <male|female|none>, /settings mbti <type>, /settings intro <one line>, /settings intro clear, /settings mail-token\n\
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
+        Survival: use /map and Available to find local rooms. Paid rooms list their own loops; food rooms can restore hunger when the world tells you to eat.\n\
         Land: /land list, /land info <parcel>, /land claim <parcel>, /land token <parcel>, /land transfer <parcel> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
         Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>; shop chats use /shop mailing-list create <parcel> <slug> <title>, /chat <parcel-or-shop> <slug> -- <message>\n\

@@ -189,6 +189,170 @@ async fn hungry_player_buys_bread_through_blackstone_and_resumes_interacting() {
     temp.remove_on_drop();
 }
 
+#[test]
+fn plain_ssh_user_can_become_hungry_and_broke_then_work_for_bread() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-hungry-broke-plain-flow");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("broke_hungry{}_{}", std::process::id(), epoch_seconds());
+    let sink = format!("broke_sink{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+
+    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    wait_for_server(host, port, &mut server, &server_log);
+    let key = admitted_key(&temp, host, port, &user);
+    let _sink_key = admitted_key(&temp, host, port, &sink);
+
+    let drain_command = format!("/pay {sink} 1000 drain-wallet");
+    let drain_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[drain_command.as_str(), "/balance", "/quit"],
+    );
+    assert_contains(
+        &drain_output,
+        &format!("Paid 1000 MARK to {sink}."),
+        "plain user drains their own starter wallet through a public payment",
+    );
+    assert_contains(
+        &drain_output,
+        "Balance: 0 MARK",
+        "plain user's wallet is empty after public payment",
+    );
+
+    let mut hunger_commands = (1..=23)
+        .map(|turn| format!("/say hunger tick {turn}"))
+        .collect::<Vec<_>>();
+    hunger_commands.push("/quit".to_owned());
+    let hunger_command_refs = hunger_commands
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let hunger_output = run_ssh_batch_with_key(host, port, &user, &key, &hunger_command_refs);
+    assert_contains(
+        &hunger_output,
+        "You say: hunger tick 23",
+        "plain ordinary interactions naturally advance hunger to the gate",
+    );
+
+    let limited = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/say first hungry broke allowance",
+            "/say second hungry broke blocked",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &limited,
+        "You say: first hungry broke allowance",
+        "hungry broke user gets the first cooldown-limited ordinary interaction",
+    );
+    assert_contains(
+        &limited,
+        "You are hungry and broke.",
+        "second ordinary interaction is blocked by the hungry-broke gate",
+    );
+
+    let work_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/go east",
+            "/enter workers",
+            "/position apply greeter",
+            "/position start greeter",
+            "/position finish",
+            "/position claim",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &work_output,
+        "Sent to room service room-workers_society",
+        "plain SSH user can still queue recovery work commands while hungry and broke",
+    );
+
+    let work_rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
+    assert_contains(
+        &work_rooms_output,
+        "Processed 4 room request(s).",
+        "room runner handles the plain work recovery sequence",
+    );
+    let worked_balance = run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/quit"]);
+    assert_contains(
+        &worked_balance,
+        "Balance: 25 MARK",
+        "plain work recovery leaves enough MARK to buy bread",
+    );
+
+    let bread_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/go south",
+            "/go west",
+            "/go west",
+            "/enter H1",
+            "/buy bread",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &bread_output,
+        "Sent to room service room-blackstone_izakaya",
+        "plain SSH user can buy bread after earning MARK",
+    );
+
+    let bread_rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
+    assert_contains(
+        &bread_rooms_output,
+        "Processed 1 room request(s).",
+        "room runner handles the plain bread purchase",
+    );
+    let recovered_balance = run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/quit"]);
+    assert_contains(
+        &recovered_balance,
+        "Balance: 5 MARK",
+        "bread purchase debits the recovered user's wallet",
+    );
+
+    let allowed = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/go south",
+            "/go east",
+            "/say recovered plain user",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &allowed,
+        "You say: recovered plain user",
+        "plain user can resume ordinary interactions after work and bread",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
 #[tokio::test]
 async fn credit_player_mark_is_idempotent_by_key() {
     let root = workspace_root();
