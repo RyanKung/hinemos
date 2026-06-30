@@ -114,6 +114,26 @@ pub fn spawn_hinemos_rooms(
         .expect("spawn hinemos room runner")
 }
 
+pub fn spawn_hinemos_http(root: &Path, host: &str, port: u16, log_path: &Path) -> Child {
+    let log = fs::File::create(log_path).expect("create http log");
+    Command::new(env!("CARGO_BIN_EXE_hinemos"))
+        .current_dir(root)
+        .args([
+            "serve",
+            "http",
+            "--bind",
+            &format!("{host}:{port}"),
+            "--world",
+            "worlds/sample",
+            "--static-dir",
+            "web/landing/dist",
+        ])
+        .stdout(log.try_clone().expect("clone http log for stdout"))
+        .stderr(log)
+        .spawn()
+        .expect("spawn hinemos http server")
+}
+
 pub fn run_hinemos_rooms_once(root: &Path, database_url: &str) -> String {
     let child = Command::new(env!("CARGO_BIN_EXE_hinemos"))
         .current_dir(root)

@@ -113,6 +113,76 @@ fn llm_can_use_built_in_rooms_over_ssh() {
 }
 
 #[test]
+fn llm_can_start_from_web_entry_and_complete_three_work_loops() {
+    let _serial = serial_claude_world_behavior();
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    assert_provider_env(&env);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("claude");
+    assert_command_exists("curl");
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-llm-task-loop");
+    let host = "127.0.0.1";
+    let ssh_port = free_local_port();
+    let http_port = free_local_port();
+    let user = format!("task_loop_{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+    let http_log = temp.path.join("hinemos-http.log");
+    let rooms_log = temp.path.join("hinemos-rooms.log");
+    let key = temp.path.join(format!("{user}_ed25519"));
+
+    generate_ed25519_key(&key);
+    let mut server = spawn_hinemos_server(&root, host, ssh_port, &server_log, &test_database.url);
+    wait_for_server(host, ssh_port, &mut server, &server_log);
+    let mut http = spawn_hinemos_http(&root, host, http_port, &http_log);
+    wait_for_server(host, http_port, &mut http, &http_log);
+    let mut rooms = spawn_hinemos_rooms(&root, &rooms_log, &test_database.url, 100);
+
+    let key_path = key.display().to_string();
+    let prompt = three_loop_worker_prompt(host, http_port, ssh_port, &user, &key_path);
+    let output = run_claude_agent_until_with_tools(
+        &prompt,
+        &env,
+        Duration::from_secs(360),
+        &["Bash(curl *)", "Bash(ssh *)"],
+        never_stop_before_agent_exit,
+    );
+
+    terminate(&mut rooms);
+    let _ = run_hinemos_rooms_once(&root, &test_database.url);
+    terminate(&mut http);
+    terminate(&mut server);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    fs::write(
+        temp.path.join("llm-task-loop-stdout.log"),
+        stdout.as_bytes(),
+    )
+    .ok();
+    fs::write(
+        temp.path.join("llm-task-loop-stderr.log"),
+        stderr.as_bytes(),
+    )
+    .ok();
+
+    assert!(
+        output.success,
+        "LLM task-loop verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
+        if output.timed_out { " by timeout" } else { "" },
+        stderr,
+        stdout,
+        temp.path.display()
+    );
+    assert_llm_three_loop_evidence(&stdout, &temp);
+    assert_llm_three_loop_database_effects(&test_database, &user);
+
+    temp.remove_on_drop();
+}
+
+#[test]
 fn llm_can_verify_three_agent_message_visibility_over_ssh() {
     let _serial = serial_claude_world_behavior();
     let root = workspace_root();
@@ -377,6 +447,48 @@ fn never_stop_before_agent_exit(_stdout: &str) -> bool {
     false
 }
 
+fn three_loop_worker_prompt(
+    host: &str,
+    http_port: u16,
+    ssh_port: u16,
+    user: &str,
+    key_path: &str,
+) -> String {
+    format!(
+        r#"You are a first-time autonomous Hinemos agent. Prove the full loop works from web discovery to repeated work.
+
+Allowed tools:
+- curl only for the local Hinemos web entry.
+- ssh only for the Hinemos world.
+
+Start from the web. Read these local web endpoints before SSH:
+curl -s http://{host}:{http_port}/api/intro
+curl -s http://{host}:{http_port}/api/anonymous/observe
+
+The public page may mention hinemos.ai, but this test instance is local. Use this exact SSH command form when you enter the world:
+ssh -T -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {ssh_port} {user}@{host}
+
+Do not use printf, cat, grep, sed, sleep, files, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands.
+
+Goal:
+1. Read the web entry first.
+2. Enter the world over SSH and complete admission if needed.
+3. Find Workers Society through the world output.
+4. Complete at least three work loops. A work loop means: choose an available position, apply or reuse the application, start work, finish work, claim wages, and observe the result through mailbox or balance.
+5. If room replies are asynchronous, reconnect with SSH and run /mailbox and /balance until you can report evidence.
+
+Return a concise report with these exact labels:
+WEB=<evidence from the web entry>
+ADMISSION=<evidence that SSH admission completed or was already complete>
+LOOP1=<position and wage/claim evidence>
+LOOP2=<position and wage/claim evidence>
+LOOP3=<position and wage/claim evidence>
+BALANCE=<final balance or wallet-credit evidence>
+SSH=<evidence that you used SSH>
+"#
+    )
+}
+
 fn assert_llm_room_evidence(stdout: &str, temp: &TestTempDir) {
     require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
     require_output(
@@ -395,6 +507,37 @@ fn assert_llm_room_evidence(stdout: &str, temp: &TestTempDir) {
         stdout,
         &["Daily Seer", "The Hinemos Daily Seer"],
         "evidence that it used Daily Seer",
+        temp,
+    );
+}
+
+fn assert_llm_three_loop_evidence(stdout: &str, temp: &TestTempDir) {
+    require_output(
+        stdout,
+        &["WEB=", "api/intro", "Hinemos"],
+        "evidence that the agent started from the web entry",
+        temp,
+    );
+    require_output(
+        stdout,
+        &["ADMISSION=", "Agreement accepted", "already admitted"],
+        "evidence that the agent entered SSH and handled admission",
+        temp,
+    );
+    assert_contains(stdout, "LOOP1=", "first work loop report");
+    assert_contains(stdout, "LOOP2=", "second work loop report");
+    assert_contains(stdout, "LOOP3=", "third work loop report");
+    require_output(
+        stdout,
+        &["Wallet credited", "Claimed", "MARK", "Balance"],
+        "evidence that work produced observable wages",
+        temp,
+    );
+    require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
+    require_output(
+        stdout,
+        &["curl", "api/intro"],
+        "evidence that it used curl",
         temp,
     );
 }
@@ -438,6 +581,44 @@ fn assert_llm_room_database_effects(test_database: &TestDatabase, user: &str) {
         ),
         "1:25",
         "LLM room flow should create one worker wage ledger entry"
+    );
+}
+
+fn assert_llm_three_loop_database_effects(test_database: &TestDatabase, user: &str) {
+    let player_id = test_database.query_value(&format!(
+        "select player_id from ssh_identities where username = '{user}'"
+    ));
+    let wage_count = test_database.query_value(&format!(
+        "select count(*)
+         from world_ledger_entries
+         where reason = 'room_wage'
+           and credit_account_id = 'player:{player_id}'"
+    ));
+    let wage_sum = test_database.query_value(&format!(
+        "select coalesce(sum(amount), 0)
+         from world_ledger_entries
+         where reason = 'room_wage'
+           and credit_account_id = 'player:{player_id}'"
+    ));
+    let claim_count = room_command_count(
+        test_database,
+        user,
+        "room-workers_society",
+        "/position claim",
+    );
+
+    assert_at_least(&wage_count, 3, "worker wage ledger entries");
+    assert_at_least(&wage_sum, 75, "total worker wages");
+    assert_at_least(&claim_count, 3, "worker claim room commands");
+}
+
+fn assert_at_least(value: &str, minimum: i64, description: &str) {
+    let parsed = value
+        .parse::<i64>()
+        .unwrap_or_else(|error| panic!("invalid {description} count `{value}`: {error}"));
+    assert!(
+        parsed >= minimum,
+        "expected {description} >= {minimum}, got {parsed}"
     );
 }
 
