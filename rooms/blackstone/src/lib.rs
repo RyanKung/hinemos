@@ -86,7 +86,7 @@ impl BlackstoneIzakaya {
                 effects: vec![
                     RoomEffect::DebitPlayerMark {
                         amount: BREAD_PRICE_MARK,
-                        reason: DebitReason::BlackstoneFood,
+                        reason: DebitReason::Food,
                     },
                     RoomEffect::RestorePlayerHunger {
                         food: "bread".to_owned(),
@@ -348,7 +348,7 @@ mod tests {
             vec![
                 RoomEffect::DebitPlayerMark {
                     amount: BREAD_PRICE_MARK,
-                    reason: DebitReason::BlackstoneFood,
+                    reason: DebitReason::Food,
                 },
                 RoomEffect::RestorePlayerHunger {
                     food: "bread".to_owned(),

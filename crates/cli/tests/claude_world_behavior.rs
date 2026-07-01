@@ -452,7 +452,6 @@ fn assert_prompt_has_no_external_loop_guidance(prompt: &str) {
         "work loop",
         "job",
         "wage",
-        "claim wages",
         "mark",
         "bread",
         "blackstone",
@@ -688,7 +687,7 @@ Do not use printf, curl, cat, grep, sed, sleep, or files. Use only ssh commands.
 
 Tasks:
 1. Enter H1 Blackstone, run /buy beer, /blame Harbor master hid the storm ledger, then /grep storm ledger.
-2. Enter H3 Workers Society, run /position apply street-sweeper, /position start street-sweeper, /position finish, then /position claim.
+2. Enter H3 Workers Society, run /position apply street-sweeper, /position start street-sweeper, then /position finish.
 3. Enter H5 Daily Seer, run /paper today.
 4. Reconnect with SSH if needed and run /balance and /mailbox so room replies can be observed.
 
@@ -806,10 +805,10 @@ fn assert_llm_room_database_effects(test_database: &TestDatabase, user: &str) {
             test_database,
             user,
             "room-workers_society",
-            "/position claim"
+            "/position finish"
         ),
         "1",
-        "LLM should send the worker claim command"
+        "LLM should send the worker finish command"
     );
     assert_eq!(
         room_command_count(

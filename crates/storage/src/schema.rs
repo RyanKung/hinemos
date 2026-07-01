@@ -896,6 +896,7 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
                 room_player_id text not null unique,
                 status_text text,
                 custom_commands text,
+                recovery_commands text,
                 builtin_handler text,
                 enabled boolean not null default true,
                 created_at timestamptz not null default now(),
@@ -914,6 +915,7 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
         "enter_aliases text",
         "status_text text",
         "custom_commands text",
+        "recovery_commands text",
         "builtin_handler text",
         "enabled boolean not null default true",
     ] {

@@ -318,17 +318,16 @@ impl ConnectionHandler {
         observation.online_users = render_online_summary(&view_users, 10);
         if let Some(identity) = self.identity.as_ref() {
             let admission = app.player_admission(&identity.player_id).await?;
-            if admission.is_agreed()
-                && !self
-                    .resident_context_sent
-                    .load(std::sync::atomic::Ordering::Acquire)
-            {
+            if admission.is_agreed() {
                 let context = app
                     .resident_context(&identity.user, &identity.player_id, &observation)
                     .await?;
-                append_resident_context(&mut observation.description, &context.text);
-                self.resident_context_sent
-                    .store(true, std::sync::atomic::Ordering::Release);
+                if !self
+                    .resident_context_sent
+                    .swap(true, std::sync::atomic::Ordering::AcqRel)
+                {
+                    append_resident_context(&mut observation.description, &context.text);
+                }
             }
         }
         let app_config = self.shared.app_config().await;

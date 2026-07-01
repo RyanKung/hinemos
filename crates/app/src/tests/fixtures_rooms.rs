@@ -163,6 +163,10 @@ impl ServiceRoomView for TestRoomBinding {
     fn custom_commands(&self) -> Option<&str> {
         Some("/room ask <question>")
     }
+
+    fn recovery_commands(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl ServiceRoomView for TestServiceRoom {
@@ -184,6 +188,10 @@ impl ServiceRoomView for TestServiceRoom {
 
     fn custom_commands(&self) -> Option<&str> {
         self.custom_commands
+    }
+
+    fn recovery_commands(&self) -> Option<&str> {
+        None
     }
 }
 
@@ -408,6 +416,10 @@ impl ServiceRoomView for RegistrationServiceRoom {
     }
 
     fn custom_commands(&self) -> Option<&str> {
+        None
+    }
+
+    fn recovery_commands(&self) -> Option<&str> {
         None
     }
 }

@@ -104,6 +104,14 @@ impl MemoryStore for PgStorage {
         PgStorage::ensure_self_model(self, agent_id, identity, current_state, style).await
     }
 
+    async fn record_self_model_state(
+        &self,
+        agent_id: &str,
+        current_state: &Value,
+    ) -> Result<Self::SelfModel, Self::Error> {
+        PgStorage::record_self_model_state(self, agent_id, current_state).await
+    }
+
     async fn search_memory_atoms(
         &self,
         agent_id: &str,

@@ -34,7 +34,7 @@ fn built_in_rooms_reply_through_room_runner_end_to_end() {
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
-        "Processed 16 room request(s).",
+        "Processed 15 room request(s).",
         "room runner consumes all queued built-in room requests",
     );
 
@@ -125,7 +125,6 @@ fn queue_all_built_in_room_commands(
             "/position apply street-sweeper",
             "/position start street-sweeper",
             "/position finish",
-            "/position claim",
             "/go south",
             "/enter H4",
             "/bank balance",

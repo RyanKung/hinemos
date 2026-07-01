@@ -460,8 +460,13 @@ impl ConnectionHandler {
         self.handle_hunger_outcome(
             channel,
             session,
-            app.check_hunger_raw_line(&app_identity.player_id, trimmed)
-                .await?,
+            if binding.is_service_room() {
+                app.check_hunger_room_line(&app_identity.player_id, trimmed, binding)
+                    .await?
+            } else {
+                app.check_hunger_raw_line(&app_identity.player_id, trimmed)
+                    .await?
+            },
             prompt,
         )
         .await

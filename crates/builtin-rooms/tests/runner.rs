@@ -46,6 +46,7 @@ async fn runner_processes_built_in_room_mail_without_cli_binary() {
             room_player_id: "room:custom_bank",
             status_text: None,
             custom_commands: Some("/bank balance"),
+            recovery_commands: None,
             builtin_handler: Some("hinemos_bank"),
             enabled: true,
         })
@@ -116,6 +117,7 @@ async fn disabled_stale_builtin_handler_does_not_block_renamed_room() {
             room_player_id: "room:hinemos_bank",
             status_text: None,
             custom_commands: Some("/bank balance"),
+            recovery_commands: None,
             builtin_handler: Some("hinemos_bank"),
             enabled: true,
         })
@@ -137,6 +139,7 @@ async fn disabled_stale_builtin_handler_does_not_block_renamed_room() {
             room_player_id: "room:custom_bank",
             status_text: None,
             custom_commands: Some("/bank balance"),
+            recovery_commands: None,
             builtin_handler: Some("hinemos_bank"),
             enabled: true,
         })
@@ -172,6 +175,7 @@ async fn registry_runner_uses_registered_room_view_for_presence() {
             room_player_id: "room:custom_registry",
             status_text: None,
             custom_commands: Some("/marriage register <user>"),
+            recovery_commands: None,
             builtin_handler: Some("hinemos_registry"),
             enabled: true,
         })

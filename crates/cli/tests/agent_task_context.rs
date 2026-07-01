@@ -54,13 +54,23 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         "select count(*)
          from agent_self_models
          where agent_id = '{player_id}'
-           and version = 1
            and identity->>'name' = '{user}'
            and identity->>'taskObjective' like 'As {user}, earn MARK%'"
     ));
+    assert_ne!(
+        model_count, "0",
+        "logged-in resident context must be backed by a persisted self-model"
+    );
+    let latest_snapshot_view = test_database.query_value(&format!(
+        "select current_state->'lastSnapshot'->>'viewId'
+         from agent_self_models
+         where agent_id = '{player_id}'
+         order by version desc
+         limit 1"
+    ));
     assert_eq!(
-        model_count, "1",
-        "logged-in resident context must be backed by one persisted default self-model"
+        latest_snapshot_view, "arrival_street",
+        "resident context refresh writes the latest visible world snapshot"
     );
 
     terminate(&mut server);

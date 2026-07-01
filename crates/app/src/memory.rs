@@ -47,10 +47,6 @@ where
         observation: &JsonObservation,
     ) -> Result<MemoryResult, E> {
         let task = TaskMode::resident(username);
-        let self_model = self
-            .ensure_default_self_model(username, agent_id, &task)
-            .await?;
-        let commitments = self.open_commitments(agent_id, 20, 3).await?;
         let snapshot = task.snapshot(
             observation,
             ObservedTaskState {
@@ -58,6 +54,10 @@ where
                 ..ObservedTaskState::default()
             },
         );
+        let self_model = self
+            .refresh_resident_self_model(username, agent_id, &task, observation, &snapshot)
+            .await?;
+        let commitments = self.open_commitments(agent_id, 20, 3).await?;
         Ok(MemoryResult {
             text: format!(
                 "{}\r\n",
@@ -134,6 +134,22 @@ where
         let style = default_resident_style();
         self.store
             .ensure_self_model(agent_id, &identity, &current_state, &style)
+            .await
+    }
+
+    async fn refresh_resident_self_model(
+        &self,
+        username: &str,
+        agent_id: &str,
+        task: &TaskMode,
+        observation: &JsonObservation,
+        snapshot: &TaskSnapshot,
+    ) -> Result<S::SelfModel, E> {
+        self.ensure_default_self_model(username, agent_id, task)
+            .await?;
+        let current_state = resident_current_state(observation, snapshot);
+        self.store
+            .record_self_model_state(agent_id, &current_state)
             .await
     }
 
@@ -274,6 +290,13 @@ pub trait MemoryStore {
         style: &Value,
     ) -> Result<Self::SelfModel, Self::Error>;
 
+    /// Records a new self-model state version when the current state changed.
+    async fn record_self_model_state(
+        &self,
+        agent_id: &str,
+        current_state: &Value,
+    ) -> Result<Self::SelfModel, Self::Error>;
+
     /// Searches memory atoms.
     async fn search_memory_atoms(
         &self,
@@ -345,8 +368,23 @@ fn default_resident_current_state() -> Value {
     json!({
         "shortTerm": "Stay able to act: find work, earn MARK, buy food when hungry, and keep useful commitments.",
         "priority": "Prefer actions that increase MARK, standing, useful commitments, or progress toward owning or serving shops.",
-        "constraint": "Treat hunger as a hard constraint. If hunger blocks ordinary action, recover through in-game work and bread.",
+        "constraint": "Treat hunger as a hard constraint. If hunger blocks ordinary action, recover through in-game work and food.",
     })
+}
+
+fn resident_current_state(observation: &JsonObservation, snapshot: &TaskSnapshot) -> Value {
+    let mut current_state = default_resident_current_state();
+    if let Some(state) = current_state.as_object_mut() {
+        state.insert(
+            "lastSnapshot".to_owned(),
+            json!({
+                "viewId": snapshot.view_id.as_str(),
+                "title": observation.title.as_str(),
+                "hunger": hunger_context(snapshot.hunger),
+            }),
+        );
+    }
+    current_state
 }
 
 fn default_resident_style() -> Value {
@@ -379,7 +417,7 @@ fn render_resident_context(
         task.objective
     ));
     lines.push(
-        "Boundary: Use only visible Hinemos commands and room replies. If hunger blocks action, recover through in-game work and bread."
+        "Boundary: Use only visible Hinemos commands and room replies. If hunger blocks action, recover through in-game work and food."
             .to_owned(),
     );
     lines.push(format!(
@@ -399,7 +437,7 @@ fn hunger_context(hunger: HungerSignal) -> &'static str {
         HungerSignal::Unknown => "not observed yet",
         HungerSignal::Clear => "clear",
         HungerSignal::NearGate => "near a limit",
-        HungerSignal::GatedCanBuyFood => "too hungry for ordinary action; buy or eat bread",
+        HungerSignal::GatedCanBuyFood => "too hungry for ordinary action; buy or eat food",
         HungerSignal::GatedNeedsWork => "hungry and broke; earn MARK through in-game work",
     }
 }

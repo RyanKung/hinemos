@@ -100,21 +100,21 @@ pub enum RoomEffect {
 /// Domain reason for a player MARK credit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreditReason {
-    /// Wage paid by the Workers Society room.
+    /// Wage paid by a room service.
     WorkerWage,
 }
 
 /// Domain reason for a player MARK debit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DebitReason {
-    /// Food sold by the Blackstone Izakaya room.
-    BlackstoneFood,
+    /// Food sold by a room service.
+    Food,
 }
 
 /// A job offer owned by a provider venue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JobOffer {
-    /// Stable player-facing id used by Workers Society commands.
+    /// Stable player-facing id used by job commands.
     pub id: &'static str,
     /// Display title shown to workers.
     pub title: &'static str,
@@ -137,130 +137,6 @@ pub struct JobOfferProvider {
     pub label: &'static str,
     /// Offers authored by this provider.
     pub offers: &'static [JobOffer],
-}
-
-const WORKERS_SOCIETY_OFFERS: &[JobOffer] = &[
-    JobOffer {
-        id: "street-promoter",
-        title: "Street Promoter",
-        location: "Harbor Square",
-        behavior: "Invite newcomers to active shops and public rooms.",
-        payout: "30 MARK after a completed promotion round",
-        wage: 30,
-    },
-    JobOffer {
-        id: "greeter",
-        title: "Greeter",
-        location: "Arrival Street",
-        behavior: "Welcome new arrivals and point them to setup commands.",
-        payout: "25 MARK per welcome shift",
-        wage: 25,
-    },
-    JobOffer {
-        id: "recruiter",
-        title: "Recruiter",
-        location: "Workers Society",
-        behavior: "Match idle players with work and collect feedback.",
-        payout: "55 MARK per recruiting shift",
-        wage: 55,
-    },
-];
-
-const BLACKSTONE_OFFERS: &[JobOffer] = &[
-    JobOffer {
-        id: "bartender",
-        title: "Bartender",
-        location: "Blackstone Izakaya",
-        behavior: "Serve food and drinks while keeping tavern gossip moving.",
-        payout: "45 MARK per finished shift",
-        wage: 45,
-    },
-    JobOffer {
-        id: "street-performer",
-        title: "Street Performer",
-        location: "Public squares",
-        behavior: "Perform in public chat and create visible social activity.",
-        payout: "30 MARK per performance",
-        wage: 30,
-    },
-];
-
-const SCHOOL_OFFERS: &[JobOffer] = &[JobOffer {
-    id: "city-guide",
-    title: "City Guide",
-    location: "Harbor Square and main streets",
-    behavior: "Guide lost players to admission, jobs, shops, and public services.",
-    payout: "40 MARK per completed guide route",
-    wage: 40,
-}];
-
-const DAILY_SEER_OFFERS: &[JobOffer] = &[
-    JobOffer {
-        id: "courier",
-        title: "Courier",
-        location: "Mailbox routes",
-        behavior: "Carry messages between active rooms and operators.",
-        payout: "35 MARK per delivery run",
-        wage: 35,
-    },
-    JobOffer {
-        id: "market-crier",
-        title: "Market Crier",
-        location: "Shop streets",
-        behavior: "Announce active shop offers and public proof-of-work needs.",
-        payout: "35 MARK per announcement round",
-        wage: 35,
-    },
-    JobOffer {
-        id: "newspaper-stringer",
-        title: "Newspaper Stringer",
-        location: "News desk",
-        behavior: "Collect reports from public events and active shops.",
-        payout: "45 MARK per filed note",
-        wage: 45,
-    },
-];
-
-const BANK_OFFERS: &[JobOffer] = &[JobOffer {
-    id: "bank-clerk",
-    title: "Bank Clerk",
-    location: "Hinemos Bank",
-    behavior: "Explain balances, payments, and pending payment requests.",
-    payout: "50 MARK per ledger desk shift",
-    wage: 50,
-}];
-
-const DEFAULT_JOB_OFFER_PROVIDERS: &[JobOfferProvider] = &[
-    JobOfferProvider {
-        venue_id: "workers_society",
-        label: "Workers Society",
-        offers: WORKERS_SOCIETY_OFFERS,
-    },
-    JobOfferProvider {
-        venue_id: "blackstone_izakaya",
-        label: "Blackstone Izakaya",
-        offers: BLACKSTONE_OFFERS,
-    },
-    JobOfferProvider {
-        venue_id: "hinemos_school",
-        label: "Hinemos School",
-        offers: SCHOOL_OFFERS,
-    },
-    JobOfferProvider {
-        venue_id: "hinemos_daily_seer",
-        label: "Hinemos Daily Seer",
-        offers: DAILY_SEER_OFFERS,
-    },
-    JobOfferProvider {
-        venue_id: "hinemos_bank",
-        label: "Hinemos Bank",
-        offers: BANK_OFFERS,
-    },
-];
-
-/// Returns the default provider-owned job offer seed data.
-pub fn default_job_offer_providers() -> &'static [JobOfferProvider] {
-    DEFAULT_JOB_OFFER_PROVIDERS
 }
 
 /// Host-side marriage registry operation.

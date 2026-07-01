@@ -1,4 +1,4 @@
-//! Controller-side task mode for autonomous Hinemos agents.
+//! Task and reward model over existing Hinemos observations and commands.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -9,7 +9,7 @@ use crate::{
     SubscriptionAction, agent_task_match::command_matches_template,
 };
 
-/// Persistent controller state for one autonomous task.
+/// Persistent controller state for one task objective.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskMode {
@@ -26,7 +26,7 @@ pub struct TaskMode {
 }
 
 impl TaskMode {
-    /// Creates the default resident task for an autonomous Hinemos session.
+    /// Creates the default resident task for a Hinemos session.
     #[must_use]
     pub fn resident(username: &str) -> Self {
         Self {
@@ -70,7 +70,7 @@ impl TaskMode {
         self
     }
 
-    /// Builds a task snapshot from a Hinemos observation plus observed controller meters.
+    /// Builds a task snapshot from a Hinemos observation plus observed task meters.
     ///
     /// The snapshot carries only server-visible observations and controller-owned
     /// task progress. It does not read model private reasoning.
@@ -277,7 +277,7 @@ pub struct ObservedTaskState {
     pub bank_mark: Option<i64>,
     /// Hunger signal inferred from existing observations.
     pub hunger: HungerSignal,
-    /// Monotonic task progress units tracked by the external controller.
+    /// Monotonic task progress units tracked by the task runner.
     pub progress_units: i64,
 }
 
@@ -401,8 +401,8 @@ pub enum TaskCommandError {
     /// Candidate command is not exposed by the current observation.
     #[error("candidate command is not available in the current observation")]
     CommandNotAvailable,
-    /// Hunger currently permits only recovery commands.
-    #[error("hunger constraint requires a recovery command")]
+    /// Hunger currently permits only safe reads, movement, or room-gated commands.
+    #[error("hunger constraint requires a safe or room-gated command")]
     HungerRequiresRecovery,
     /// Candidate tries to add a task-planning protocol to Hinemos.
     #[error("task mode must not emit plan/act or task-state protocol commands")]
@@ -435,14 +435,11 @@ fn command_is_hunger_recovery(command: &SemanticCommand) -> bool {
             | SemanticCommand::Enter { .. }
             | SemanticCommand::Balance
             | SemanticCommand::Inventory
+            | SemanticCommand::Mailbox
+            | SemanticCommand::Memory { .. }
             | SemanticCommand::Help
-    ) || matches!(command, SemanticCommand::Extension { input, .. } if extension_input_is_recovery(input))
-}
-
-fn extension_input_is_recovery(input: &str) -> bool {
-    let normalized = input.trim().to_ascii_lowercase();
-    matches!(normalized.as_str(), "/buy bread" | "/eat bread")
-        || normalized.starts_with("/position ")
+            | SemanticCommand::Extension { .. }
+    )
 }
 
 fn command_line_has_line_break(line: &str) -> bool {

@@ -59,6 +59,34 @@ fn sample_service_rooms_define_builtin_handlers() {
     );
 }
 
+#[test]
+fn sample_service_rooms_define_hunger_recovery_commands_in_world_data() {
+    let registrations = load_sample_room_registrations();
+    let blackstone = registrations
+        .iter()
+        .find(|registration| registration.view_id == "blackstone_izakaya")
+        .expect("blackstone registration");
+    let workers = registrations
+        .iter()
+        .find(|registration| registration.view_id == "workers_society")
+        .expect("workers registration");
+
+    assert!(
+        blackstone
+            .recovery_commands
+            .as_deref()
+            .is_some_and(|commands| commands.contains("/buy bread")),
+        "food recovery commands belong to room registration data"
+    );
+    assert!(
+        workers
+            .recovery_commands
+            .as_deref()
+            .is_some_and(|commands| commands.contains("/position finish")),
+        "work recovery commands belong to room registration data"
+    );
+}
+
 fn write_registration_fixture() -> std::path::PathBuf {
     let temp_root = std::env::temp_dir().join(format!(
         "hinemos-app-room-reg-load-{}-{}",

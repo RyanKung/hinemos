@@ -73,15 +73,41 @@ fn memory_template_authorizes_memory_subcommands() {
 }
 
 #[test]
-fn hunger_gate_allows_recovery_and_rejects_ordinary_action() {
+fn hunger_gate_allows_memory_context_reads() {
+    let task = TaskMode::new("remember context").expect("task");
+    let observation = observation(vec![SemanticCommand::Memory {
+        rest: "<command>".to_owned(),
+    }]);
+    let snapshot = task.snapshot(
+        &observation,
+        ObservedTaskState {
+            hunger: HungerSignal::GatedNeedsWork,
+            ..ObservedTaskState::default()
+        },
+    );
+
+    let command = task
+        .validate_command(
+            &snapshot,
+            SemanticCommand::Memory {
+                rest: "self".to_owned(),
+            },
+        )
+        .expect("memory remains available while hungry");
+
+    assert_eq!(command.line(), "/memory self");
+}
+
+#[test]
+fn hunger_gate_allows_available_room_extensions_and_rejects_ordinary_action() {
     let task = TaskMode::new("make money").expect("task");
     let observation = observation(vec![
         SemanticCommand::Say {
             text: String::new(),
         },
         SemanticCommand::Extension {
-            name: "buy".to_owned(),
-            input: "/buy bread".to_owned(),
+            name: "room".to_owned(),
+            input: "/room recover <action>".to_owned(),
         },
     ]);
     let snapshot = task.snapshot(
@@ -103,13 +129,16 @@ fn hunger_gate_allows_recovery_and_rejects_ordinary_action() {
     let recovery = task.validate_command(
         &snapshot,
         SemanticCommand::Extension {
-            name: "buy".to_owned(),
-            input: "/buy bread".to_owned(),
+            name: "room".to_owned(),
+            input: "/room recover food".to_owned(),
         },
     );
 
     assert_eq!(blocked, Err(TaskCommandError::HungerRequiresRecovery));
-    assert_eq!(recovery.expect("recovery command").line(), "/buy bread");
+    assert_eq!(
+        recovery.expect("available room command").line(),
+        "/room recover food"
+    );
 }
 
 #[test]

@@ -312,4 +312,46 @@ impl PgStorage {
             .await?
             .ok_or_else(|| StorageError::Sqlx(sqlx::Error::RowNotFound))
     }
+
+    /// Records a new self-model current-state version when the state changed.
+    pub async fn record_self_model_state(
+        &self,
+        agent_id: &str,
+        current_state: &Value,
+    ) -> Result<StoredAgentSelfModel, StorageError> {
+        let Some(latest) = self.latest_self_model(agent_id).await? else {
+            return Err(StorageError::Sqlx(sqlx::Error::RowNotFound));
+        };
+        if latest.current_state == *current_state {
+            return Ok(latest);
+        }
+
+        let inserted = sqlx::query_as::<_, StoredAgentSelfModel>(
+            r#"
+            insert into agent_self_models (
+                agent_id, version, identity, current_state, style, derived_from_memory_ids
+            )
+            values ($1, $2, $3, $4, $5, $6)
+            on conflict (agent_id, version) do nothing
+            returning agent_id, version, identity, current_state, style, derived_from_memory_ids,
+                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            "#,
+        )
+        .bind(agent_id)
+        .bind(latest.version + 1)
+        .bind(&latest.identity)
+        .bind(current_state)
+        .bind(&latest.style)
+        .bind(&latest.derived_from_memory_ids)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(model) = inserted {
+            Ok(model)
+        } else {
+            self.latest_self_model(agent_id)
+                .await?
+                .ok_or_else(|| StorageError::Sqlx(sqlx::Error::RowNotFound))
+        }
+    }
 }

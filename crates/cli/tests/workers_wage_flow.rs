@@ -46,7 +46,7 @@ fn workers_society_finish_credits_wallet_across_room_runner_restart() {
     assert_contains(
         &rooms_output,
         "Processed 3 room request(s).",
-        "room runner handles apply/start/finish before a later claim",
+        "room runner handles apply/start/finish",
     );
 
     let finish_reply_id = test_database.query_value(&format!(
@@ -75,47 +75,6 @@ fn workers_society_finish_credits_wallet_across_room_runner_restart() {
         &balance_output,
         "Wallet credited. Balance: 1025 MARK.",
         "worker room reply reports the credited wallet balance",
-    );
-
-    let claim_output =
-        run_ssh_batch_with_key(host, port, &user, &key, &["/position claim", "/quit"]);
-    assert_contains(
-        &claim_output,
-        "Sent to room service room-workers_society",
-        "claim command is queued after a separate room runner process starts",
-    );
-    let claim_rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
-    assert_contains(
-        &claim_rooms_output,
-        "Processed 1 room request(s).",
-        "fresh room runner handles claim without needing volatile owed state",
-    );
-    let claim_reply_id = test_database.query_value(&format!(
-        "select id
-         from inbox_items
-         where recipient_player_id = '{player_id}'
-           and sender_user = 'room-workers_society'
-           and body like '%No pending wages are ready to claim%'
-         order by id desc
-         limit 1"
-    ));
-    let claim_read_command = format!("/mail read {claim_reply_id}");
-    let post_claim_output = run_ssh_batch_with_key(
-        host,
-        port,
-        &user,
-        &key,
-        &["/balance", claim_read_command.as_str(), "/quit"],
-    );
-    assert_contains(
-        &post_claim_output,
-        "Balance: 1025 MARK",
-        "claim after restart must not duplicate the already-paid shift",
-    );
-    assert_contains(
-        &post_claim_output,
-        "No pending wages are ready to claim",
-        "claim explains that finished shifts pay immediately",
     );
 
     let wage_ledger = test_database.query_value(
@@ -333,7 +292,6 @@ fn plain_ssh_user_can_become_hungry_and_broke_then_work_for_bread() {
             "/position apply greeter",
             "/position start greeter",
             "/position finish",
-            "/position claim",
             "/quit",
         ],
     );
@@ -346,7 +304,7 @@ fn plain_ssh_user_can_become_hungry_and_broke_then_work_for_bread() {
     let work_rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &work_rooms_output,
-        "Processed 4 room request(s).",
+        "Processed 3 room request(s).",
         "room runner handles the plain work recovery sequence",
     );
     let worked_balance = run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/quit"]);

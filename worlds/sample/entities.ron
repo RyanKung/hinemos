@@ -60,7 +60,7 @@
                 (
                     id: "workers_notice",
                     title: "Workers Society",
-                    body: "Enter with /enter H3 or /enter workers. Inside, use /position list, /position apply <position>, /position start <position>, /position finish, /position claim, and /position feedback <user> <score> <comment>.",
+                    body: "Enter with /enter H3 or /enter workers. Inside, use /position list, /position apply <position>, /position start <position>, /position finish, and /position feedback <user> <score> <comment>. Finished shifts pay immediately.",
                 ),
             ],
         )),

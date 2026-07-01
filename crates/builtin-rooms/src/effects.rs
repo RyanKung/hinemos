@@ -38,7 +38,7 @@ pub(super) async fn apply_room_effects(
                     }
                     Err(StorageError::InsufficientFunds) => {
                         mail.body = format!(
-                            "Bread costs {amount} MARK, but your wallet does not have enough. Earn MARK at Workers Society, claim wages, then buy bread here."
+                            "Bread costs {amount} MARK, but your wallet does not have enough. Earn MARK through in-game work, then buy bread here."
                         );
                         return Ok(mail);
                     }
@@ -231,7 +231,7 @@ struct DebitReasonMetadata {
 
 fn debit_reason_metadata(reason: &DebitReason) -> DebitReasonMetadata {
     match reason {
-        DebitReason::BlackstoneFood => DebitReasonMetadata {
+        DebitReason::Food => DebitReasonMetadata {
             idempotency_prefix: "blackstone:food",
             ledger_kind: "room_food",
             memo_prefix: "Blackstone Izakaya food",

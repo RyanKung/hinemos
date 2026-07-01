@@ -108,7 +108,7 @@ impl<S> AppService<S> {
     }
 }
 
-fn command_template_matches_input(command: &str, raw_input: &str) -> bool {
+pub(crate) fn command_template_matches_input(command: &str, raw_input: &str) -> bool {
     let command = command.trim();
     if command.is_empty() {
         return false;
@@ -122,6 +122,27 @@ fn command_template_matches_input(command: &str, raw_input: &str) -> bool {
         .trim_start()
         .to_ascii_lowercase()
         .starts_with(&command)
+}
+
+pub(crate) fn recovery_command_template_matches_input(command: &str, raw_input: &str) -> bool {
+    let command = command.trim();
+    if command.is_empty() {
+        return false;
+    }
+    let has_placeholder = command.contains('<');
+    let prefix = command.split('<').next().unwrap_or(command).trim_end();
+    if prefix.is_empty() {
+        return false;
+    }
+    let command = prefix.to_ascii_lowercase();
+    let raw_input = raw_input.trim().to_ascii_lowercase();
+    if !has_placeholder {
+        return raw_input == command;
+    }
+    raw_input == command
+        || raw_input
+            .strip_prefix(&command)
+            .is_some_and(|rest| rest.chars().next().is_some_and(char::is_whitespace))
 }
 
 impl<S, E> AppService<S>
@@ -158,6 +179,13 @@ where
         let commands = command_inputs(room.custom_commands()).collect::<Vec<_>>();
         if !commands.is_empty() {
             lines.push(format!("- local: {}", commands.join(", ")));
+        }
+        let recovery_commands = command_inputs(room.recovery_commands()).collect::<Vec<_>>();
+        if !recovery_commands.is_empty() {
+            lines.push(format!(
+                "- hunger recovery: {}",
+                recovery_commands.join(", ")
+            ));
         }
         format!("{}\r\n", lines.join("\n"))
     }
@@ -529,6 +557,9 @@ pub trait ServiceRoomView: RoomMailboxView {
 
     /// Data-authored command help for this room, if any.
     fn custom_commands(&self) -> Option<&str>;
+
+    /// Data-authored hunger recovery commands for this room, if any.
+    fn recovery_commands(&self) -> Option<&str>;
 }
 
 /// Text shown when a command is not available inside a service room.
@@ -549,7 +580,7 @@ pub const fn service_room_leave_text() -> &'static str {
     "You step back outside."
 }
 
-fn command_inputs(commands: Option<&str>) -> impl Iterator<Item = String> + '_ {
+pub(crate) fn command_inputs(commands: Option<&str>) -> impl Iterator<Item = String> + '_ {
     commands
         .unwrap_or_default()
         .split(['\n', ';'])

@@ -55,6 +55,7 @@ impl RoomRegistrationStore for PgStorage {
                 room_player_id: registration.room_player_id,
                 status_text: registration.status_text,
                 custom_commands: registration.custom_commands,
+                recovery_commands: registration.recovery_commands,
                 builtin_handler: registration.builtin_handler,
                 enabled: registration.enabled,
             },
@@ -226,6 +227,10 @@ impl ServiceRoomView for StoredRoomBinding {
     fn custom_commands(&self) -> Option<&str> {
         self.custom_commands.as_deref()
     }
+
+    fn recovery_commands(&self) -> Option<&str> {
+        self.recovery_commands.as_deref()
+    }
 }
 
 impl ServiceRoomView for StoredServiceRoom {
@@ -247,5 +252,9 @@ impl ServiceRoomView for StoredServiceRoom {
 
     fn custom_commands(&self) -> Option<&str> {
         self.custom_commands.as_deref()
+    }
+
+    fn recovery_commands(&self) -> Option<&str> {
+        self.recovery_commands.as_deref()
     }
 }

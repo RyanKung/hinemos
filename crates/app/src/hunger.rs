@@ -1,7 +1,7 @@
 use crate::*;
 
-/// MARK price charged by the built-in tavern bread flow.
-pub const BREAD_PRICE_MARK: i64 = 20;
+/// MARK balance threshold treated as enough for one food recovery action.
+pub const FOOD_RECOVERY_PRICE_MARK: i64 = 20;
 /// Hunger points at which non-recovery interactions become restricted.
 pub const HUNGER_THRESHOLD_POINTS: i32 = 24;
 /// Maximum hunger points persisted for a player.
@@ -105,8 +105,22 @@ where
         player_id: &str,
         raw_line: &str,
     ) -> Result<HungerGateOutcome, E> {
-        self.check_hunger_profile(player_id, profile_for_raw_line(raw_line))
+        self.check_hunger_profile(player_id, profile_for_raw_line(raw_line, None))
             .await
+    }
+
+    /// Checks hunger restrictions for a raw line using room-authored recovery commands.
+    pub async fn check_hunger_room_line(
+        &self,
+        player_id: &str,
+        raw_line: &str,
+        room: &impl ServiceRoomView,
+    ) -> Result<HungerGateOutcome, E> {
+        self.check_hunger_profile(
+            player_id,
+            profile_for_raw_line(raw_line, room.recovery_commands()),
+        )
+        .await
     }
 
     async fn check_hunger_profile(
@@ -133,7 +147,7 @@ where
         }
 
         let balance = self.store.player_balance(player_id).await?;
-        if balance.amount() >= BREAD_PRICE_MARK {
+        if balance.amount() >= FOOD_RECOVERY_PRICE_MARK {
             return Ok(HungerGateOutcome::Block(hungry_with_money_text(
                 balance.amount(),
             )));
@@ -167,18 +181,19 @@ fn profile_for_command(command: &SemanticCommand) -> HungerCommandProfile {
         | SemanticCommand::Balance
         | SemanticCommand::Mailbox
         | SemanticCommand::Inbox { .. }
+        | SemanticCommand::Memory { .. }
         | SemanticCommand::Settings { .. }
         | SemanticCommand::Help
         | SemanticCommand::Quit => HungerCommandProfile::EXEMPT,
         SemanticCommand::Move { .. } | SemanticCommand::Enter { .. } => {
             HungerCommandProfile::RECOVERY
         }
-        SemanticCommand::Extension { input, .. } => profile_for_raw_line(input),
+        SemanticCommand::Extension { input, .. } => profile_for_raw_line(input, None),
         _ => HungerCommandProfile::MEANINGFUL,
     }
 }
 
-fn profile_for_raw_line(raw_line: &str) -> HungerCommandProfile {
+fn profile_for_raw_line(raw_line: &str, recovery_commands: Option<&str>) -> HungerCommandProfile {
     let trimmed = raw_line.trim_start();
     let command = trimmed
         .split_whitespace()
@@ -189,29 +204,29 @@ fn profile_for_raw_line(raw_line: &str) -> HungerCommandProfile {
     match command.as_str() {
         "" => HungerCommandProfile::EXEMPT,
         "help" | "look" | "map" | "inventory" | "history" | "news" | "who" | "balance"
-        | "mailbox" | "mail" | "settings" | "quit" => HungerCommandProfile::EXEMPT,
-        "go" | "enter" | "position" => HungerCommandProfile::RECOVERY,
-        "buy" | "eat" if is_exact_bread_recovery_line(trimmed) => HungerCommandProfile::RECOVERY,
+        | "mailbox" | "mail" | "memory" | "settings" | "quit" => HungerCommandProfile::EXEMPT,
+        "go" | "enter" => HungerCommandProfile::RECOVERY,
+        _ if room_recovery_command_matches(trimmed, recovery_commands) => {
+            HungerCommandProfile::RECOVERY
+        }
         _ => HungerCommandProfile::MEANINGFUL,
     }
 }
 
-fn is_exact_bread_recovery_line(raw_line: &str) -> bool {
-    matches!(
-        raw_line.trim().to_ascii_lowercase().as_str(),
-        "/buy bread" | "/eat bread"
-    )
+fn room_recovery_command_matches(raw_line: &str, recovery_commands: Option<&str>) -> bool {
+    crate::rooms::command_inputs(recovery_commands)
+        .any(|command| crate::rooms::recovery_command_template_matches_input(&command, raw_line))
 }
 
 fn hungry_with_money_text(balance: i64) -> String {
     format!(
-        "You are too hungry to keep working. Bread costs {BREAD_PRICE_MARK} MARK at Blackstone Izakaya; you have {balance} MARK. Go to the tavern and use /buy bread, or use Workers Society positions if you need more MARK.\r\n"
+        "You are too hungry to keep working. Food costs {FOOD_RECOVERY_PRICE_MARK} MARK; you have {balance} MARK. Use an in-game room command that buys or eats food, or find paid work if you need more MARK.\r\n"
     )
 }
 
 fn hungry_broke_limited_text() -> String {
     format!(
-        "You are hungry and broke. Recovery commands still work: find Workers Society, use /position list, finish a job, claim wages, then buy bread at Blackstone Izakaya. Until then, non-recovery interactions are limited to one every {} minutes.\r\n",
+        "You are hungry and broke. Room commands marked as hunger recovery still work: use in-game work commands to earn MARK, then buy or eat food. Until then, non-recovery interactions are limited to one every {} minutes.\r\n",
         HUNGRY_BROKE_COOLDOWN_SECONDS / 60
     )
 }
@@ -396,6 +411,10 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct TestWorldMessage;
 
+    struct TestRoom {
+        recovery_commands: &'static str,
+    }
+
     impl WorldMessageView for TestWorldMessage {
         fn kind(&self) -> &str {
             "say"
@@ -415,6 +434,46 @@ mod tests {
 
         fn expires_at(&self) -> Option<&str> {
             None
+        }
+    }
+
+    impl RoomMailboxView for TestRoom {
+        fn view_id(&self) -> &str {
+            "test_room"
+        }
+
+        fn room_user(&self) -> Option<&str> {
+            Some("room-test")
+        }
+
+        fn room_player_id(&self) -> Option<&str> {
+            Some("room:test")
+        }
+    }
+
+    impl ServiceRoomView for TestRoom {
+        fn label(&self) -> Option<&str> {
+            Some("Test Room")
+        }
+
+        fn address(&self) -> Option<&str> {
+            Some("T1")
+        }
+
+        fn front_view_id(&self) -> Option<&str> {
+            Some("test_street")
+        }
+
+        fn status_text(&self) -> Option<&str> {
+            None
+        }
+
+        fn custom_commands(&self) -> Option<&str> {
+            None
+        }
+
+        fn recovery_commands(&self) -> Option<&str> {
+            Some(self.recovery_commands)
         }
     }
 
@@ -450,8 +509,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hungry_player_with_money_is_sent_to_buy_bread() {
-        let store = store(HUNGER_THRESHOLD_POINTS, BREAD_PRICE_MARK, Vec::new());
+    async fn hungry_player_with_money_is_sent_to_food_recovery() {
+        let store = store(
+            HUNGER_THRESHOLD_POINTS,
+            FOOD_RECOVERY_PRICE_MARK,
+            Vec::new(),
+        );
         let app = AppService::new(store);
 
         let outcome = app
@@ -464,7 +527,7 @@ mod tests {
             .await
             .expect("hunger check");
 
-        assert!(matches!(outcome, HungerGateOutcome::Block(text) if text.contains("/buy bread")));
+        assert!(matches!(outcome, HungerGateOutcome::Block(text) if text.contains("Food costs")));
     }
 
     #[tokio::test]
@@ -491,12 +554,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recovery_room_commands_bypass_hunger_gate() {
+    async fn room_authored_recovery_commands_bypass_hunger_gate() {
         let store = store(HUNGER_THRESHOLD_POINTS, 0, Vec::new());
         let app = AppService::new(store);
+        let room = TestRoom {
+            recovery_commands: "/position apply <position>\n/position finish",
+        };
 
         let outcome = app
-            .check_hunger_raw_line("player", "/position claim")
+            .check_hunger_room_line("player", "/position apply greeter", &room)
             .await
             .expect("hunger check");
 
@@ -505,20 +571,51 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn exact_bread_commands_are_recovery_but_suffixes_are_metered() {
-        let store = store(HUNGER_THRESHOLD_POINTS, BREAD_PRICE_MARK, Vec::new());
+    async fn exact_room_recovery_commands_are_not_suffix_matched() {
+        let store = store(
+            HUNGER_THRESHOLD_POINTS,
+            FOOD_RECOVERY_PRICE_MARK,
+            Vec::new(),
+        );
         let app = AppService::new(store);
+        let room = TestRoom {
+            recovery_commands: "/buy bread",
+        };
 
         let exact = app
-            .check_hunger_raw_line("player", " /BUY bread ")
+            .check_hunger_room_line("player", " /BUY bread ", &room)
             .await
             .expect("exact bread command");
         let suffixed = app
-            .check_hunger_raw_line("player", "/buy bread please")
+            .check_hunger_room_line("player", "/buy bread please", &room)
             .await
             .expect("suffixed bread command");
 
         assert_eq!(exact, HungerGateOutcome::Allow);
-        assert!(matches!(suffixed, HungerGateOutcome::Block(text) if text.contains("/buy bread")));
+        assert!(matches!(suffixed, HungerGateOutcome::Block(text) if text.contains("Food costs")));
+    }
+
+    #[tokio::test]
+    async fn memory_commands_are_read_only_under_hunger_gate() {
+        let store = store(HUNGER_THRESHOLD_POINTS, 0, Vec::new());
+        let app = AppService::new(store);
+
+        let parsed = app
+            .check_hunger_command(
+                "player",
+                &SemanticCommand::Memory {
+                    rest: "self".to_owned(),
+                },
+            )
+            .await
+            .expect("parsed memory");
+        let raw = app
+            .check_hunger_raw_line("player", "/memory self")
+            .await
+            .expect("raw memory");
+
+        assert_eq!(parsed, HungerGateOutcome::Allow);
+        assert_eq!(raw, HungerGateOutcome::Allow);
+        assert!(app.store().calls.lock().unwrap().is_empty());
     }
 }
