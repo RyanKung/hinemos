@@ -51,6 +51,16 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         "taskObjective",
         "persisted self-model records the task objective",
     );
+    assert_contains(
+        &output,
+        "\"lastStep\"",
+        "memory command shows the latest evaluated task step",
+    );
+    assert_contains(
+        &output,
+        "\"commandLine\":\"/look\"",
+        "task step is tied to the real world command that just ran",
+    );
 
     let player_id = test_database.query_value(&format!(
         "select player_id from ssh_identities where username = '{user}'"
@@ -92,6 +102,21 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     assert_eq!(
         live_meter_types, "number:number:number:number:number",
         "resident context persists live social and subjective meters"
+    );
+    let latest_step_shape = test_database.query_value(&format!(
+        "select concat_ws(':',
+             current_state->'lastStep'->>'commandLine',
+             coalesce(jsonb_typeof(current_state->'lastStep'->'reward'), 'missing'),
+             coalesce(jsonb_typeof(current_state->'lastStep'->'boredomReliefDelta'), 'missing'),
+             coalesce(jsonb_typeof(current_state->'commandHistory'), 'missing'))
+         from agent_self_models
+         where agent_id = '{player_id}'
+         order by version desc
+         limit 1"
+    ));
+    assert_eq!(
+        latest_step_shape, "/look:number:number:array",
+        "resident task loop persists an evaluated command transition"
     );
 
     terminate(&mut server);

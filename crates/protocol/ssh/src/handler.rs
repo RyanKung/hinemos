@@ -310,8 +310,15 @@ impl ConnectionHandler {
             send_command_error(session, channel, error, prompt)?;
             return Ok(());
         }
-        self.execute_runtime_command(channel, session, &state.identity, command, prompt)
-            .await
+        self.execute_runtime_command(
+            channel,
+            session,
+            &state.identity,
+            &state.current_observation,
+            command,
+            prompt,
+        )
+        .await
     }
 
     async fn prepare_command_line_state(
@@ -698,6 +705,7 @@ impl ConnectionHandler {
         channel: ChannelId,
         session: &mut Session,
         identity: &AuthIdentity,
+        before_observation: &JsonObservation,
         command: SemanticCommand,
         prompt: bool,
     ) -> Result<()> {
@@ -718,6 +726,20 @@ impl ConnectionHandler {
                 return Ok(());
             }
         };
+        let app = self.shared.app_service().await;
+        if let Err(error) = app
+            .record_resident_task_step(
+                &identity.user,
+                &identity.player_id,
+                before_observation,
+                &command,
+                &observation,
+            )
+            .await
+        {
+            send_command_error(session, channel, error.into(), prompt)?;
+            return Ok(());
+        }
         if let Err(error) = self
             .send_ui_events(
                 channel,

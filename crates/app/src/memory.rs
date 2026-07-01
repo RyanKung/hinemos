@@ -51,16 +51,23 @@ where
             .ensure_default_self_model(username, agent_id, &task)
             .await?;
         let (commitments, memory_metrics) = self.resident_task_memory(agent_id).await?;
-        let snapshot = task.snapshot(
-            observation,
-            resident_observed_task_state(
-                observation,
-                previous_model.current_state(),
-                memory_metrics,
-            ),
-        );
+        let observed_state =
+            resident_stored_observed_task_state(previous_model.current_state(), observation)
+                .unwrap_or_else(|| {
+                    resident_observed_task_state(
+                        observation,
+                        previous_model.current_state(),
+                        memory_metrics,
+                    )
+                });
+        let snapshot = task.snapshot(observation, observed_state);
         let self_model = self
-            .record_resident_self_model_state(agent_id, observation, &snapshot)
+            .record_resident_self_model_state(
+                agent_id,
+                previous_model.current_state(),
+                observation,
+                &snapshot,
+            )
             .await?;
         Ok(MemoryResult {
             text: format!(
@@ -68,6 +75,56 @@ where
                 render_resident_context(&task, &snapshot, &self_model, &commitments)
             ),
         })
+    }
+
+    /// Records one resident task transition observed through an existing Hinemos command.
+    pub async fn record_resident_task_step(
+        &self,
+        username: &str,
+        agent_id: &str,
+        before: &JsonObservation,
+        command: &SemanticCommand,
+        after: &JsonObservation,
+    ) -> Result<(), E> {
+        let mut task = TaskMode::resident(username);
+        let previous_model = self
+            .ensure_default_self_model(username, agent_id, &task)
+            .await?;
+        let (_, memory_metrics) = self.resident_task_memory(agent_id).await?;
+        let before_state =
+            resident_stored_observed_task_state(previous_model.current_state(), before)
+                .unwrap_or_else(|| {
+                    resident_observed_task_state(
+                        before,
+                        previous_model.current_state(),
+                        memory_metrics,
+                    )
+                });
+        let before_snapshot = task.snapshot(before, before_state);
+        let Ok(task_command) = task.validate_command(&before_snapshot, command.clone()) else {
+            return Ok(());
+        };
+
+        task.command_history =
+            bounded_task_command_history(resident_command_history(previous_model.current_state()));
+        task.last_snapshot = Some(before_snapshot.clone());
+        let after_snapshot = task.snapshot(
+            after,
+            resident_observed_task_state(after, previous_model.current_state(), memory_metrics),
+        );
+        let evaluation = task.evaluate_step(&before_snapshot, task_command, after_snapshot);
+        task.record_step(evaluation.clone());
+        task.command_history = bounded_task_command_history(task.command_history);
+        let current_state = resident_current_state_after_step(
+            previous_model.current_state(),
+            after,
+            &evaluation,
+            &task.command_history,
+        );
+        self.store
+            .record_self_model_state(agent_id, &current_state)
+            .await?;
+        Ok(())
     }
 
     /// Handles a `/memory` subcommand and returns display text.
@@ -144,10 +201,12 @@ where
     async fn record_resident_self_model_state(
         &self,
         agent_id: &str,
+        previous_current_state: &Value,
         observation: &JsonObservation,
         snapshot: &TaskSnapshot,
     ) -> Result<S::SelfModel, E> {
-        let current_state = resident_current_state(observation, snapshot);
+        let current_state =
+            resident_current_state(Some(previous_current_state), observation, snapshot);
         self.store
             .record_self_model_state(agent_id, &current_state)
             .await
@@ -383,6 +442,9 @@ const MEMORY_COMMITMENT_STATUS_PAID: &str = "paid";
 const DEFAULT_LONELINESS_POINTS: i64 = 4;
 const DEFAULT_BOREDOM_POINTS: i64 = 3;
 const MAX_SUBJECTIVE_PRESSURE_POINTS: i64 = 10;
+const MAX_TASK_COMMAND_HISTORY: usize = 10;
+const RESIDENT_LOOP_STATE_KEYS: &[&str] =
+    &["shortTerm", "lastStep", "lastReward", "commandHistory"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ResidentTaskMemoryMetrics {
@@ -412,15 +474,25 @@ fn default_resident_current_state() -> Value {
     })
 }
 
-fn resident_current_state(observation: &JsonObservation, snapshot: &TaskSnapshot) -> Value {
+fn resident_current_state(
+    previous_current_state: Option<&Value>,
+    observation: &JsonObservation,
+    snapshot: &TaskSnapshot,
+) -> Value {
     let mut current_state = default_resident_current_state();
     if let Some(state) = current_state.as_object_mut() {
+        if let Some(previous_current_state) = previous_current_state {
+            preserve_resident_loop_state(state, previous_current_state);
+        }
         state.insert(
             "lastSnapshot".to_owned(),
             json!({
                 "viewId": snapshot.view_id.as_str(),
                 "title": observation.title.as_str(),
+                "eventSignature": observation_event_signature(observation),
                 "hunger": hunger_context(snapshot.hunger),
+                "hungerSignal": snapshot.hunger,
+                "progressUnits": snapshot.progress_units,
                 "socialContactUnits": snapshot.social_contact_units,
                 "standingUnits": snapshot.standing_units,
                 "commitmentSatisfactionUnits": snapshot.commitment_satisfaction_units,
@@ -432,6 +504,79 @@ fn resident_current_state(observation: &JsonObservation, snapshot: &TaskSnapshot
     current_state
 }
 
+fn resident_current_state_after_step(
+    previous_current_state: &Value,
+    observation: &JsonObservation,
+    evaluation: &TaskStepEvaluation,
+    command_history: &[TaskCommandRecord],
+) -> Value {
+    let mut current_state =
+        resident_current_state(Some(previous_current_state), observation, &evaluation.after);
+    if let Some(state) = current_state.as_object_mut() {
+        state.insert(
+            "shortTerm".to_owned(),
+            json!(short_term_after_step(evaluation)),
+        );
+        state.insert("lastReward".to_owned(), json!(evaluation.reward));
+        state.insert("lastStep".to_owned(), resident_step_summary(evaluation));
+        if let Ok(history) = serde_json::to_value(command_history) {
+            state.insert("commandHistory".to_owned(), history);
+        }
+    }
+    current_state
+}
+
+fn preserve_resident_loop_state(
+    state: &mut serde_json::Map<String, Value>,
+    previous_current_state: &Value,
+) {
+    for key in RESIDENT_LOOP_STATE_KEYS {
+        if let Some(value) = previous_current_state.get(*key) {
+            state.insert((*key).to_owned(), value.clone());
+        }
+    }
+}
+
+fn resident_step_summary(evaluation: &TaskStepEvaluation) -> Value {
+    json!({
+        "commandLine": evaluation.command.line(),
+        "reward": evaluation.reward,
+        "fromViewId": evaluation.before.view_id.as_str(),
+        "toViewId": evaluation.after.view_id.as_str(),
+        "markDelta": evaluation.mark_delta,
+        "progressDelta": evaluation.progress_delta,
+        "socialContactDelta": evaluation.social_contact_delta,
+        "standingDelta": evaluation.standing_delta,
+        "commitmentSatisfactionDelta": evaluation.commitment_satisfaction_delta,
+        "lonelinessReliefDelta": evaluation.loneliness_relief_delta,
+        "boredomReliefDelta": evaluation.boredom_relief_delta,
+    })
+}
+
+fn short_term_after_step(evaluation: &TaskStepEvaluation) -> String {
+    format!(
+        "Last action {} scored {} reward. Continue through visible commands that increase MARK, standing, commitments, useful contact, or relief from hunger, loneliness, and boredom.",
+        evaluation.command.line(),
+        evaluation.reward
+    )
+}
+
+fn resident_command_history(current_state: &Value) -> Vec<TaskCommandRecord> {
+    current_state
+        .get("commandHistory")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default()
+}
+
+fn bounded_task_command_history(mut history: Vec<TaskCommandRecord>) -> Vec<TaskCommandRecord> {
+    let stale_count = history.len().saturating_sub(MAX_TASK_COMMAND_HISTORY);
+    if stale_count > 0 {
+        history.drain(0..stale_count);
+    }
+    history
+}
+
 fn resident_observed_task_state(
     observation: &JsonObservation,
     previous_current_state: &Value,
@@ -440,6 +585,8 @@ fn resident_observed_task_state(
     let social_contact_units = visible_social_contact_units(observation);
     ObservedTaskState {
         hunger: HungerSignal::from_observation(observation),
+        progress_units: last_snapshot_i64(previous_current_state, "progressUnits")
+            .unwrap_or_default(),
         social_contact_units: Some(social_contact_units),
         standing_units: Some(standing_units(memory_metrics, social_contact_units)),
         commitment_satisfaction_units: Some(usize_to_i64_saturating(
@@ -456,6 +603,50 @@ fn resident_observed_task_state(
         )),
         ..ObservedTaskState::default()
     }
+}
+
+fn resident_stored_observed_task_state(
+    current_state: &Value,
+    observation: &JsonObservation,
+) -> Option<ObservedTaskState> {
+    if last_snapshot_str(current_state, "viewId")? != observation.view_id.as_str() {
+        return None;
+    }
+    if last_snapshot_str(current_state, "eventSignature")?
+        != observation_event_signature(observation)
+    {
+        return None;
+    }
+    Some(ObservedTaskState {
+        hunger: last_snapshot_hunger_signal(current_state)
+            .unwrap_or_else(|| HungerSignal::from_observation(observation)),
+        progress_units: last_snapshot_i64(current_state, "progressUnits").unwrap_or_default(),
+        social_contact_units: last_snapshot_i64(current_state, "socialContactUnits"),
+        standing_units: last_snapshot_i64(current_state, "standingUnits"),
+        commitment_satisfaction_units: last_snapshot_i64(
+            current_state,
+            "commitmentSatisfactionUnits",
+        ),
+        loneliness_points: last_snapshot_i64(current_state, "lonelinessPoints"),
+        boredom_points: last_snapshot_i64(current_state, "boredomPoints"),
+        ..ObservedTaskState::default()
+    })
+}
+
+fn observation_event_signature(observation: &JsonObservation) -> String {
+    observation
+        .events
+        .iter()
+        .map(|event| match event {
+            hinemos_core::ObservationEvent::Message { text } => format!("message:{text}"),
+            hinemos_core::ObservationEvent::Move {
+                from,
+                to,
+                direction,
+            } => format!("move:{from}:{to}:{}", direction.as_str()),
+        })
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 fn visible_social_contact_units(observation: &JsonObservation) -> i64 {
@@ -513,6 +704,14 @@ fn last_snapshot_i64(current_state: &Value, field: &str) -> Option<i64> {
 
 fn last_snapshot_str<'a>(current_state: &'a Value, field: &str) -> Option<&'a str> {
     current_state.get("lastSnapshot")?.get(field)?.as_str()
+}
+
+fn last_snapshot_hunger_signal(current_state: &Value) -> Option<HungerSignal> {
+    current_state
+        .get("lastSnapshot")?
+        .get("hungerSignal")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
 }
 
 fn pressure_points(value: i64) -> i64 {
