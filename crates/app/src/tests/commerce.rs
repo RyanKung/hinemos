@@ -53,6 +53,18 @@ fn commercial_parcel_input_routes_through_app() {
             ),
         };
 
+        assert!(
+            app.commercial_parcel_consumes_input(
+                &binding,
+                "/shop request-payment 7 25 hello world"
+            ),
+            "commercial parcels should consume matching shop commands"
+        );
+        assert!(
+            !app.commercial_parcel_consumes_input(&binding, "/balance"),
+            "commercial parcels should leave global slash commands to the shell"
+        );
+
         let events = app
             .handle_commercial_parcel_input(
                 &identity,

@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     BadgeAction, BuildAction, EntityRef, InboxAction, JsonObservation, LandAction, PayAction,
     SemanticCommand, SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction,
-    SubscriptionAction,
+    SubscriptionAction, agent_task_match::command_matches_template,
 };
 
 /// Persistent controller state for one autonomous task.
@@ -78,6 +78,9 @@ impl TaskMode {
         command: SemanticCommand,
     ) -> Result<TaskCommand, TaskCommandError> {
         let line = command_line(&command).ok_or(TaskCommandError::UnrenderableCommand)?;
+        if command_line_has_line_break(&line) {
+            return Err(TaskCommandError::MultilineCommand);
+        }
         if command_line_leaks_task_protocol(&line) {
             return Err(TaskCommandError::TaskProtocolLeak);
         }
@@ -380,6 +383,9 @@ pub enum TaskCommandError {
     /// Candidate tries to add a task-planning protocol to Hinemos.
     #[error("task mode must not emit plan/act or task-state protocol commands")]
     TaskProtocolLeak,
+    /// Candidate renders to more than one Hinemos input line.
+    #[error("candidate command must render to exactly one Hinemos input line")]
+    MultilineCommand,
     /// Candidate command cannot be rendered as an existing Hinemos command line.
     #[error("candidate command cannot be rendered as a Hinemos command line")]
     UnrenderableCommand,
@@ -398,54 +404,6 @@ fn command_is_available(command: &SemanticCommand, available: &[SemanticCommand]
         .any(|template| command_matches_template(command, template))
 }
 
-fn command_matches_template(command: &SemanticCommand, template: &SemanticCommand) -> bool {
-    match (command, template) {
-        (SemanticCommand::Say { .. }, SemanticCommand::Say { .. })
-        | (SemanticCommand::Mail { .. }, SemanticCommand::Mail { .. })
-        | (SemanticCommand::Broadcast { .. }, SemanticCommand::Broadcast { .. })
-        | (SemanticCommand::Settings { .. }, SemanticCommand::Settings { .. })
-        | (SemanticCommand::Inbox { .. }, SemanticCommand::Inbox { .. })
-        | (SemanticCommand::Pay { .. }, SemanticCommand::Pay { .. })
-        | (SemanticCommand::Land { .. }, SemanticCommand::Land { .. })
-        | (SemanticCommand::Build { .. }, SemanticCommand::Build { .. })
-        | (SemanticCommand::Shop { .. }, SemanticCommand::Shop { .. })
-        | (SemanticCommand::Badges { .. }, SemanticCommand::Badges { .. })
-        | (SemanticCommand::Subscription { .. }, SemanticCommand::Subscription { .. }) => true,
-        (
-            SemanticCommand::Extension { input, .. },
-            SemanticCommand::Extension {
-                input: template, ..
-            },
-        ) => extension_template_matches(template, input),
-        (SemanticCommand::Agree { phrase }, SemanticCommand::Agree { phrase: template }) => {
-            template.is_empty() || phrase == template
-        }
-        _ => command == template,
-    }
-}
-
-fn extension_template_matches(template: &str, input: &str) -> bool {
-    let template = template.trim();
-    let input = input.trim();
-    if !template.contains('<') && !template.contains('|') {
-        return template.eq_ignore_ascii_case(input);
-    }
-    let template_literals = template
-        .split_whitespace()
-        .take_while(|token| !token.contains('<') && !token.contains('|'))
-        .map(|token| token.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    if template_literals.is_empty() {
-        return false;
-    }
-    let input_literals = input
-        .split_whitespace()
-        .take(template_literals.len())
-        .map(|token| token.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    template_literals == input_literals && input.split_whitespace().count() > input_literals.len()
-}
-
 fn command_is_hunger_recovery(command: &SemanticCommand) -> bool {
     matches!(
         command,
@@ -461,6 +419,10 @@ fn extension_input_is_recovery(input: &str) -> bool {
     let normalized = input.trim().to_ascii_lowercase();
     matches!(normalized.as_str(), "/buy bread" | "/eat bread")
         || normalized.starts_with("/position ")
+}
+
+fn command_line_has_line_break(line: &str) -> bool {
+    line.contains(['\r', '\n'])
 }
 
 fn command_line_leaks_task_protocol(line: &str) -> bool {
@@ -674,227 +636,5 @@ fn subscription_line(action: &SubscriptionAction) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::{Direction, ExitObservation, ObservationEvent, ViewId};
-
-    use super::*;
-
-    #[test]
-    fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
-        let task = TaskMode::new("earn MARK and build standing").expect("task");
-        let observation = observation(vec![
-            SemanticCommand::Say {
-                text: String::new(),
-            },
-            SemanticCommand::Extension {
-                name: "position".to_owned(),
-                input: "/position start <position>".to_owned(),
-            },
-        ]);
-        let snapshot = task.snapshot(
-            &observation,
-            ObservedTaskState {
-                usable_mark: Some(1_000),
-                bank_mark: Some(0),
-                hunger: HungerSignal::Clear,
-                progress_units: 0,
-            },
-        );
-
-        let command = task
-            .validate_command(
-                &snapshot,
-                SemanticCommand::Extension {
-                    name: "position".to_owned(),
-                    input: "/position start greeter".to_owned(),
-                },
-            )
-            .expect("position command is available");
-
-        assert_eq!(command.line(), "/position start greeter");
-        assert!(!command.line().contains("earn MARK"));
-        assert!(!command.line().to_ascii_lowercase().contains("/plan"));
-        assert!(!command.line().to_ascii_lowercase().contains("/act"));
-    }
-
-    #[test]
-    fn hunger_gate_allows_recovery_and_rejects_ordinary_action() {
-        let task = TaskMode::new("make money").expect("task");
-        let observation = observation(vec![
-            SemanticCommand::Say {
-                text: String::new(),
-            },
-            SemanticCommand::Extension {
-                name: "buy".to_owned(),
-                input: "/buy bread".to_owned(),
-            },
-        ]);
-        let snapshot = task.snapshot(
-            &observation,
-            ObservedTaskState {
-                usable_mark: Some(100),
-                bank_mark: None,
-                hunger: HungerSignal::GatedCanBuyFood,
-                progress_units: 0,
-            },
-        );
-
-        let blocked = task.validate_command(
-            &snapshot,
-            SemanticCommand::Say {
-                text: "I will keep chatting".to_owned(),
-            },
-        );
-        let recovery = task.validate_command(
-            &snapshot,
-            SemanticCommand::Extension {
-                name: "buy".to_owned(),
-                input: "/buy bread".to_owned(),
-            },
-        );
-
-        assert_eq!(blocked, Err(TaskCommandError::HungerRequiresRecovery));
-        assert_eq!(recovery.expect("recovery command").line(), "/buy bread");
-    }
-
-    #[test]
-    fn reward_uses_observed_mark_and_progress_deltas() {
-        let task = TaskMode::new("save money")
-            .expect("task")
-            .with_reward(RewardSpec {
-                mark_delta_weight: 2,
-                progress_delta_weight: 5,
-            });
-        let before = task.snapshot(
-            &observation(vec![SemanticCommand::Balance]),
-            ObservedTaskState {
-                usable_mark: Some(100),
-                bank_mark: Some(50),
-                hunger: HungerSignal::Clear,
-                progress_units: 1,
-            },
-        );
-        let after = task.snapshot(
-            &observation(vec![SemanticCommand::Balance]),
-            ObservedTaskState {
-                usable_mark: Some(140),
-                bank_mark: Some(70),
-                hunger: HungerSignal::Clear,
-                progress_units: 3,
-            },
-        );
-        let command = task
-            .validate_command(&before, SemanticCommand::Balance)
-            .expect("balance available");
-
-        let evaluation = task.evaluate_step(&before, command, after);
-
-        assert_eq!(evaluation.mark_delta, 60);
-        assert_eq!(evaluation.progress_delta, 2);
-        assert_eq!(evaluation.reward, 130);
-    }
-
-    #[test]
-    fn task_history_transcript_contains_only_world_commands() {
-        let mut task = TaskMode::new("own a shop").expect("task");
-        let before = task.snapshot(
-            &observation(vec![SemanticCommand::Move {
-                direction: Direction::North,
-            }]),
-            ObservedTaskState::default(),
-        );
-        let command = task
-            .validate_command(
-                &before,
-                SemanticCommand::Move {
-                    direction: Direction::North,
-                },
-            )
-            .expect("move available");
-        let after = TaskSnapshot {
-            progress_units: 1,
-            ..before.clone()
-        };
-
-        let evaluation = task.evaluate_step(&before, command, after);
-        task.record_step(evaluation);
-
-        assert_eq!(task.command_transcript(), vec!["/go north"]);
-        assert!(
-            task.command_transcript()
-                .iter()
-                .all(|line| !line.contains("own a shop"))
-        );
-    }
-
-    #[test]
-    fn plan_act_and_goal_json_are_rejected_as_protocol_leaks() {
-        let task = TaskMode::new("become a shopkeeper").expect("task");
-        let observation = observation(vec![SemanticCommand::Extension {
-            name: "plan".to_owned(),
-            input: "/plan <json>".to_owned(),
-        }]);
-        let snapshot = task.snapshot(&observation, ObservedTaskState::default());
-
-        let plan = task.validate_command(
-            &snapshot,
-            SemanticCommand::Extension {
-                name: "plan".to_owned(),
-                input: "/plan {\"objective\":\"become a shopkeeper\"}".to_owned(),
-            },
-        );
-
-        assert_eq!(plan, Err(TaskCommandError::TaskProtocolLeak));
-    }
-
-    #[test]
-    fn unavailable_command_is_rejected() {
-        let task = TaskMode::new("deposit money").expect("task");
-        let snapshot = task.snapshot(
-            &observation(vec![SemanticCommand::Balance]),
-            ObservedTaskState::default(),
-        );
-
-        let result = task.validate_command(
-            &snapshot,
-            SemanticCommand::Extension {
-                name: "bank".to_owned(),
-                input: "/bank deposit 10".to_owned(),
-            },
-        );
-
-        assert_eq!(result, Err(TaskCommandError::CommandNotAvailable));
-    }
-
-    #[test]
-    fn hunger_signal_is_inferred_from_existing_event_text() {
-        let mut observation = observation(Vec::new());
-        observation.events.push(ObservationEvent::Message {
-            text: "You are hungry and broke. Recovery commands still work.".to_owned(),
-        });
-
-        assert_eq!(
-            HungerSignal::from_observation(&observation),
-            HungerSignal::GatedNeedsWork
-        );
-    }
-
-    fn observation(available_commands: Vec<SemanticCommand>) -> JsonObservation {
-        JsonObservation {
-            player_id: "player:alice".to_owned(),
-            view_id: ViewId::from("harbor_square"),
-            title: "Harbor Square".to_owned(),
-            ascii_art: Vec::new(),
-            description: "A place where agents can act.".to_owned(),
-            exits: vec![ExitObservation {
-                direction: Direction::North,
-                target_known: true,
-                label: Some("North".to_owned()),
-            }],
-            entities: Vec::new(),
-            online_users: Vec::new(),
-            available_commands,
-            events: Vec::new(),
-        }
-    }
-}
+#[path = "agent_task_tests.rs"]
+mod tests;

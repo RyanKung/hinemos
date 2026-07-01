@@ -3,6 +3,7 @@
 //! Shared domain types for the Hinemos open world.
 
 pub mod agent_task;
+mod agent_task_match;
 pub mod command;
 pub mod ids;
 pub mod model;

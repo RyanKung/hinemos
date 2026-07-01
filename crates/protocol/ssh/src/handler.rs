@@ -452,7 +452,12 @@ impl ConnectionHandler {
             return Ok(false);
         }
         let app = self.shared.app_service().await;
-        if !app.room_binding_accepts_input(binding, trimmed) {
+        let consumed_by_room = if binding.is_commercial_parcel() {
+            app.commercial_parcel_consumes_input(binding, trimmed)
+        } else {
+            app.room_binding_accepts_input(binding, trimmed)
+        };
+        if !consumed_by_room {
             return Ok(false);
         }
         self.handle_hunger_outcome(
