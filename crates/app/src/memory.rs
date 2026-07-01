@@ -47,17 +47,21 @@ where
         observation: &JsonObservation,
     ) -> Result<MemoryResult, E> {
         let task = TaskMode::resident(username);
+        let previous_model = self
+            .ensure_default_self_model(username, agent_id, &task)
+            .await?;
+        let (commitments, memory_metrics) = self.resident_task_memory(agent_id).await?;
         let snapshot = task.snapshot(
             observation,
-            ObservedTaskState {
-                hunger: HungerSignal::from_observation(observation),
-                ..ObservedTaskState::default()
-            },
+            resident_observed_task_state(
+                observation,
+                previous_model.current_state(),
+                memory_metrics,
+            ),
         );
         let self_model = self
-            .refresh_resident_self_model(username, agent_id, &task, observation, &snapshot)
+            .record_resident_self_model_state(agent_id, observation, &snapshot)
             .await?;
-        let commitments = self.open_commitments(agent_id, 20, 3).await?;
         Ok(MemoryResult {
             text: format!(
                 "{}\r\n",
@@ -137,20 +141,47 @@ where
             .await
     }
 
-    async fn refresh_resident_self_model(
+    async fn record_resident_self_model_state(
         &self,
-        username: &str,
         agent_id: &str,
-        task: &TaskMode,
         observation: &JsonObservation,
         snapshot: &TaskSnapshot,
     ) -> Result<S::SelfModel, E> {
-        self.ensure_default_self_model(username, agent_id, task)
-            .await?;
         let current_state = resident_current_state(observation, snapshot);
         self.store
             .record_self_model_state(agent_id, &current_state)
             .await
+    }
+
+    async fn resident_task_memory(
+        &self,
+        agent_id: &str,
+    ) -> Result<(Vec<S::MemoryAtom>, ResidentTaskMemoryMetrics), E> {
+        let commitments = self
+            .store
+            .search_memory_atoms(agent_id, None, Some("commitment"), None, 20)
+            .await?;
+        let mut open_commitments = Vec::new();
+        let mut satisfied_commitment_count = 0_usize;
+        for memory in commitments {
+            if commitment_status_is_paid(&memory) {
+                satisfied_commitment_count = satisfied_commitment_count.saturating_add(1);
+            } else if open_commitments.len() < 3 {
+                open_commitments.push(memory);
+            }
+        }
+        let social_memory_count = self
+            .store
+            .search_memory_atoms(agent_id, None, Some("social"), None, 20)
+            .await?
+            .len();
+        Ok((
+            open_commitments,
+            ResidentTaskMemoryMetrics {
+                social_memory_count,
+                satisfied_commitment_count,
+            },
+        ))
     }
 
     async fn open_commitments(
@@ -349,6 +380,15 @@ pub(crate) fn memory_command_rest(line: &str) -> Option<&str> {
 }
 
 const MEMORY_COMMITMENT_STATUS_PAID: &str = "paid";
+const DEFAULT_LONELINESS_POINTS: i64 = 4;
+const DEFAULT_BOREDOM_POINTS: i64 = 3;
+const MAX_SUBJECTIVE_PRESSURE_POINTS: i64 = 10;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResidentTaskMemoryMetrics {
+    social_memory_count: usize,
+    satisfied_commitment_count: usize,
+}
 
 fn commitment_status_is_paid(memory: &impl MemoryAtomView) -> bool {
     memory.object().get("status").and_then(Value::as_str) == Some(MEMORY_COMMITMENT_STATUS_PAID)
@@ -381,10 +421,106 @@ fn resident_current_state(observation: &JsonObservation, snapshot: &TaskSnapshot
                 "viewId": snapshot.view_id.as_str(),
                 "title": observation.title.as_str(),
                 "hunger": hunger_context(snapshot.hunger),
+                "socialContactUnits": snapshot.social_contact_units,
+                "standingUnits": snapshot.standing_units,
+                "commitmentSatisfactionUnits": snapshot.commitment_satisfaction_units,
+                "lonelinessPoints": snapshot.loneliness_points,
+                "boredomPoints": snapshot.boredom_points,
             }),
         );
     }
     current_state
+}
+
+fn resident_observed_task_state(
+    observation: &JsonObservation,
+    previous_current_state: &Value,
+    memory_metrics: ResidentTaskMemoryMetrics,
+) -> ObservedTaskState {
+    let social_contact_units = visible_social_contact_units(observation);
+    ObservedTaskState {
+        hunger: HungerSignal::from_observation(observation),
+        social_contact_units: Some(social_contact_units),
+        standing_units: Some(standing_units(memory_metrics, social_contact_units)),
+        commitment_satisfaction_units: Some(usize_to_i64_saturating(
+            memory_metrics.satisfied_commitment_count,
+        )),
+        loneliness_points: Some(next_loneliness_points(
+            previous_current_state,
+            social_contact_units,
+        )),
+        boredom_points: Some(next_boredom_points(
+            previous_current_state,
+            observation,
+            social_contact_units,
+        )),
+        ..ObservedTaskState::default()
+    }
+}
+
+fn visible_social_contact_units(observation: &JsonObservation) -> i64 {
+    usize_to_i64_saturating(
+        observation
+            .online_users
+            .iter()
+            .filter(|user| !user.starts_with('+'))
+            .count(),
+    )
+}
+
+fn standing_units(metrics: ResidentTaskMemoryMetrics, social_contact_units: i64) -> i64 {
+    usize_to_i64_saturating(metrics.social_memory_count)
+        .saturating_add(usize_to_i64_saturating(metrics.satisfied_commitment_count))
+        .saturating_add(social_contact_units)
+}
+
+fn next_loneliness_points(previous_current_state: &Value, social_contact_units: i64) -> i64 {
+    let previous = last_snapshot_i64(previous_current_state, "lonelinessPoints")
+        .unwrap_or(DEFAULT_LONELINESS_POINTS);
+    if social_contact_units > 0 {
+        pressure_points(previous.saturating_sub(social_contact_units))
+    } else {
+        pressure_points(previous.saturating_add(1))
+    }
+}
+
+fn next_boredom_points(
+    previous_current_state: &Value,
+    observation: &JsonObservation,
+    social_contact_units: i64,
+) -> i64 {
+    let previous = last_snapshot_i64(previous_current_state, "boredomPoints")
+        .unwrap_or(DEFAULT_BOREDOM_POINTS);
+    if observation_changes_state(previous_current_state, observation) || social_contact_units > 0 {
+        pressure_points(previous.saturating_sub(1))
+    } else {
+        pressure_points(previous.saturating_add(1))
+    }
+}
+
+fn observation_changes_state(
+    previous_current_state: &Value,
+    observation: &JsonObservation,
+) -> bool {
+    last_snapshot_str(previous_current_state, "viewId")
+        .is_none_or(|view_id| view_id != observation.view_id.as_str())
+        || !observation.events.is_empty()
+}
+
+fn last_snapshot_i64(current_state: &Value, field: &str) -> Option<i64> {
+    current_state.get("lastSnapshot")?.get(field)?.as_i64()
+}
+
+fn last_snapshot_str<'a>(current_state: &'a Value, field: &str) -> Option<&'a str> {
+    current_state.get("lastSnapshot")?.get(field)?.as_str()
+}
+
+fn pressure_points(value: i64) -> i64 {
+    value.clamp(0, MAX_SUBJECTIVE_PRESSURE_POINTS)
+}
+
+fn usize_to_i64_saturating(value: usize) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
 }
 
 fn default_resident_style() -> Value {
@@ -425,11 +561,23 @@ fn render_resident_context(
         commitments.len()
     ));
     lines.push(format!("Hunger: {}.", hunger_context(snapshot.hunger)));
+    lines.push(format!(
+        "Social drives: contact={}, standing={}, commitments={}, loneliness={}, boredom={}.",
+        metric_text(snapshot.social_contact_units),
+        metric_text(snapshot.standing_units),
+        metric_text(snapshot.commitment_satisfaction_units),
+        metric_text(snapshot.loneliness_points),
+        metric_text(snapshot.boredom_points)
+    ));
     lines.join("\r\n")
 }
 
 fn json_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
+}
+
+fn metric_text(value: Option<i64>) -> String {
+    value.map_or_else(|| "unknown".to_owned(), |number| number.to_string())
 }
 
 fn hunger_context(hunger: HungerSignal) -> &'static str {

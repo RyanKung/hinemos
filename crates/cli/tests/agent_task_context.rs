@@ -38,6 +38,11 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     );
     assert_contains(
         &output,
+        "Social drives:",
+        "resident context exposes live social and subjective meters",
+    );
+    assert_contains(
+        &output,
         "Self memory",
         "memory command can read the persisted self-model",
     );
@@ -71,6 +76,22 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     assert_eq!(
         latest_snapshot_view, "arrival_street",
         "resident context refresh writes the latest visible world snapshot"
+    );
+    let live_meter_types = test_database.query_value(&format!(
+        "select concat_ws(':',
+             coalesce(jsonb_typeof(current_state->'lastSnapshot'->'socialContactUnits'), 'missing'),
+             coalesce(jsonb_typeof(current_state->'lastSnapshot'->'standingUnits'), 'missing'),
+             coalesce(jsonb_typeof(current_state->'lastSnapshot'->'commitmentSatisfactionUnits'), 'missing'),
+             coalesce(jsonb_typeof(current_state->'lastSnapshot'->'lonelinessPoints'), 'missing'),
+             coalesce(jsonb_typeof(current_state->'lastSnapshot'->'boredomPoints'), 'missing'))
+         from agent_self_models
+         where agent_id = '{player_id}'
+         order by version desc
+         limit 1"
+    ));
+    assert_eq!(
+        live_meter_types, "number:number:number:number:number",
+        "resident context persists live social and subjective meters"
     );
 
     terminate(&mut server);
