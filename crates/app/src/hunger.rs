@@ -571,6 +571,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn placeholder_recovery_commands_need_arguments() {
+        let store = store(
+            HUNGER_THRESHOLD_POINTS,
+            FOOD_RECOVERY_PRICE_MARK,
+            Vec::new(),
+        );
+        let app = AppService::new(store);
+        let room = TestRoom {
+            recovery_commands: "/position apply <position>",
+        };
+
+        let missing = app
+            .check_hunger_room_line("player", "/position apply", &room)
+            .await
+            .expect("missing position");
+        let blank = app
+            .check_hunger_room_line("player", "/position apply   ", &room)
+            .await
+            .expect("blank position");
+
+        assert!(matches!(missing, HungerGateOutcome::Block(text) if text.contains("Food costs")));
+        assert!(matches!(blank, HungerGateOutcome::Block(text) if text.contains("Food costs")));
+    }
+
+    #[tokio::test]
     async fn exact_room_recovery_commands_are_not_suffix_matched() {
         let store = store(
             HUNGER_THRESHOLD_POINTS,

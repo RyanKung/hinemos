@@ -117,15 +117,37 @@ impl TaskMode {
     ) -> TaskStepEvaluation {
         let mark_delta = optional_delta(before.total_mark(), after.total_mark());
         let progress_delta = after.progress_units.saturating_sub(before.progress_units);
-        let reward = self
-            .reward
-            .mark_delta_weight
-            .saturating_mul(mark_delta)
-            .saturating_add(
-                self.reward
-                    .progress_delta_weight
-                    .saturating_mul(progress_delta),
-            );
+        let social_contact_delta =
+            optional_delta(before.social_contact_units, after.social_contact_units);
+        let standing_delta = optional_delta(before.standing_units, after.standing_units);
+        let commitment_satisfaction_delta = optional_delta(
+            before.commitment_satisfaction_units,
+            after.commitment_satisfaction_units,
+        );
+        let loneliness_relief_delta =
+            optional_delta(after.loneliness_points, before.loneliness_points);
+        let boredom_relief_delta = optional_delta(after.boredom_points, before.boredom_points);
+        let reward = weighted_reward(&[
+            (self.reward.mark_delta_weight, mark_delta),
+            (self.reward.progress_delta_weight, progress_delta),
+            (
+                self.reward.social_contact_delta_weight,
+                social_contact_delta,
+            ),
+            (self.reward.standing_delta_weight, standing_delta),
+            (
+                self.reward.commitment_satisfaction_delta_weight,
+                commitment_satisfaction_delta,
+            ),
+            (
+                self.reward.loneliness_relief_delta_weight,
+                loneliness_relief_delta,
+            ),
+            (
+                self.reward.boredom_relief_delta_weight,
+                boredom_relief_delta,
+            ),
+        ]);
 
         TaskStepEvaluation {
             command,
@@ -133,6 +155,11 @@ impl TaskMode {
             after,
             mark_delta,
             progress_delta,
+            social_contact_delta,
+            standing_delta,
+            commitment_satisfaction_delta,
+            loneliness_relief_delta,
+            boredom_relief_delta,
             reward,
         }
     }
@@ -166,11 +193,11 @@ impl TaskMode {
 fn resident_objective(username: &str) -> String {
     let name = username.trim();
     if name.is_empty() {
-        "Earn MARK, build standing, form useful relationships, and keep enough food to keep acting."
+        "Earn MARK, build standing, form useful relationships, reduce loneliness and boredom, and keep enough food to keep acting."
             .to_owned()
     } else {
         format!(
-            "As {name}, earn MARK, build standing, form useful relationships, and keep enough food to keep acting."
+            "As {name}, earn MARK, build standing, form useful relationships, reduce loneliness and boredom, and keep enough food to keep acting."
         )
     }
 }
@@ -183,6 +210,16 @@ pub struct RewardSpec {
     pub mark_delta_weight: i64,
     /// Reward multiplier for controller-owned progress units.
     pub progress_delta_weight: i64,
+    /// Reward multiplier for observed social-contact gains.
+    pub social_contact_delta_weight: i64,
+    /// Reward multiplier for observed standing or reputation gains.
+    pub standing_delta_weight: i64,
+    /// Reward multiplier for satisfying visible commitments.
+    pub commitment_satisfaction_delta_weight: i64,
+    /// Reward multiplier for reducing loneliness pressure.
+    pub loneliness_relief_delta_weight: i64,
+    /// Reward multiplier for reducing boredom pressure.
+    pub boredom_relief_delta_weight: i64,
 }
 
 impl Default for RewardSpec {
@@ -190,6 +227,11 @@ impl Default for RewardSpec {
         Self {
             mark_delta_weight: 1,
             progress_delta_weight: 10,
+            social_contact_delta_weight: 4,
+            standing_delta_weight: 6,
+            commitment_satisfaction_delta_weight: 5,
+            loneliness_relief_delta_weight: 3,
+            boredom_relief_delta_weight: 2,
         }
     }
 }
@@ -279,6 +321,16 @@ pub struct ObservedTaskState {
     pub hunger: HungerSignal,
     /// Monotonic task progress units tracked by the task runner.
     pub progress_units: i64,
+    /// Observed useful contact count or contact score.
+    pub social_contact_units: Option<i64>,
+    /// Observed social standing or reputation score.
+    pub standing_units: Option<i64>,
+    /// Observed count or score for satisfied commitments.
+    pub commitment_satisfaction_units: Option<i64>,
+    /// Observed loneliness pressure; lower is better.
+    pub loneliness_points: Option<i64>,
+    /// Observed boredom pressure; lower is better.
+    pub boredom_points: Option<i64>,
 }
 
 impl Default for ObservedTaskState {
@@ -288,6 +340,11 @@ impl Default for ObservedTaskState {
             bank_mark: None,
             hunger: HungerSignal::Unknown,
             progress_units: 0,
+            social_contact_units: None,
+            standing_units: None,
+            commitment_satisfaction_units: None,
+            loneliness_points: None,
+            boredom_points: None,
         }
     }
 }
@@ -310,6 +367,16 @@ pub struct TaskSnapshot {
     pub hunger: HungerSignal,
     /// Monotonic task progress units tracked by the controller.
     pub progress_units: i64,
+    /// Observed useful contact count or contact score.
+    pub social_contact_units: Option<i64>,
+    /// Observed social standing or reputation score.
+    pub standing_units: Option<i64>,
+    /// Observed count or score for satisfied commitments.
+    pub commitment_satisfaction_units: Option<i64>,
+    /// Observed loneliness pressure; lower is better.
+    pub loneliness_points: Option<i64>,
+    /// Observed boredom pressure; lower is better.
+    pub boredom_points: Option<i64>,
 }
 
 impl TaskSnapshot {
@@ -324,6 +391,11 @@ impl TaskSnapshot {
             bank_mark: observed.bank_mark,
             hunger: observed.hunger,
             progress_units: observed.progress_units,
+            social_contact_units: observed.social_contact_units,
+            standing_units: observed.standing_units,
+            commitment_satisfaction_units: observed.commitment_satisfaction_units,
+            loneliness_points: observed.loneliness_points,
+            boredom_points: observed.boredom_points,
         }
     }
 
@@ -371,6 +443,16 @@ pub struct TaskStepEvaluation {
     pub mark_delta: i64,
     /// Observed delta in task progress units.
     pub progress_delta: i64,
+    /// Observed delta in useful social contact.
+    pub social_contact_delta: i64,
+    /// Observed delta in standing or reputation.
+    pub standing_delta: i64,
+    /// Observed delta in satisfied commitments.
+    pub commitment_satisfaction_delta: i64,
+    /// Positive value when loneliness pressure decreases.
+    pub loneliness_relief_delta: i64,
+    /// Positive value when boredom pressure decreases.
+    pub boredom_relief_delta: i64,
     /// Weighted reward score.
     pub reward: i64,
 }
@@ -420,6 +502,12 @@ fn optional_delta(before: Option<i64>, after: Option<i64>) -> i64 {
         (Some(before), Some(after)) => after.saturating_sub(before),
         _ => 0,
     }
+}
+
+fn weighted_reward(terms: &[(i64, i64)]) -> i64 {
+    terms.iter().fold(0_i64, |total, (weight, delta)| {
+        total.saturating_add(weight.saturating_mul(*delta))
+    })
 }
 
 fn command_is_available(command: &SemanticCommand, available: &[SemanticCommand]) -> bool {

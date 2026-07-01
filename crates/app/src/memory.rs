@@ -359,15 +359,15 @@ fn default_resident_identity(username: &str, task: &TaskMode) -> Value {
     json!({
         "name": name,
         "self": format!("I am {name}, a Hinemos resident acting through this SSH session."),
-        "longTerm": "Build wealth, standing, and useful relationships in Hinemos.",
+        "longTerm": "Build wealth, standing, useful relationships, and a life that is not lonely or boring in Hinemos.",
         "taskObjective": task.objective.as_str(),
     })
 }
 
 fn default_resident_current_state() -> Value {
     json!({
-        "shortTerm": "Stay able to act: find work, earn MARK, buy food when hungry, and keep useful commitments.",
-        "priority": "Prefer actions that increase MARK, standing, useful commitments, or progress toward owning or serving shops.",
+        "shortTerm": "Stay able to act: find work, earn MARK, buy food when hungry, keep useful commitments, and seek contact when lonely or bored.",
+        "priority": "Prefer actions that increase MARK, standing, useful commitments, useful social contact, or relief from loneliness and boredom.",
         "constraint": "Treat hunger as a hard constraint. If hunger blocks ordinary action, recover through in-game work and food.",
     })
 }
@@ -417,7 +417,7 @@ fn render_resident_context(
         task.objective
     ));
     lines.push(
-        "Boundary: Use only visible Hinemos commands and room replies. If hunger blocks action, recover through in-game work and food."
+        "Boundary: Use only visible Hinemos commands and room replies. If hunger blocks action, recover through in-game work and food. Do not drift into lonely or boring repetition when social progress is visible."
             .to_owned(),
     );
     lines.push(format!(

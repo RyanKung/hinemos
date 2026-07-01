@@ -33,6 +33,7 @@ fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
             bank_mark: Some(0),
             hunger: HungerSignal::Clear,
             progress_units: 0,
+            ..ObservedTaskState::default()
         },
     );
 
@@ -117,6 +118,7 @@ fn hunger_gate_allows_available_room_extensions_and_rejects_ordinary_action() {
             bank_mark: None,
             hunger: HungerSignal::GatedCanBuyFood,
             progress_units: 0,
+            ..ObservedTaskState::default()
         },
     );
 
@@ -148,6 +150,11 @@ fn reward_uses_observed_mark_and_progress_deltas() {
         .with_reward(RewardSpec {
             mark_delta_weight: 2,
             progress_delta_weight: 5,
+            social_contact_delta_weight: 7,
+            standing_delta_weight: 11,
+            commitment_satisfaction_delta_weight: 13,
+            loneliness_relief_delta_weight: 17,
+            boredom_relief_delta_weight: 19,
         });
     let before = task.snapshot(
         &observation(vec![SemanticCommand::Balance]),
@@ -156,6 +163,11 @@ fn reward_uses_observed_mark_and_progress_deltas() {
             bank_mark: Some(50),
             hunger: HungerSignal::Clear,
             progress_units: 1,
+            social_contact_units: Some(0),
+            standing_units: Some(1),
+            commitment_satisfaction_units: Some(0),
+            loneliness_points: Some(7),
+            boredom_points: Some(5),
         },
     );
     let after = task.snapshot(
@@ -165,6 +177,11 @@ fn reward_uses_observed_mark_and_progress_deltas() {
             bank_mark: Some(70),
             hunger: HungerSignal::Clear,
             progress_units: 3,
+            social_contact_units: Some(2),
+            standing_units: Some(3),
+            commitment_satisfaction_units: Some(1),
+            loneliness_points: Some(4),
+            boredom_points: Some(1),
         },
     );
     let command = task
@@ -175,7 +192,59 @@ fn reward_uses_observed_mark_and_progress_deltas() {
 
     assert_eq!(evaluation.mark_delta, 60);
     assert_eq!(evaluation.progress_delta, 2);
-    assert_eq!(evaluation.reward, 130);
+    assert_eq!(evaluation.social_contact_delta, 2);
+    assert_eq!(evaluation.standing_delta, 2);
+    assert_eq!(evaluation.commitment_satisfaction_delta, 1);
+    assert_eq!(evaluation.loneliness_relief_delta, 3);
+    assert_eq!(evaluation.boredom_relief_delta, 4);
+    assert_eq!(evaluation.reward, 306);
+}
+
+#[test]
+fn reward_prefers_social_progress_over_isolated_survival() {
+    let task = TaskMode::new("build relationships, standing, and wealth").expect("task");
+    let before = task.snapshot(
+        &observation(vec![SemanticCommand::Say {
+            text: "<text>".to_owned(),
+        }]),
+        ObservedTaskState {
+            usable_mark: Some(100),
+            hunger: HungerSignal::Clear,
+            social_contact_units: Some(0),
+            standing_units: Some(0),
+            commitment_satisfaction_units: Some(0),
+            loneliness_points: Some(4),
+            boredom_points: Some(4),
+            ..ObservedTaskState::default()
+        },
+    );
+    let isolated_after = TaskSnapshot {
+        usable_mark: Some(125),
+        ..before.clone()
+    };
+    let social_after = TaskSnapshot {
+        social_contact_units: Some(2),
+        standing_units: Some(1),
+        commitment_satisfaction_units: Some(1),
+        loneliness_points: Some(2),
+        boredom_points: Some(2),
+        ..before.clone()
+    };
+    let command = task
+        .validate_command(
+            &before,
+            SemanticCommand::Say {
+                text: "hello neighbor".to_owned(),
+            },
+        )
+        .expect("social command available");
+
+    let isolated = task.evaluate_step(&before, command.clone(), isolated_after);
+    let social = task.evaluate_step(&before, command, social_after);
+
+    assert_eq!(isolated.reward, 25);
+    assert_eq!(social.reward, 29);
+    assert!(social.reward > isolated.reward);
 }
 
 #[test]

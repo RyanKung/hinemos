@@ -139,10 +139,13 @@ pub(crate) fn recovery_command_template_matches_input(command: &str, raw_input: 
     if !has_placeholder {
         return raw_input == command;
     }
-    raw_input == command
-        || raw_input
-            .strip_prefix(&command)
-            .is_some_and(|rest| rest.chars().next().is_some_and(char::is_whitespace))
+    raw_input
+        .strip_prefix(&command)
+        .is_some_and(has_placeholder_argument)
+}
+
+fn has_placeholder_argument(rest: &str) -> bool {
+    rest.chars().next().is_some_and(char::is_whitespace) && !rest.trim().is_empty()
 }
 
 impl<S, E> AppService<S>
