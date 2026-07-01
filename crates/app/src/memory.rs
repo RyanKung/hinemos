@@ -1,21 +1,17 @@
 use crate::*;
+use serde_json::json;
 
 impl<S, E> AppService<S>
 where
     S: MemoryStore<Error = E>,
 {
     /// Renders the player's memory context.
-    pub async fn memory_context(&self, agent_id: &str) -> Result<MemoryResult, E> {
-        let self_model = self.store.latest_self_model(agent_id).await?;
-        let commitments_all = self
-            .store
-            .search_memory_atoms(agent_id, None, Some("commitment"), None, 20)
+    pub async fn memory_context(&self, username: &str, agent_id: &str) -> Result<MemoryResult, E> {
+        let task = TaskMode::resident(username);
+        let self_model = self
+            .ensure_default_self_model(username, agent_id, &task)
             .await?;
-        let commitments = commitments_all
-            .into_iter()
-            .filter(|memory| !commitment_status_is_paid(memory))
-            .take(5)
-            .collect::<Vec<_>>();
+        let commitments = self.open_commitments(agent_id, 20, 5).await?;
         let social = self
             .store
             .search_memory_atoms(agent_id, None, Some("social"), None, 5)
@@ -25,32 +21,48 @@ where
             .search_memory_atoms(agent_id, None, Some("self"), None, 3)
             .await?;
 
-        if self_model.is_none()
-            && commitments.is_empty()
-            && social.is_empty()
-            && self_memories.is_empty()
-        {
-            return Ok(MemoryResult {
-                text: "Memory: no long-term memories yet.\r\n".to_owned(),
-            });
-        }
-
         let mut lines = Vec::new();
         lines.push("Memory loaded:".to_owned());
-        if let Some(model) = self_model {
-            lines.push(format!(
-                "Self model v{} from {}.",
-                model.version(),
-                model.created_at()
-            ));
-            append_model_json_line(&mut lines, "Identity", model.identity());
-            append_model_json_line(&mut lines, "Current state", model.current_state());
-        }
+        lines.push(format!(
+            "Self model v{} from {}.",
+            self_model.version(),
+            self_model.created_at()
+        ));
+        append_model_json_line(&mut lines, "Identity", self_model.identity());
+        append_model_json_line(&mut lines, "Current state", self_model.current_state());
+        append_model_json_line(&mut lines, "Style", self_model.style());
         append_memory_atom_lines(&mut lines, "Commitments", &commitments);
         append_memory_atom_lines(&mut lines, "Self memories", &self_memories);
         append_memory_atom_lines(&mut lines, "Social memories", &social);
         Ok(MemoryResult {
             text: format!("{}\r\n", lines.join("\r\n")),
+        })
+    }
+
+    /// Renders the resident task context injected into the visible world observation.
+    pub async fn resident_context(
+        &self,
+        username: &str,
+        agent_id: &str,
+        observation: &JsonObservation,
+    ) -> Result<MemoryResult, E> {
+        let task = TaskMode::resident(username);
+        let self_model = self
+            .ensure_default_self_model(username, agent_id, &task)
+            .await?;
+        let commitments = self.open_commitments(agent_id, 20, 3).await?;
+        let snapshot = task.snapshot(
+            observation,
+            ObservedTaskState {
+                hunger: HungerSignal::from_observation(observation),
+                ..ObservedTaskState::default()
+            },
+        );
+        Ok(MemoryResult {
+            text: format!(
+                "{}\r\n",
+                render_resident_context(&task, &snapshot, &self_model, &commitments)
+            ),
         })
     }
 
@@ -109,6 +121,37 @@ where
         Ok(MemoryResult {
             text: format!("{}\r\n", output.replace('\n', "\r\n")),
         })
+    }
+
+    async fn ensure_default_self_model(
+        &self,
+        username: &str,
+        agent_id: &str,
+        task: &TaskMode,
+    ) -> Result<S::SelfModel, E> {
+        let identity = default_resident_identity(username, task);
+        let current_state = default_resident_current_state();
+        let style = default_resident_style();
+        self.store
+            .ensure_self_model(agent_id, &identity, &current_state, &style)
+            .await
+    }
+
+    async fn open_commitments(
+        &self,
+        agent_id: &str,
+        search_limit: i64,
+        take_limit: usize,
+    ) -> Result<Vec<S::MemoryAtom>, E> {
+        let commitments = self
+            .store
+            .search_memory_atoms(agent_id, None, Some("commitment"), None, search_limit)
+            .await?
+            .into_iter()
+            .filter(|memory| !commitment_status_is_paid(memory))
+            .take(take_limit)
+            .collect::<Vec<_>>();
+        Ok(commitments)
     }
 }
 
@@ -198,6 +241,9 @@ pub trait SelfModelView {
 
     /// Current state JSON.
     fn current_state(&self) -> &Value;
+
+    /// Behavioral style JSON.
+    fn style(&self) -> &Value;
 }
 
 /// Storage boundary for memory views.
@@ -218,6 +264,15 @@ pub trait MemoryStore {
         &self,
         agent_id: &str,
     ) -> Result<Option<Self::SelfModel>, Self::Error>;
+
+    /// Ensures a default self-model exists and returns the latest self-model.
+    async fn ensure_self_model(
+        &self,
+        agent_id: &str,
+        identity: &Value,
+        current_state: &Value,
+        style: &Value,
+    ) -> Result<Self::SelfModel, Self::Error>;
 
     /// Searches memory atoms.
     async fn search_memory_atoms(
@@ -276,6 +331,79 @@ fn commitment_status_is_paid(memory: &impl MemoryAtomView) -> bool {
     memory.object().get("status").and_then(Value::as_str) == Some(MEMORY_COMMITMENT_STATUS_PAID)
 }
 
+fn default_resident_identity(username: &str, task: &TaskMode) -> Value {
+    let name = resident_name(username);
+    json!({
+        "name": name,
+        "self": format!("I am {name}, a Hinemos resident acting through this SSH session."),
+        "longTerm": "Build wealth, standing, and useful relationships in Hinemos.",
+        "taskObjective": task.objective.as_str(),
+    })
+}
+
+fn default_resident_current_state() -> Value {
+    json!({
+        "shortTerm": "Stay able to act: find work, earn MARK, buy food when hungry, and keep useful commitments.",
+        "priority": "Prefer actions that increase MARK, standing, useful commitments, or progress toward owning or serving shops.",
+        "constraint": "Treat hunger as a hard constraint. If hunger blocks ordinary action, recover through in-game work and bread.",
+    })
+}
+
+fn default_resident_style() -> Value {
+    json!({
+        "autonomy": "Use only visible Hinemos commands and room replies. Do not invent a private agent protocol.",
+        "loop": "Observe the room, choose an available in-game command, read the result, and continue.",
+    })
+}
+
+fn resident_name(username: &str) -> &str {
+    let trimmed = username.trim();
+    if trimmed.is_empty() {
+        "this resident"
+    } else {
+        trimmed
+    }
+}
+
+fn render_resident_context(
+    task: &TaskMode,
+    snapshot: &TaskSnapshot,
+    model: &impl SelfModelView,
+    commitments: &[impl MemoryAtomView],
+) -> String {
+    let mut lines = Vec::new();
+    lines.push("Resident context:".to_owned());
+    lines.push(format!(
+        "You are {}. Objective: {}",
+        json_str(model.identity(), "name").unwrap_or("a Hinemos resident"),
+        task.objective
+    ));
+    lines.push(
+        "Boundary: Use only visible Hinemos commands and room replies. If hunger blocks action, recover through in-game work and bread."
+            .to_owned(),
+    );
+    lines.push(format!(
+        "Memory: /memory self, /memory commitments. Open commitments: {}.",
+        commitments.len()
+    ));
+    lines.push(format!("Hunger: {}.", hunger_context(snapshot.hunger)));
+    lines.join("\r\n")
+}
+
+fn json_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
+fn hunger_context(hunger: HungerSignal) -> &'static str {
+    match hunger {
+        HungerSignal::Unknown => "not observed yet",
+        HungerSignal::Clear => "clear",
+        HungerSignal::NearGate => "near a limit",
+        HungerSignal::GatedCanBuyFood => "too hungry for ordinary action; buy or eat bread",
+        HungerSignal::GatedNeedsWork => "hungry and broke; earn MARK through in-game work",
+    }
+}
+
 fn memory_help() -> &'static str {
     "Memory commands:\n\
      /memory self - show self-model and self memories\n\
@@ -318,6 +446,7 @@ fn model_text(model: &impl SelfModelView) -> String {
     ));
     append_model_json_line(&mut lines, "Identity", model.identity());
     append_model_json_line(&mut lines, "Current state", model.current_state());
+    append_model_json_line(&mut lines, "Style", model.style());
     lines.join("\n")
 }
 

@@ -4,27 +4,6 @@ use hinemos_app::{AppIdentity, AppRequest, LiveInboxNotice, UiEvent};
 use hinemos_core::{Direction, JsonObservation, PlayerState, SemanticCommand};
 
 impl ConnectionHandler {
-    pub(super) async fn send_app_request(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        identity: &AuthIdentity,
-        request: AppRequest<'_>,
-    ) -> Result<()> {
-        let events = self.app_request_events(identity, request).await?;
-        self.send_ui_events(channel, session, events).await
-    }
-
-    pub(super) async fn app_request_events(
-        &self,
-        identity: &AuthIdentity,
-        request: AppRequest<'_>,
-    ) -> Result<Vec<UiEvent>> {
-        let app = self.shared.app_service().await;
-        let app_identity = AppIdentity::new(identity.user.clone(), identity.player_id.clone());
-        Ok(app.handle(&app_identity, request).await?)
-    }
-
     pub(super) async fn send_ui_events(
         &self,
         channel: ChannelId,
@@ -337,6 +316,21 @@ impl ConnectionHandler {
             .online_view_users(&app, &observation.view_id, &player_id)
             .await?;
         observation.online_users = render_online_summary(&view_users, 10);
+        if let Some(identity) = self.identity.as_ref() {
+            let admission = app.player_admission(&identity.player_id).await?;
+            if admission.is_agreed()
+                && !self
+                    .resident_context_sent
+                    .load(std::sync::atomic::Ordering::Acquire)
+            {
+                let context = app
+                    .resident_context(&identity.user, &identity.player_id, &observation)
+                    .await?;
+                append_resident_context(&mut observation.description, &context.text);
+                self.resident_context_sent
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
         let app_config = self.shared.app_config().await;
         send_text_observation(
             session,
@@ -693,6 +687,17 @@ impl ConnectionHandler {
         }
         Ok(())
     }
+}
+
+fn append_resident_context(description: &mut String, context: &str) {
+    let context = context.trim();
+    if context.is_empty() {
+        return;
+    }
+    if !description.trim().is_empty() {
+        description.push_str("\n\n");
+    }
+    description.push_str(context);
 }
 
 fn send_text_event(session: &mut Session, channel: ChannelId, text: &str) -> Result<()> {

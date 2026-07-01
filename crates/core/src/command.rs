@@ -170,6 +170,11 @@ pub enum SemanticCommand {
     },
     /// Show private persistent mail.
     Mailbox,
+    /// Show persistent resident memory.
+    Memory {
+        /// Text after `/memory`.
+        rest: String,
+    },
     /// Show current view message history.
     History,
     /// Show global broadcast news.

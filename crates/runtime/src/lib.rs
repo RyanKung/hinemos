@@ -272,6 +272,9 @@ impl GameRuntime {
             SemanticCommand::Mailbox => {
                 vec![message("Mailbox is available in SSH sessions.".to_owned())]
             }
+            SemanticCommand::Memory { .. } => {
+                vec![message("Memory is available in SSH sessions.".to_owned())]
+            }
             SemanticCommand::History => {
                 vec![message(
                     "Room history is available in SSH sessions.".to_owned(),
@@ -554,6 +557,9 @@ fn available_commands(
             text: "<text>".to_owned(),
         },
         SemanticCommand::History,
+        SemanticCommand::Memory {
+            rest: "<command>".to_owned(),
+        },
         SemanticCommand::Who,
         SemanticCommand::Settings {
             action: hinemos_core::SettingsAction::Show,

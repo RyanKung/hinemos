@@ -152,7 +152,7 @@ where
             "- /look, /map, /help, /quit".to_owned(),
             "- /go south leaves this room".to_owned(),
             "- /say <text> speaks locally and forwards a copy to the room service".to_owned(),
-            "- /inventory, /history, /who, /settings, /mailbox, /balance remain available"
+            "- /inventory, /history, /memory, /who, /settings, /mailbox, /balance remain available"
                 .to_owned(),
         ];
         let commands = command_inputs(room.custom_commands()).collect::<Vec<_>>();
@@ -175,6 +175,9 @@ where
             SemanticCommand::Map,
             SemanticCommand::Inventory,
             SemanticCommand::History,
+            SemanticCommand::Memory {
+                rest: "<command>".to_owned(),
+            },
             SemanticCommand::Help,
             SemanticCommand::Settings {
                 action: SettingsAction::Show,

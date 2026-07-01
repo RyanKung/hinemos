@@ -244,6 +244,9 @@ impl Chrome {
                 let text = rest_after_command(trimmed, rest, cmd.as_str())?;
                 Ok(SemanticCommand::Broadcast { text })
             }
+            "memory" => Ok(SemanticCommand::Memory {
+                rest: rest_after_command(trimmed, rest, cmd.as_str()).unwrap_or_default(),
+            }),
             "pay" => Ok(SemanticCommand::Pay {
                 action: parse_pay_action(trimmed, &mut tokens)?,
             }),

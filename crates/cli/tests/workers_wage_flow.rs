@@ -3,7 +3,7 @@ mod common;
 use common::*;
 
 #[test]
-fn workers_society_claim_credits_wallet_through_room_runner() {
+fn workers_society_finish_credits_wallet_across_room_runner_restart() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -18,6 +18,9 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
     let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
+    let player_id = test_database.query_value(&format!(
+        "select player_id from ssh_identities where username = '{user}'"
+    ));
 
     let work_output = run_ssh_batch_with_key(
         host,
@@ -30,7 +33,6 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
             "/position apply street-sweeper",
             "/position start street-sweeper",
             "/position finish",
-            "/position claim",
             "/quit",
         ],
     );
@@ -43,21 +45,77 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
-        "Processed 4 room request(s).",
-        "room runner handles the full work sequence in order",
+        "Processed 3 room request(s).",
+        "room runner handles apply/start/finish before a later claim",
     );
 
-    let balance_output =
-        run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/mailbox", "/quit"]);
+    let finish_reply_id = test_database.query_value(&format!(
+        "select id
+         from inbox_items
+         where recipient_player_id = '{player_id}'
+           and sender_user = 'room-workers_society'
+           and body like '%Wallet credited. Balance: 1025 MARK.%'
+         order by id desc
+         limit 1"
+    ));
+    let finish_read_command = format!("/mail read {finish_reply_id}");
+    let balance_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &["/balance", finish_read_command.as_str(), "/quit"],
+    );
     assert_contains(
         &balance_output,
         "Balance: 1025 MARK",
-        "claimed worker wage is credited to the player wallet",
+        "finished worker shift is credited to the player wallet",
     );
     assert_contains(
         &balance_output,
         "Wallet credited. Balance: 1025 MARK.",
         "worker room reply reports the credited wallet balance",
+    );
+
+    let claim_output =
+        run_ssh_batch_with_key(host, port, &user, &key, &["/position claim", "/quit"]);
+    assert_contains(
+        &claim_output,
+        "Sent to room service room-workers_society",
+        "claim command is queued after a separate room runner process starts",
+    );
+    let claim_rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
+    assert_contains(
+        &claim_rooms_output,
+        "Processed 1 room request(s).",
+        "fresh room runner handles claim without needing volatile owed state",
+    );
+    let claim_reply_id = test_database.query_value(&format!(
+        "select id
+         from inbox_items
+         where recipient_player_id = '{player_id}'
+           and sender_user = 'room-workers_society'
+           and body like '%No pending wages are ready to claim%'
+         order by id desc
+         limit 1"
+    ));
+    let claim_read_command = format!("/mail read {claim_reply_id}");
+    let post_claim_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &["/balance", claim_read_command.as_str(), "/quit"],
+    );
+    assert_contains(
+        &post_claim_output,
+        "Balance: 1025 MARK",
+        "claim after restart must not duplicate the already-paid shift",
+    );
+    assert_contains(
+        &post_claim_output,
+        "No pending wages are ready to claim",
+        "claim explains that finished shifts pay immediately",
     );
 
     let wage_ledger = test_database.query_value(
@@ -71,7 +129,7 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
     );
     assert_eq!(
         wage_ledger, "1:25",
-        "worker claim should create exactly one two-sided 25 MARK wage ledger entry"
+        "worker finish should create exactly one two-sided 25 MARK wage ledger entry"
     );
 
     let one_sided_entries = test_database.query_value(

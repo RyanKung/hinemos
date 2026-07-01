@@ -26,6 +26,18 @@ pub struct TaskMode {
 }
 
 impl TaskMode {
+    /// Creates the default resident task for an autonomous Hinemos session.
+    #[must_use]
+    pub fn resident(username: &str) -> Self {
+        Self {
+            objective: resident_objective(username),
+            reward: RewardSpec::default(),
+            constraints: TaskConstraints::default(),
+            last_snapshot: None,
+            command_history: Vec::new(),
+        }
+    }
+
     /// Creates task mode with the default reward and constraint policy.
     ///
     /// Pre: `objective` is authored outside the Hinemos protocol.
@@ -148,6 +160,18 @@ impl TaskMode {
             .iter()
             .map(|record| record.command_line.as_str())
             .collect()
+    }
+}
+
+fn resident_objective(username: &str) -> String {
+    let name = username.trim();
+    if name.is_empty() {
+        "Earn MARK, build standing, form useful relationships, and keep enough food to keep acting."
+            .to_owned()
+    } else {
+        format!(
+            "As {name}, earn MARK, build standing, form useful relationships, and keep enough food to keep acting."
+        )
     }
 }
 
@@ -454,6 +478,8 @@ fn command_line(command: &SemanticCommand) -> Option<String> {
         SemanticCommand::Inbox { action } => inbox_line(action),
         SemanticCommand::Broadcast { text } => format!("/broadcast {text}"),
         SemanticCommand::Mailbox => "/mailbox".to_owned(),
+        SemanticCommand::Memory { rest } if rest.trim().is_empty() => "/memory".to_owned(),
+        SemanticCommand::Memory { rest } => format!("/memory {}", rest.trim()),
         SemanticCommand::History => "/history".to_owned(),
         SemanticCommand::News => "/news".to_owned(),
         SemanticCommand::Who => "/who".to_owned(),

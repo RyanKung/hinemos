@@ -3,6 +3,18 @@ use crate::{Direction, ExitObservation, ObservationEvent, ViewId};
 use super::*;
 
 #[test]
+fn resident_task_has_default_goal_and_hunger_constraint() {
+    let task = TaskMode::resident("alice");
+
+    assert!(task.objective.starts_with("As alice, earn MARK"));
+    assert_eq!(
+        task.constraints.hunger,
+        HungerPolicy::RequireRecoveryWhenGated
+    );
+    assert!(task.command_history.is_empty());
+}
+
+#[test]
 fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
     let task = TaskMode::new("earn MARK and build standing").expect("task");
     let observation = observation(vec![
@@ -38,6 +50,26 @@ fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
     assert!(!command.line().contains("earn MARK"));
     assert!(!command.line().to_ascii_lowercase().contains("/plan"));
     assert!(!command.line().to_ascii_lowercase().contains("/act"));
+}
+
+#[test]
+fn memory_template_authorizes_memory_subcommands() {
+    let task = TaskMode::new("remember context").expect("task");
+    let observation = observation(vec![SemanticCommand::Memory {
+        rest: "<command>".to_owned(),
+    }]);
+    let snapshot = task.snapshot(&observation, ObservedTaskState::default());
+
+    let command = task
+        .validate_command(
+            &snapshot,
+            SemanticCommand::Memory {
+                rest: "self".to_owned(),
+            },
+        )
+        .expect("memory subcommand is available");
+
+    assert_eq!(command.line(), "/memory self");
 }
 
 #[test]

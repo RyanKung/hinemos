@@ -56,6 +56,9 @@ pub(crate) fn command_matches_template(
                 input: template, ..
             },
         ) => extension_template_matches(template, input),
+        (SemanticCommand::Memory { rest }, SemanticCommand::Memory { rest: template }) => {
+            template_string_matches(rest, template)
+        }
         (SemanticCommand::Agree { phrase }, SemanticCommand::Agree { phrase: template }) => {
             template_string_matches(phrase, template)
         }

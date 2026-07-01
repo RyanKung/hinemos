@@ -2,6 +2,7 @@ use crate::{
     NewMemoryAtom, NewMemoryEvent, PgStorage, StorageError, StoredAgentSelfModel, StoredMemoryAtom,
     StoredMemoryEvent, StoredSocialEdge,
 };
+use serde_json::Value;
 
 impl PgStorage {
     /// Appends an immutable memory event.
@@ -277,5 +278,38 @@ impl PgStorage {
         .await?;
 
         Ok(model)
+    }
+
+    /// Ensures a default self-model exists and returns the latest model.
+    pub async fn ensure_self_model(
+        &self,
+        agent_id: &str,
+        identity: &Value,
+        current_state: &Value,
+        style: &Value,
+    ) -> Result<StoredAgentSelfModel, StorageError> {
+        if let Some(model) = self.latest_self_model(agent_id).await? {
+            return Ok(model);
+        }
+
+        sqlx::query(
+            r#"
+            insert into agent_self_models (
+                agent_id, version, identity, current_state, style, derived_from_memory_ids
+            )
+            values ($1, 1, $2, $3, $4, array[]::bigint[])
+            on conflict (agent_id, version) do nothing
+            "#,
+        )
+        .bind(agent_id)
+        .bind(identity)
+        .bind(current_state)
+        .bind(style)
+        .execute(&self.pool)
+        .await?;
+
+        self.latest_self_model(agent_id)
+            .await?
+            .ok_or_else(|| StorageError::Sqlx(sqlx::Error::RowNotFound))
     }
 }

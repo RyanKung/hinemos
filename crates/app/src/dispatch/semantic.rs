@@ -87,6 +87,12 @@ where
                 };
                 return Ok(Some(self.handle(identity, request).await?));
             }
+            SemanticCommand::Memory { rest } => {
+                return Ok(Some(
+                    self.handle(identity, AppRequest::MemoryCommand { rest })
+                        .await?,
+                ));
+            }
             SemanticCommand::Enter { target } => {
                 let bindings = self
                     .store

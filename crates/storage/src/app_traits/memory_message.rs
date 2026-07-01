@@ -74,6 +74,10 @@ impl SelfModelView for StoredAgentSelfModel {
     fn current_state(&self) -> &Value {
         &self.current_state
     }
+
+    fn style(&self) -> &Value {
+        &self.style
+    }
 }
 
 impl MemoryStore for PgStorage {
@@ -88,6 +92,16 @@ impl MemoryStore for PgStorage {
         agent_id: &str,
     ) -> Result<Option<Self::SelfModel>, Self::Error> {
         PgStorage::latest_self_model(self, agent_id).await
+    }
+
+    async fn ensure_self_model(
+        &self,
+        agent_id: &str,
+        identity: &Value,
+        current_state: &Value,
+        style: &Value,
+    ) -> Result<Self::SelfModel, Self::Error> {
+        PgStorage::ensure_self_model(self, agent_id, identity, current_state, style).await
     }
 
     async fn search_memory_atoms(

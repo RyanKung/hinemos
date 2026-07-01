@@ -748,7 +748,7 @@ fn assert_llm_room_evidence(stdout: &str, temp: &TestTempDir) {
     require_output(
         stdout,
         &["Workers", "1025", "Wallet credited"],
-        "evidence that it claimed a worker wage",
+        "evidence that it earned a worker wage",
         temp,
     );
     require_output(
@@ -848,16 +848,16 @@ fn assert_llm_three_loop_database_effects(test_database: &TestDatabase, user: &s
          where reason = 'room_wage'
            and credit_account_id = 'player:{player_id}'"
     ));
-    let claim_count = room_command_count(
+    let finish_count = room_command_count(
         test_database,
         user,
         "room-workers_society",
-        "/position claim",
+        "/position finish",
     );
 
     assert_at_least(&wage_count, 3, "worker wage ledger entries");
     assert_at_least(&wage_sum, 75, "total worker wages");
-    assert_at_least(&claim_count, 3, "worker claim room commands");
+    assert_at_least(&finish_count, 3, "worker finish room commands");
 }
 
 fn assert_at_least(value: &str, minimum: i64, description: &str) {

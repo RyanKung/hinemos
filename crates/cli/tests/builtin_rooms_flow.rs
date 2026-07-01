@@ -84,7 +84,7 @@ fn built_in_rooms_reply_through_room_runner_end_to_end() {
     assert_eq!(
         wage_ledger_summary(&test_database),
         "1:25",
-        "workers room claim creates one wage ledger entry",
+        "workers room finish creates one wage ledger entry",
     );
     assert_eq!(
         broadcast_summary(&test_database),

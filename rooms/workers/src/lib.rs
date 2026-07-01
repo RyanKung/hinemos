@@ -14,8 +14,6 @@ struct WorkerState {
     applied: HashSet<String>,
     active: Option<String>,
     completed: Vec<String>,
-    owed: i64,
-    claimed: i64,
     feedback: Vec<String>,
 }
 
@@ -83,7 +81,7 @@ impl WorkersSociety {
             return ReplyBody::text(reply);
         }
         if body == "/position finish" {
-            return ReplyBody::text(self.position_finish_reply(item));
+            return self.position_finish_reply(item);
         }
         if body == "/position claim" {
             return self.position_claim_reply(item);
@@ -146,46 +144,41 @@ impl WorkersSociety {
         Some(format!("Started {}.", position.offer.title))
     }
 
-    fn position_finish_reply(&mut self, item: &IncomingMail) -> String {
+    fn position_finish_reply(&mut self, item: &IncomingMail) -> ReplyBody {
         let Some(active) = self
             .workers
             .get(&item.sender_user)
             .and_then(|worker| worker.active.clone())
         else {
-            return "You have no active position to finish.".to_owned();
+            return ReplyBody::text("You have no active position to finish.");
         };
         let Some(position) = find_position(&active) else {
             let worker = self.worker_mut(&item.sender_user);
             worker.active = None;
             self.active_by_position.remove(&active);
-            return "Your active position is no longer listed. It has been cleared.".to_owned();
+            return ReplyBody::text(
+                "Your active position is no longer listed. It has been cleared.",
+            );
         };
         let worker = self.worker_mut(&item.sender_user);
         worker.active = None;
         worker.completed.push(active.clone());
-        worker.owed += position.offer.wage;
         self.active_by_position.remove(&active);
-        format!(
-            "Finished {}. Wage owed: {} MARK.",
-            position.offer.title, position.offer.wage
-        )
-    }
-
-    fn position_claim_reply(&mut self, item: &IncomingMail) -> ReplyBody {
-        let worker = self.worker_mut(&item.sender_user);
-        if worker.owed == 0 {
-            return ReplyBody::text("No wages are ready to claim.");
-        }
-        let amount = worker.owed;
-        worker.owed = 0;
-        worker.claimed += amount;
         ReplyBody {
-            body: format!("Claimed {amount} MARK in wages."),
+            body: format!(
+                "Finished {}. Claimed {} MARK in wages.",
+                position.offer.title, position.offer.wage
+            ),
             effects: vec![RoomEffect::CreditPlayerMark {
-                amount,
+                amount: position.offer.wage,
                 reason: CreditReason::WorkerWage,
             }],
         }
+    }
+
+    fn position_claim_reply(&mut self, item: &IncomingMail) -> ReplyBody {
+        self.worker_mut(&item.sender_user);
+        ReplyBody::text("No pending wages are ready to claim; finished shifts pay immediately.")
     }
 
     fn position_feedback_reply(&mut self, item: &IncomingMail, body: &str) -> Option<String> {
@@ -252,8 +245,8 @@ impl OutgoingMailExt for OutgoingMail {
 fn position_list_reply() -> String {
     let mut lines = vec![
         "Open Workers Society positions:".to_owned(),
-        "Paid shift loop: choose a listed id, then run /position apply <position>, /position start <position>, /position finish, and /position claim.".to_owned(),
-        "Repeat the same loop when you need MARK. Room replies may arrive by mailbox; /balance shows credited wages after processing.".to_owned(),
+        "Paid shift loop: choose a listed id, then run /position apply <position>, /position start <position>, and /position finish.".to_owned(),
+        "Finished shifts pay immediately. Room replies may arrive by mailbox; /balance shows credited wages after processing.".to_owned(),
     ];
     for position in positions() {
         lines.push(format!(
@@ -336,8 +329,8 @@ mod tests {
         assert!(reply.contains("Payout:"));
         assert!(reply.contains("Paid shift loop"));
         assert!(reply.contains("/position apply <position>"));
-        assert!(reply.contains("/position claim"));
-        assert!(reply.contains("Repeat the same loop"));
+        assert!(reply.contains("/position finish"));
+        assert!(reply.contains("Finished shifts pay immediately"));
         assert_eq!(reply.matches("\n- ").count(), 10);
     }
 
@@ -404,8 +397,8 @@ mod tests {
         assert!(blocked.contains("Apply"));
         assert!(applied.contains("Application recorded"));
         assert!(started.contains("Started"));
-        assert!(finished.contains("40 MARK"));
-        assert!(claimed.contains("Claimed 40 MARK"));
+        assert!(finished.contains("Claimed 40 MARK"));
+        assert!(claimed.contains("No pending wages"));
         assert_eq!(
             mailbox.effects,
             vec![RoomEffect::CreditPlayerMark {
@@ -416,15 +409,14 @@ mod tests {
     }
 
     #[test]
-    fn claim_returns_structured_wage_payment() {
+    fn finish_returns_structured_wage_payment() {
         let mut service = WorkersSociety::new();
         let player_id = "player:alice";
 
         service.handle(&mail(1, "alice", player_id, "/position apply dock-runner"));
         service.handle(&mail(2, "alice", player_id, "/position start dock-runner"));
-        service.handle(&mail(3, "alice", player_id, "/position finish"));
 
-        let reply = service.handle_reply(&mail(4, "alice", player_id, "/position claim"));
+        let reply = service.handle_reply(&mail(3, "alice", player_id, "/position finish"));
 
         assert!(reply.mail.body.contains("Claimed 40 MARK"));
         assert_eq!(
@@ -434,7 +426,7 @@ mod tests {
                 reason: CreditReason::WorkerWage,
             }]
         );
-        let second = service.handle_reply(&mail(5, "alice", player_id, "/position claim"));
+        let second = service.handle_reply(&mail(4, "alice", player_id, "/position claim"));
         assert!(second.effects.is_empty());
     }
 
@@ -445,7 +437,7 @@ mod tests {
 
         let reply = send_turn(&mut mailbox, &mut service, "alice", "/position claim");
 
-        assert!(reply.contains("No wages"));
+        assert!(reply.contains("No pending wages"));
     }
 
     #[test]
@@ -559,8 +551,15 @@ mod tests {
         let bob = send_turn(&mut mailbox, &mut service, "bob", "/position claim");
         let alice = send_turn(&mut mailbox, &mut service, "alice", "/position claim");
 
-        assert!(bob.contains("No wages"));
-        assert!(alice.contains("25 MARK"));
+        assert!(bob.contains("No pending wages"));
+        assert!(alice.contains("No pending wages"));
+        assert_eq!(
+            mailbox.effects,
+            vec![RoomEffect::CreditPlayerMark {
+                amount: 25,
+                reason: CreditReason::WorkerWage,
+            }]
+        );
     }
 
     #[test]

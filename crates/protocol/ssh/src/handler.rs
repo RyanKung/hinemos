@@ -25,6 +25,7 @@ use hinemos_app::{
 use hinemos_core::{JsonObservation, ObservationEvent, PlayerState, SemanticCommand};
 use rand::Rng;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConnectionMode {
@@ -44,6 +45,7 @@ pub(crate) struct ConnectionHandler {
     input_buffer: String,
     discarding_oversized_input: bool,
     commands_seen: u64,
+    resident_context_sent: AtomicBool,
     channel: Option<ChannelId>,
     chrome: Option<Chrome>,
     mode: Option<ConnectionMode>,
@@ -80,6 +82,7 @@ impl ConnectionHandler {
             input_buffer: String::new(),
             discarding_oversized_input: false,
             commands_seen: 0,
+            resident_context_sent: AtomicBool::new(false),
             channel: None,
             chrome: None,
             mode: None,
@@ -124,12 +127,6 @@ impl ConnectionHandler {
                 Ok(Some(summary)) => session.data(channel, summary.into_bytes())?,
                 Ok(None) => {}
                 Err(error) => send_command_error(session, channel, error.into(), false)?,
-            }
-            if let Err(error) = self
-                .send_app_request(channel, session, identity, AppRequest::MemoryContext)
-                .await
-            {
-                send_command_error(session, channel, error, false)?;
             }
         } else {
             session.data(
