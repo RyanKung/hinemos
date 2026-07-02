@@ -447,11 +447,14 @@ fn assert_prompt_has_no_external_loop_guidance(prompt: &str) {
         "curl -s",
         "workers",
         "workers society",
+        "paid shift",
         "/position",
         "position",
         "work loop",
         "job",
         "wage",
+        "claim",
+        "buy",
         "mark",
         "bread",
         "blackstone",
@@ -727,9 +730,9 @@ Goal:
 Return a concise report with these exact labels:
 ENTRY=<evidence from entering the game>
 DISCOVERY=<game output that taught the repeatable sequence>
-LOOP1=<first completed repetition evidence>
-LOOP2=<second completed repetition evidence>
-LOOP3=<third completed repetition evidence>
+REPEAT1=<first completed repetition evidence>
+REPEAT2=<second completed repetition evidence>
+REPEAT3=<third completed repetition evidence>
 SUSTAIN=<evidence that the repeated activity changed durable game state>
 SSH=<evidence that you used SSH>
 "#
@@ -776,10 +779,10 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
         "evidence that game output taught the repeatable loop",
         temp,
     );
-    assert_contains(stdout, "LOOP1=", "first work loop report");
-    assert_contains(stdout, "LOOP2=", "second work loop report");
-    assert_contains(stdout, "LOOP3=", "third work loop report");
-    assert_contains(stdout, "SUSTAIN=", "durable self-loop report");
+    assert_contains(stdout, "REPEAT1=", "first repetition report");
+    assert_contains(stdout, "REPEAT2=", "second repetition report");
+    assert_contains(stdout, "REPEAT3=", "third repetition report");
+    assert_contains(stdout, "SUSTAIN=", "durable repeated-activity report");
     require_output(
         stdout,
         &["Wallet credited", "Claimed", "MARK", "Balance"],
