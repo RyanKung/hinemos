@@ -15,9 +15,9 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use hinemos_core::{
     ActionKind, DEFAULT_ADMISSION_VIEW_ID, Direction, Entity, EntityCollection, EntityId,
-    EntityObservation, EntityRef, ExitObservation, JsonObservation, ObservationEvent, PlayerId,
-    PlayerState, SemanticCommand, TextObservation, View, ViewId, WorldDefinition, WorldState,
-    grid_view_with_origin, is_grid_view_id,
+    EntityObservation, EntityRef, ExitObservation, GridOrigin, JsonObservation, ObservationEvent,
+    PlayerId, PlayerState, SemanticCommand, TextObservation, View, ViewId, WorldDefinition,
+    WorldState, grid_view_with_origin, is_grid_view_id,
 };
 use thiserror::Error;
 
@@ -71,7 +71,13 @@ struct StaticWorld {
     views: HashMap<ViewId, View>,
     entities: HashMap<EntityId, hinemos_core::Entity>,
     template_players: HashMap<PlayerId, PlayerState>,
-    grid_origin_view_id: ViewId,
+    grid_origin: RuntimeGridOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeGridOrigin {
+    view_id: ViewId,
+    label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +96,8 @@ impl GameRuntime {
     /// Creates a runtime from an initial world state and explicit generated-grid origin.
     #[must_use]
     pub fn new_with_grid_origin(world: WorldState, grid_origin_view_id: impl Into<ViewId>) -> Self {
+        let grid_origin_view_id = grid_origin_view_id.into();
+        let grid_origin = grid_origin_from_view_id(&world, grid_origin_view_id);
         let definition: WorldDefinition = world.definition();
         let snapshot = world.runtime_snapshot();
         let views = definition
@@ -113,7 +121,7 @@ impl GameRuntime {
             views: definition.views,
             entities: definition.entities,
             template_players: snapshot.players,
-            grid_origin_view_id: grid_origin_view_id.into(),
+            grid_origin,
         };
 
         Self {
@@ -543,8 +551,14 @@ impl GameRuntime {
         if let Some(view) = self.world.views.get(view_id) {
             return Ok(view.clone());
         }
-        grid_view_with_origin(view_id, &self.world.grid_origin_view_id)
-            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
+        grid_view_with_origin(
+            view_id,
+            GridOrigin::new(
+                &self.world.grid_origin.view_id,
+                &self.world.grid_origin.label,
+            ),
+        )
+        .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
     }
 
     fn player(&self, player_id: &str) -> Result<Arc<Mutex<PlayerState>>, RuntimeError> {
@@ -738,6 +752,15 @@ fn default_grid_origin_view_id(world: &WorldState) -> ViewId {
         .unwrap_or_default()
 }
 
+fn grid_origin_from_view_id(world: &WorldState, view_id: ViewId) -> RuntimeGridOrigin {
+    let label = world
+        .views
+        .get(&view_id)
+        .map(|view| view.title.clone())
+        .unwrap_or_else(|| view_id.clone());
+    RuntimeGridOrigin { view_id, label }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -814,16 +837,44 @@ mod tests {
 
     #[test]
     fn generated_grid_uses_configured_origin_anchor() {
-        let runtime = GameRuntime::new_with_grid_origin(
-            sample_runtime().world().expect("world snapshot"),
-            "custom_arrival",
-        );
+        let mut world = sample_runtime().world().expect("world snapshot");
+        let mut custom_arrival = world
+            .views
+            .get("arrival_street")
+            .expect("sample arrival view")
+            .clone();
+        custom_arrival.id = "custom_arrival".to_owned();
+        custom_arrival.title = "Custom Arrival".to_owned();
+        world
+            .views
+            .insert(custom_arrival.id.clone(), custom_arrival);
+        world
+            .players
+            .get_mut(LOCAL_PLAYER_ID)
+            .expect("local player")
+            .current_view = "grid_road_xp1_y0".to_owned();
+        let runtime = GameRuntime::new_with_grid_origin(world, "custom_arrival");
 
-        let target = runtime
-            .exit_target("grid_road_xp1_y0", Direction::West)
-            .expect("grid exit");
+        let road = runtime
+            .observe_view_json(LOCAL_PLAYER_ID, "grid_road_xp1_y0", Vec::new())
+            .expect("grid observation");
+        let west = road
+            .exits
+            .iter()
+            .find(|exit| exit.direction == Direction::West)
+            .expect("west exit");
+        let observation = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::West,
+                },
+            )
+            .expect("move into configured origin");
 
-        assert_eq!(target, "custom_arrival");
+        assert_eq!(west.label.as_deref(), Some("Custom Arrival"));
+        assert_eq!(observation.view_id, "custom_arrival");
+        assert_eq!(observation.title, "Custom Arrival");
     }
 
     #[test]

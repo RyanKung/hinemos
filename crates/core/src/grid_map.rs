@@ -8,6 +8,41 @@ pub const GRID_ROAD_VIEW_PREFIX: &str = "grid_road_";
 /// Prefix for generated building view ids.
 pub const GRID_PARCEL_VIEW_PREFIX: &str = "parcel_";
 
+const DEFAULT_GRID_ORIGIN_LABEL: &str = "Harbor Square";
+
+/// Static view that anchors generated grid coordinates back into authored world content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GridOrigin<'a> {
+    view_id: &'a str,
+    label: &'a str,
+}
+
+impl<'a> GridOrigin<'a> {
+    /// Creates a generated-grid origin.
+    #[must_use]
+    pub const fn new(view_id: &'a str, label: &'a str) -> Self {
+        Self { view_id, label }
+    }
+
+    /// Default sample-world grid origin.
+    #[must_use]
+    pub const fn default_admission() -> Self {
+        Self::new(DEFAULT_ADMISSION_VIEW_ID, DEFAULT_GRID_ORIGIN_LABEL)
+    }
+
+    /// Static view id used when generated roads return to coordinate zero.
+    #[must_use]
+    pub const fn view_id(self) -> &'a str {
+        self.view_id
+    }
+
+    /// Player-facing label for the static origin view.
+    #[must_use]
+    pub const fn label(self) -> &'a str {
+        self.label
+    }
+}
+
 /// Coordinate of a generated road crossing in the infinite town grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GridRoad {
@@ -104,12 +139,12 @@ impl GridRoad {
     /// Builds a runtime view for this generated road.
     #[must_use]
     pub fn to_view(self) -> View {
-        self.to_view_with_origin(DEFAULT_ADMISSION_VIEW_ID)
+        self.to_view_with_origin(GridOrigin::default_admission())
     }
 
     /// Builds a runtime view for this generated road using a static origin view.
     #[must_use]
-    pub fn to_view_with_origin(self, origin_view_id: &str) -> View {
+    pub fn to_view_with_origin(self, origin: GridOrigin<'_>) -> View {
         let parcels = self.parcel_addresses();
         View {
             id: self.view_id(),
@@ -119,13 +154,13 @@ impl GridRoad {
                 self.title()
             ),
             ascii_art: self.ascii_art(&parcels),
-            exits: self.exits(origin_view_id),
+            exits: self.exits(origin),
             entities: Vec::new(),
             layout: None,
         }
     }
 
-    fn exits(self, origin_view_id: &str) -> Vec<Exit> {
+    fn exits(self, origin: GridOrigin<'_>) -> Vec<Exit> {
         [
             Direction::North,
             Direction::South,
@@ -136,7 +171,7 @@ impl GridRoad {
         .filter_map(|direction| {
             let target = self.moved(direction)?;
             let (target, label) = if target == Self::new(0, 0) {
-                (origin_view_id.to_owned(), "Harbor Square".to_owned())
+                (origin.view_id().to_owned(), origin.label().to_owned())
             } else {
                 (target.view_id(), target.title())
             };
@@ -254,21 +289,21 @@ impl GridParcelAddress {
     /// Builds a runtime view for this generated building cell.
     #[must_use]
     pub fn to_view(self) -> View {
-        self.to_view_with_origin(DEFAULT_ADMISSION_VIEW_ID)
+        self.to_view_with_origin(GridOrigin::default_admission())
     }
 
     /// Builds a runtime view for this generated building cell using a static origin view.
     #[must_use]
-    pub fn to_view_with_origin(self, origin_view_id: &str) -> View {
+    pub fn to_view_with_origin(self, origin: GridOrigin<'_>) -> View {
         let exit_direction = if self.door <= 2 {
             Direction::South
         } else {
             Direction::North
         };
-        let exit_target = if self.road == GridRoad::new(0, 0) {
-            origin_view_id.to_owned()
+        let (exit_target, exit_label) = if self.road == GridRoad::new(0, 0) {
+            (origin.view_id().to_owned(), origin.label().to_owned())
         } else {
-            self.road.view_id()
+            (self.road.view_id(), self.road.title())
         };
         View {
             id: self.view_id(),
@@ -292,7 +327,7 @@ impl GridParcelAddress {
             exits: vec![Exit {
                 direction: exit_direction,
                 target: exit_target,
-                label: Some(self.road.title()),
+                label: Some(exit_label),
                 requirements: Vec::new(),
             }],
             entities: Vec::new(),
@@ -310,17 +345,16 @@ pub fn is_grid_view_id(view_id: &str) -> bool {
 /// Builds a generated grid view when the id is in the grid namespace.
 #[must_use]
 pub fn grid_view(view_id: &str) -> Option<View> {
-    grid_view_with_origin(view_id, DEFAULT_ADMISSION_VIEW_ID)
+    grid_view_with_origin(view_id, GridOrigin::default_admission())
 }
 
 /// Builds a generated grid view using a static origin view id when the id is in the grid namespace.
 #[must_use]
-pub fn grid_view_with_origin(view_id: &str, origin_view_id: &str) -> Option<View> {
+pub fn grid_view_with_origin(view_id: &str, origin: GridOrigin<'_>) -> Option<View> {
     if let Some(road) = GridRoad::from_view_id(view_id) {
-        return Some(road.to_view_with_origin(origin_view_id));
+        return Some(road.to_view_with_origin(origin));
     }
-    GridParcelAddress::from_view_id(view_id)
-        .map(|address| address.to_view_with_origin(origin_view_id))
+    GridParcelAddress::from_view_id(view_id).map(|address| address.to_view_with_origin(origin))
 }
 
 fn parse_signed_token(token: &str) -> Option<i32> {
@@ -444,7 +478,8 @@ mod tests {
 
     #[test]
     fn generated_roads_use_configured_origin_anchor() {
-        let view = GridRoad::new(1, 0).to_view_with_origin("custom_arrival");
+        let view = GridRoad::new(1, 0)
+            .to_view_with_origin(GridOrigin::new("custom_arrival", "Custom Arrival"));
         let west = view
             .exits
             .iter()
@@ -452,6 +487,7 @@ mod tests {
             .expect("west exit");
 
         assert_eq!(west.target, "custom_arrival");
+        assert_eq!(west.label.as_deref(), Some("Custom Arrival"));
     }
 
     #[test]

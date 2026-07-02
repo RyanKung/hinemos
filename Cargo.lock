@@ -1326,6 +1326,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "hinemos-app",
  "hinemos-core",
  "hinemos-runtime",
  "serde",

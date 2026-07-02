@@ -16,7 +16,7 @@ impl GameRuntime {
         &self,
         dir: impl Into<PathBuf>,
     ) -> Result<Self, ReloadError> {
-        let grid_origin_view_id = self.world.grid_origin_view_id.clone();
+        let grid_origin_view_id = self.world.grid_origin.view_id.clone();
         self.reload_from_world_dir_preserving_players_with_grid_origin(dir, grid_origin_view_id)
     }
 

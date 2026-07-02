@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use hinemos_admin_protocol::{AdminRequest, AdminResponse};
+use hinemos_app::AppService;
 use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
 use hinemos_core::{JsonObservation, SemanticCommand};
 use hinemos_runtime::{Chrome, GameRuntime, render_text_observation};
@@ -268,8 +269,9 @@ fn run_admin(admin: AdminCli) -> Result<()> {
 fn run_play(play: PlayArgs) -> Result<()> {
     let world = load_world_from_dir(&play.world)
         .with_context(|| format!("failed to load world from {}", play.world.display()))?;
+    let app_config = AppService::<()>::load_world_app_config(&play.world)?;
     let chrome = Chrome::with_world(&world);
-    let runtime = GameRuntime::new(world);
+    let runtime = GameRuntime::new_with_grid_origin(world, app_config.admission_view_id);
 
     let mut current = runtime.observe_json(LOCAL_PLAYER_ID, Vec::new())?;
     print_observation(&current, play.format)?;
