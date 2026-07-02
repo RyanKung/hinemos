@@ -11,13 +11,16 @@ pub(crate) struct RuntimeHandle {
 }
 
 impl RuntimeHandle {
-    pub(crate) fn new_with_grid_origin(world: WorldState, grid_origin_view_id: String) -> Self {
-        Self {
+    pub(crate) fn new_with_grid_origin(
+        world: WorldState,
+        grid_origin_view_id: String,
+    ) -> Result<Self, RuntimeError> {
+        Ok(Self {
             state: RwLock::new(RuntimeState::new_with_grid_origin(
                 world,
                 grid_origin_view_id,
-            )),
-        }
+            )?),
+        })
     }
 
     pub(crate) async fn chrome(&self) -> Chrome {
@@ -125,10 +128,13 @@ struct RuntimeState {
 }
 
 impl RuntimeState {
-    fn new_with_grid_origin(world: WorldState, grid_origin_view_id: String) -> Self {
+    fn new_with_grid_origin(
+        world: WorldState,
+        grid_origin_view_id: String,
+    ) -> Result<Self, RuntimeError> {
         let chrome = Chrome::with_world(&world);
-        let runtime = GameRuntime::new_with_grid_origin(world, grid_origin_view_id);
-        Self { runtime, chrome }
+        let runtime = GameRuntime::new_with_grid_origin(world, grid_origin_view_id)?;
+        Ok(Self { runtime, chrome })
     }
 }
 

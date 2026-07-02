@@ -271,7 +271,7 @@ fn run_play(play: PlayArgs) -> Result<()> {
         .with_context(|| format!("failed to load world from {}", play.world.display()))?;
     let app_config = AppService::<()>::load_world_app_config(&play.world)?;
     let chrome = Chrome::with_world(&world);
-    let runtime = GameRuntime::new_with_grid_origin(world, app_config.admission_view_id);
+    let runtime = GameRuntime::new_with_grid_origin(world, app_config.admission_view_id)?;
 
     let mut current = runtime.observe_json(LOCAL_PLAYER_ID, Vec::new())?;
     print_observation(&current, play.format)?;

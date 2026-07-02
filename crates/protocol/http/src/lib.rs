@@ -81,7 +81,7 @@ fn load_runtime_from_world_dir(world_dir: &FsPath) -> Result<GameRuntime> {
     Ok(GameRuntime::new_with_grid_origin(
         world,
         app_config.admission_view_id,
-    ))
+    )?)
 }
 
 #[derive(Clone)]
@@ -537,6 +537,22 @@ mod tests {
             .expect("configured origin keeps generated north exit");
         assert_eq!(north.view_id, "grid_road_x0_yp1");
 
+        fs::remove_dir_all(world_dir).expect("remove temp world dir");
+    }
+
+    #[test]
+    fn runtime_loader_rejects_missing_generated_grid_origin() {
+        let world_dir = copy_sample_world_with_meta(
+            r#"(
+                admission_view_id: "missing_origin",
+                admission_board_entity_id: "cyber_scroll_board",
+                agreement_version: "2026-06-03",
+            )"#,
+        );
+
+        let err = load_runtime_from_world_dir(&world_dir).expect_err("missing origin should fail");
+
+        assert!(err.to_string().contains("view not found: missing_origin"));
         fs::remove_dir_all(world_dir).expect("remove temp world dir");
     }
 

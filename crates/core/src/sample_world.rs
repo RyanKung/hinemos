@@ -27,6 +27,9 @@ pub enum WorldLoadError {
     /// A world object references an id that does not exist.
     #[error("missing world reference: {0}")]
     MissingReference(String),
+    /// A static world view tries to occupy a generated runtime namespace.
+    #[error("reserved generated view id: {0}")]
+    ReservedViewId(String),
     /// A view layout has inconsistent row-major data.
     #[error("invalid view layout: {0}")]
     InvalidLayout(String),
@@ -63,6 +66,13 @@ fn load_views(dir: &Path) -> Result<HashMap<String, View>, WorldLoadError> {
 
 fn validate_world(world: &WorldState) -> Result<(), WorldLoadError> {
     for view in world.views.values() {
+        if is_grid_view_id(&view.id) {
+            return Err(WorldLoadError::ReservedViewId(format!(
+                "view `{}` uses the generated grid namespace",
+                view.id
+            )));
+        }
+
         for exit in &view.exits {
             if !world.views.contains_key(&exit.target) && !is_grid_view_id(&exit.target) {
                 return Err(WorldLoadError::MissingReference(format!(
@@ -251,5 +261,27 @@ mod tests {
         let world = valid_world();
 
         validate_world(&world).expect("authored ASCII is not required for map completeness");
+    }
+
+    #[test]
+    fn validation_rejects_authored_generated_road_view_id() {
+        let mut world = valid_world();
+        let mut view = world.views.remove("start").expect("start view exists");
+        view.id = "grid_road_xp1_y0".to_owned();
+        world.views.insert(view.id.clone(), view);
+
+        let err = validate_world(&world).expect_err("generated road id should fail");
+        assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
+    }
+
+    #[test]
+    fn validation_rejects_authored_generated_parcel_view_id() {
+        let mut world = valid_world();
+        let mut view = world.views.remove("start").expect("start view exists");
+        view.id = "parcel_E1-C0-01".to_owned();
+        world.views.insert(view.id.clone(), view);
+
+        let err = validate_world(&world).expect_err("generated parcel id should fail");
+        assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
     }
 }

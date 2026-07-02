@@ -33,7 +33,7 @@ impl GameRuntime {
         Ok(GameRuntime::new_with_grid_origin(
             merged,
             grid_origin_view_id.into(),
-        ))
+        )?)
     }
 }
 

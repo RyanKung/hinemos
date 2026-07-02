@@ -62,7 +62,7 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
         None::<&()>,
     )
     .await?;
-    let runtime = RuntimeHandle::new_with_grid_origin(world, app_config.admission_view_id.clone());
+    let runtime = RuntimeHandle::new_with_grid_origin(world, app_config.admission_view_id.clone())?;
 
     let host_key = load_or_create_host_key(&cli.host_key)
         .with_context(|| format!("failed to load host key from {}", cli.host_key.display()))?;

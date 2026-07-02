@@ -88,17 +88,18 @@ struct ViewState {
 
 impl GameRuntime {
     /// Creates a runtime from an initial world state.
-    #[must_use]
-    pub fn new(world: WorldState) -> Self {
+    pub fn new(world: WorldState) -> Result<Self, RuntimeError> {
         let grid_origin_view_id = default_grid_origin_view_id(&world);
         Self::new_with_grid_origin(world, grid_origin_view_id)
     }
 
     /// Creates a runtime from an initial world state and explicit generated-grid origin.
-    #[must_use]
-    pub fn new_with_grid_origin(world: WorldState, grid_origin_view_id: impl Into<ViewId>) -> Self {
+    pub fn new_with_grid_origin(
+        world: WorldState,
+        grid_origin_view_id: impl Into<ViewId>,
+    ) -> Result<Self, RuntimeError> {
         let grid_origin_view_id = grid_origin_view_id.into();
-        let grid_origin = grid_origin_from_view_id(&world, grid_origin_view_id);
+        let grid_origin = grid_origin_from_view_id(&world, grid_origin_view_id)?;
         let definition: WorldDefinition = world.definition();
         let snapshot = world.runtime_snapshot();
         let views = definition
@@ -125,11 +126,11 @@ impl GameRuntime {
             grid_origin,
         };
 
-        Self {
+        Ok(Self {
             world: Arc::new(world),
             players: RwLock::new(players),
             views,
-        }
+        })
     }
 
     /// Returns a snapshot of the current world state.
@@ -466,6 +467,7 @@ impl GameRuntime {
         let mut player = player.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         let current_view = player.current_view.clone();
         let target = self.exit_target(&current_view, direction)?;
+        self.ensure_observable_view(&target)?;
         player.current_view = target.clone();
 
         Ok(vec![ObservationEvent::Move {
@@ -558,6 +560,10 @@ impl GameRuntime {
         }
         grid_view_with_origin(view_id, self.grid_origin())
             .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
+    }
+
+    fn ensure_observable_view(&self, view_id: &str) -> Result<(), RuntimeError> {
+        self.view(view_id).map(|_| ())
     }
 
     fn render_ascii_art_for_view(
@@ -782,13 +788,16 @@ fn default_grid_origin_view_id(world: &WorldState) -> ViewId {
         .unwrap_or_default()
 }
 
-fn grid_origin_from_view_id(world: &WorldState, view_id: ViewId) -> RuntimeGridOrigin {
+fn grid_origin_from_view_id(
+    world: &WorldState,
+    view_id: ViewId,
+) -> Result<RuntimeGridOrigin, RuntimeError> {
     let label = world
         .views
         .get(&view_id)
         .map(|view| view.title.clone())
-        .unwrap_or_else(|| view_id.clone());
-    RuntimeGridOrigin { view_id, label }
+        .ok_or_else(|| RuntimeError::ViewNotFound(view_id.clone()))?;
+    Ok(RuntimeGridOrigin { view_id, label })
 }
 
 #[cfg(test)]
@@ -803,6 +812,7 @@ mod tests {
     fn sample_runtime() -> GameRuntime {
         let world_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds/sample");
         GameRuntime::new(load_world_from_dir(world_dir).expect("sample world should load"))
+            .expect("sample runtime should build")
     }
 
     #[test]
@@ -883,7 +893,8 @@ mod tests {
             .get_mut(LOCAL_PLAYER_ID)
             .expect("local player")
             .current_view = "grid_road_xp1_y0".to_owned();
-        let runtime = GameRuntime::new_with_grid_origin(world, "custom_arrival");
+        let runtime = GameRuntime::new_with_grid_origin(world, "custom_arrival")
+            .expect("custom origin should build");
 
         let road = runtime
             .observe_view_json(LOCAL_PLAYER_ID, "grid_road_xp1_y0", Vec::new())
@@ -916,6 +927,53 @@ mod tests {
     }
 
     #[test]
+    fn runtime_rejects_missing_generated_grid_origin() {
+        let world = sample_runtime().world().expect("world snapshot");
+
+        let err = GameRuntime::new_with_grid_origin(world, "missing_origin")
+            .expect_err("missing origin should fail");
+
+        assert_eq!(err, RuntimeError::ViewNotFound("missing_origin".to_owned()));
+    }
+
+    #[test]
+    fn failed_move_does_not_mutate_player_view() {
+        let mut world = sample_runtime().world().expect("world snapshot");
+        world
+            .players
+            .get_mut(LOCAL_PLAYER_ID)
+            .expect("local player")
+            .current_view = "west_main_street".to_owned();
+        let west = world
+            .views
+            .get_mut("west_main_street")
+            .expect("west street");
+        let west_exit = west
+            .exits
+            .iter_mut()
+            .find(|exit| exit.direction == Direction::West)
+            .expect("west exit");
+        west_exit.target = "missing_view".to_owned();
+        let runtime = GameRuntime::new_with_grid_origin(world, "arrival_street")
+            .expect("runtime should build");
+
+        let err = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::West,
+                },
+            )
+            .expect_err("move to missing target should fail");
+        let player = runtime
+            .player_state(LOCAL_PLAYER_ID)
+            .expect("player state should remain readable");
+
+        assert_eq!(err, RuntimeError::ViewNotFound("missing_view".to_owned()));
+        assert_eq!(player.current_view, "west_main_street");
+    }
+
+    #[test]
     fn origin_map_is_generated_instead_of_read_from_world_ascii() {
         let mut world = sample_runtime().world().expect("world snapshot");
         let arrival = world.views.get_mut("arrival_street").expect("arrival view");
@@ -926,7 +984,7 @@ mod tests {
             label: Some("wilderness".to_owned()),
             requirements: Vec::new(),
         }];
-        let runtime = GameRuntime::new(world);
+        let runtime = GameRuntime::new(world).expect("runtime should build");
 
         let observation = runtime
             .observe_json(LOCAL_PLAYER_ID, Vec::new())
@@ -964,7 +1022,7 @@ mod tests {
             .get_mut("arrival_street")
             .expect("arrival view")
             .ascii_art = Vec::new();
-        let runtime = GameRuntime::new(world);
+        let runtime = GameRuntime::new(world).expect("runtime should build");
 
         let origin = runtime
             .observe_json(LOCAL_PLAYER_ID, Vec::new())
