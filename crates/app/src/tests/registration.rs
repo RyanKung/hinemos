@@ -27,6 +27,71 @@ fn load_service_room_registrations_disables_same_front_view_conflicts() {
 }
 
 #[test]
+fn sample_builtin_service_rooms_are_disabled_by_default() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let world_dir = sample_world_dir();
+        let world = load_sample_world();
+        let store = TestRegistrationStore::default();
+
+        AppService::<TestRegistrationStore>::load_service_room_registrations(
+            &store,
+            &world_dir,
+            &world,
+            None::<&()>,
+        )
+        .await
+        .expect("load registrations");
+
+        assert_eq!(
+            store.disable_calls.lock().unwrap().clone(),
+            vec![Vec::<String>::new()],
+            "default sample config should remove stale builtin service rooms"
+        );
+        assert!(
+            store.upsert_calls.lock().unwrap().is_empty(),
+            "default sample config should not insert builtin service rooms"
+        );
+    });
+}
+
+#[test]
+fn sample_builtin_service_rooms_can_be_enabled_by_world_config() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let temp_root = write_sample_rooms_with_builtin_rooms_enabled();
+        let world = load_sample_world();
+        let store = TestRegistrationStore::default();
+
+        AppService::<TestRegistrationStore>::load_service_room_registrations(
+            &store,
+            &temp_root,
+            &world,
+            None::<&()>,
+        )
+        .await
+        .expect("load registrations");
+
+        let registrations = load_sample_room_registrations();
+        let upsert_calls = store.upsert_calls.lock().unwrap().clone();
+        assert_eq!(upsert_calls.len(), registrations.len());
+        assert!(
+            upsert_calls
+                .iter()
+                .any(|(view_id, enabled)| view_id == "workers_society" && *enabled),
+            "explicit world config should preserve builtin service-room insertion"
+        );
+        let _ = fs::remove_dir_all(&temp_root);
+    });
+}
+
+#[test]
 fn sample_service_rooms_are_not_static_views() {
     let world = load_sample_world();
     let registrations = load_sample_room_registrations();
@@ -59,6 +124,34 @@ fn sample_service_rooms_define_builtin_handlers() {
     );
 }
 
+#[test]
+fn sample_service_rooms_define_hunger_recovery_commands_in_world_data() {
+    let registrations = load_sample_room_registrations();
+    let blackstone = registrations
+        .iter()
+        .find(|registration| registration.view_id == "blackstone_izakaya")
+        .expect("blackstone registration");
+    let workers = registrations
+        .iter()
+        .find(|registration| registration.view_id == "workers_society")
+        .expect("workers registration");
+
+    assert!(
+        blackstone
+            .recovery_commands
+            .as_deref()
+            .is_some_and(|commands| commands.contains("/buy bread")),
+        "food recovery commands belong to room registration data"
+    );
+    assert!(
+        workers
+            .recovery_commands
+            .as_deref()
+            .is_some_and(|commands| commands.contains("/position finish")),
+        "work recovery commands belong to room registration data"
+    );
+}
+
 fn write_registration_fixture() -> std::path::PathBuf {
     let temp_root = std::env::temp_dir().join(format!(
         "hinemos-app-room-reg-load-{}-{}",
@@ -70,6 +163,31 @@ fn write_registration_fixture() -> std::path::PathBuf {
     ));
     fs::create_dir_all(&temp_root).expect("create temp dir");
     fs::write(temp_root.join("rooms.ron"), ROOM_REGISTRATIONS_FIXTURE).expect("write rooms.ron");
+    temp_root
+}
+
+fn write_sample_rooms_with_builtin_rooms_enabled() -> std::path::PathBuf {
+    let temp_root = std::env::temp_dir().join(format!(
+        "hinemos-app-room-reg-builtin-enabled-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&temp_root).expect("create temp dir");
+    fs::write(
+        temp_root.join("rooms.ron"),
+        fs::read_to_string(sample_world_dir().join("rooms.ron")).expect("read sample rooms.ron"),
+    )
+    .expect("write rooms.ron");
+    fs::write(
+        temp_root.join("meta.ron"),
+        r#"(
+builtin_service_rooms_enabled: true,
+)"#,
+    )
+    .expect("write meta.ron");
     temp_root
 }
 

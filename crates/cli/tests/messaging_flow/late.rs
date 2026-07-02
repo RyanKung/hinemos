@@ -638,7 +638,7 @@ fn same_view_say_reaches_only_players_in_that_view() {
     let mut outsider_session = SshSession::spawn_with_key(host, port, &outsider, &outsider_key);
     outsider_session.wait_for_stdout("Available:", Duration::from_secs(10));
     outsider_session.write_line("/go west");
-    outsider_session.wait_for_stdout("West Hinemos Blvd", Duration::from_secs(10));
+    outsider_session.wait_for_stdout("West 1 Rd.", Duration::from_secs(10));
 
     let speaker_output = run_ssh_batch_with_key(
         host,
@@ -782,7 +782,7 @@ fn broadcast_reaches_all_online_players_and_persists_in_news() {
     let mut session_b = SshSession::spawn_with_key(host, port, &listener_b, &listener_b_key);
     session_b.wait_for_stdout("Available:", Duration::from_secs(10));
     session_b.write_line("/go west");
-    session_b.wait_for_stdout("West Hinemos Blvd", Duration::from_secs(10));
+    session_b.wait_for_stdout("West 1 Rd.", Duration::from_secs(10));
 
     let sender_output = run_ssh_batch_with_key(
         host,

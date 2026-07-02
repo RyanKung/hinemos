@@ -3,7 +3,7 @@ mod common;
 use common::*;
 
 #[test]
-fn workers_society_claim_credits_wallet_through_room_runner() {
+fn workers_society_finish_credits_wallet_across_room_runner_restart() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -14,10 +14,23 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
     let port = free_local_port();
     let user = format!("worker{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
+    let world = prepare_builtin_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
+    let player_id = test_database.query_value(&format!(
+        "select player_id from ssh_identities where username = '{user}'"
+    ));
 
     let work_output = run_ssh_batch_with_key(
         host,
@@ -30,7 +43,6 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
             "/position apply street-sweeper",
             "/position start street-sweeper",
             "/position finish",
-            "/position claim",
             "/quit",
         ],
     );
@@ -43,16 +55,31 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
-        "Processed 4 room request(s).",
-        "room runner handles the full work sequence in order",
+        "Processed 3 room request(s).",
+        "room runner handles apply/start/finish",
     );
 
-    let balance_output =
-        run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/mailbox", "/quit"]);
+    let finish_reply_id = test_database.query_value(&format!(
+        "select id
+         from inbox_items
+         where recipient_player_id = '{player_id}'
+           and sender_user = 'room-workers_society'
+           and body like '%Wallet credited. Balance: 1025 MARK.%'
+         order by id desc
+         limit 1"
+    ));
+    let finish_read_command = format!("/mail read {finish_reply_id}");
+    let balance_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &["/balance", finish_read_command.as_str(), "/quit"],
+    );
     assert_contains(
         &balance_output,
         "Balance: 1025 MARK",
-        "claimed worker wage is credited to the player wallet",
+        "finished worker shift is credited to the player wallet",
     );
     assert_contains(
         &balance_output,
@@ -71,7 +98,7 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
     );
     assert_eq!(
         wage_ledger, "1:25",
-        "worker claim should create exactly one two-sided 25 MARK wage ledger entry"
+        "worker finish should create exactly one two-sided 25 MARK wage ledger entry"
     );
 
     let one_sided_entries = test_database.query_value(
@@ -83,6 +110,289 @@ fn workers_society_claim_credits_wallet_through_room_runner() {
     assert_eq!(
         one_sided_entries, "0",
         "ledger entries must always have both sides"
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[tokio::test]
+async fn hungry_player_buys_bread_through_blackstone_and_resumes_interacting() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-hunger-bread-loop");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("hungry{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+    let world = prepare_builtin_world(&root, &temp);
+
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
+    wait_for_server(host, port, &mut server, &server_log);
+    let key = admitted_key(&temp, host, port, &user);
+    let player_id = test_database.query_value(&format!(
+        "select player_id from ssh_identities where username = '{user}'"
+    ));
+    let player_account_id = format!("player:{player_id}");
+    let storage = hinemos_storage::PgStorage::connect(&test_database.url)
+        .await
+        .expect("connect test database");
+    storage.migrate().await.expect("migrate test database");
+    storage
+        .record_hunger_interaction(&player_id, hinemos_app::HUNGER_THRESHOLD_POINTS)
+        .await
+        .expect("seed player hunger at threshold");
+
+    let blocked = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &["/say too hungry to work", "/quit"],
+    );
+    assert_contains(
+        &blocked,
+        "You are too hungry to keep working.",
+        "hungry player with MARK is blocked before recovery",
+    );
+
+    let queued = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &["/go west", "/enter H1", "/buy bread", "/quit"],
+    );
+    assert_contains(
+        &queued,
+        "Sent to room service room-blackstone_izakaya",
+        "bread purchase is forwarded to Blackstone instead of being blocked",
+    );
+
+    let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
+    assert_contains(
+        &rooms_output,
+        "Processed 1 room request(s).",
+        "room runner handles the queued bread purchase",
+    );
+
+    let balance = run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/quit"]);
+    assert_contains(
+        &balance,
+        "Balance: 980 MARK",
+        "Blackstone bread purchase debits the player wallet",
+    );
+    assert_eq!(
+        test_database.query_value(&format!(
+            "select count(*) || ':' || coalesce(sum(amount), 0)
+             from world_ledger_entries
+             where reason = 'room_food'
+               and memo like 'Blackstone Izakaya food for request #%'
+               and amount = 20
+               and debit_account_id = '{player_account_id}'
+               and credit_account_id = 'system:mark'"
+        )),
+        "1:20",
+        "Blackstone bread purchase creates one room food debit"
+    );
+    assert_eq!(
+        test_database.query_value(&format!(
+            "select hunger_points from player_hunger where player_id = '{player_id}'"
+        )),
+        "0",
+        "Blackstone bread effect restores hunger"
+    );
+
+    let allowed = run_ssh_batch_with_key(host, port, &user, &key, &["/say fed and ready", "/quit"]);
+    assert_contains(
+        &allowed,
+        "You say: fed and ready",
+        "meaningful SSH command is allowed after hunger recovery",
+    );
+
+    terminate(&mut server);
+    temp.remove_on_drop();
+}
+
+#[test]
+fn plain_ssh_user_can_become_hungry_and_broke_then_work_for_bread() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    assert_command_exists("ssh");
+
+    let temp = TestTempDir::new("hinemos-hungry-broke-plain-flow");
+    let host = "127.0.0.1";
+    let port = free_local_port();
+    let user = format!("broke_hungry{}_{}", std::process::id(), epoch_seconds());
+    let sink = format!("broke_sink{}_{}", std::process::id(), epoch_seconds());
+    let server_log = temp.path.join("hinemos-server.log");
+    let world = prepare_builtin_world(&root, &temp);
+
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
+    wait_for_server(host, port, &mut server, &server_log);
+    let key = admitted_key(&temp, host, port, &user);
+    let _sink_key = admitted_key(&temp, host, port, &sink);
+
+    let drain_command = format!("/pay {sink} 1000 drain-wallet");
+    let drain_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[drain_command.as_str(), "/balance", "/quit"],
+    );
+    assert_contains(
+        &drain_output,
+        &format!("Paid 1000 MARK to {sink}."),
+        "plain user drains their own starter wallet through a public payment",
+    );
+    assert_contains(
+        &drain_output,
+        "Balance: 0 MARK",
+        "plain user's wallet is empty after public payment",
+    );
+
+    let mut hunger_commands = (1..=23)
+        .map(|turn| format!("/say hunger tick {turn}"))
+        .collect::<Vec<_>>();
+    hunger_commands.push("/quit".to_owned());
+    let hunger_command_refs = hunger_commands
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let hunger_output = run_ssh_batch_with_key(host, port, &user, &key, &hunger_command_refs);
+    assert_contains(
+        &hunger_output,
+        "You say: hunger tick 23",
+        "plain ordinary interactions naturally advance hunger to the gate",
+    );
+
+    let limited = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/say first hungry broke allowance",
+            "/say second hungry broke blocked",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &limited,
+        "You say: first hungry broke allowance",
+        "hungry broke user gets the first cooldown-limited ordinary interaction",
+    );
+    assert_contains(
+        &limited,
+        "You are hungry and broke.",
+        "second ordinary interaction is blocked by the hungry-broke gate",
+    );
+
+    let work_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/go east",
+            "/enter workers",
+            "/position apply greeter",
+            "/position start greeter",
+            "/position finish",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &work_output,
+        "Sent to room service room-workers_society",
+        "plain SSH user can still queue recovery work commands while hungry and broke",
+    );
+
+    let work_rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
+    assert_contains(
+        &work_rooms_output,
+        "Processed 3 room request(s).",
+        "room runner handles the plain work recovery sequence",
+    );
+    let worked_balance = run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/quit"]);
+    assert_contains(
+        &worked_balance,
+        "Balance: 25 MARK",
+        "plain work recovery leaves enough MARK to buy bread",
+    );
+
+    let bread_output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/go south",
+            "/go west",
+            "/go west",
+            "/enter H1",
+            "/buy bread",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &bread_output,
+        "Sent to room service room-blackstone_izakaya",
+        "plain SSH user can buy bread after earning MARK",
+    );
+
+    let bread_rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
+    assert_contains(
+        &bread_rooms_output,
+        "Processed 1 room request(s).",
+        "room runner handles the plain bread purchase",
+    );
+    let recovered_balance = run_ssh_batch_with_key(host, port, &user, &key, &["/balance", "/quit"]);
+    assert_contains(
+        &recovered_balance,
+        "Balance: 5 MARK",
+        "bread purchase debits the recovered user's wallet",
+    );
+
+    let allowed = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/go south",
+            "/go east",
+            "/say recovered plain user",
+            "/quit",
+        ],
+    );
+    assert_contains(
+        &allowed,
+        "You say: recovered plain user",
+        "plain user can resume ordinary interactions after work and bread",
     );
 
     terminate(&mut server);
@@ -145,6 +455,67 @@ async fn credit_player_mark_is_idempotent_by_key() {
     assert_eq!(
         one_sided_entries, "0",
         "system credits must not create one-sided ledger entries"
+    );
+}
+
+#[tokio::test]
+async fn food_debit_is_idempotent_and_hunger_restores() {
+    let root = workspace_root();
+    let env = load_local_env(&root);
+    let test_database = TestDatabase::create(&env);
+    let storage = hinemos_storage::PgStorage::connect(&test_database.url)
+        .await
+        .expect("connect test database");
+    storage.migrate().await.expect("migrate test database");
+    storage
+        .ensure_player_wallet("alice", "player:alice")
+        .await
+        .expect("wallet");
+    storage
+        .record_hunger_interaction("player:alice", 12)
+        .await
+        .expect("hunger");
+
+    let first = storage
+        .debit_player_mark(
+            "alice",
+            "player:alice",
+            20,
+            "room_food",
+            "Blackstone Izakaya food for request #9",
+            "blackstone:food:9",
+        )
+        .await
+        .expect("first food debit");
+    let second = storage
+        .debit_player_mark(
+            "alice",
+            "player:alice",
+            20,
+            "room_food",
+            "Blackstone Izakaya food for request #9",
+            "blackstone:food:9",
+        )
+        .await
+        .expect("idempotent food debit");
+    let restored = storage
+        .restore_player_hunger("player:alice", "bread")
+        .await
+        .expect("restore hunger");
+
+    assert_eq!(first.amount, 980);
+    assert_eq!(second.amount, 980);
+    assert_eq!(restored.hunger_points, 0);
+    let ledger = test_database.query_value(
+        "select count(*) || ':' || coalesce(sum(amount), 0)
+         from world_ledger_entries
+         where idempotency_key = 'blackstone:food:9'
+           and debit_account_id = 'player:player:alice'
+           and credit_account_id = 'system:mark'",
+    );
+    assert_eq!(
+        ledger, "1:20",
+        "same food idempotency key must not duplicate debit ledger entries"
     );
 }
 

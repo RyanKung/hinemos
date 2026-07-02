@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use hinemos_core::{
     ActionKind, Direction, Entity, EntityCollection, EntityId, EntityObservation, EntityRef,
     ExitObservation, JsonObservation, ObservationEvent, PlayerId, PlayerState, SemanticCommand,
-    TextObservation, View, ViewId, WorldDefinition, WorldState,
+    TextObservation, View, ViewId, WorldDefinition, WorldState, grid_view, is_grid_view_id,
 };
 use thiserror::Error;
 
@@ -272,6 +272,9 @@ impl GameRuntime {
             SemanticCommand::Mailbox => {
                 vec![message("Mailbox is available in SSH sessions.".to_owned())]
             }
+            SemanticCommand::Memory { .. } => {
+                vec![message("Memory is available in SSH sessions.".to_owned())]
+            }
             SemanticCommand::History => {
                 vec![message(
                     "Room history is available in SSH sessions.".to_owned(),
@@ -349,11 +352,7 @@ impl GameRuntime {
         view_id: &str,
         events: Vec<ObservationEvent>,
     ) -> Result<JsonObservation, RuntimeError> {
-        let view = self
-            .world
-            .views
-            .get(view_id)
-            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))?;
+        let view = self.view(view_id)?;
 
         let exits = view
             .exits
@@ -371,7 +370,7 @@ impl GameRuntime {
             .map(|entity_id| entity_observation(&self.world, entity_id))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let ascii_art = render_ascii_art_for_view(view);
+        let ascii_art = render_ascii_art_for_view(&view);
 
         Ok(JsonObservation {
             player_id: player_id.to_owned(),
@@ -382,18 +381,14 @@ impl GameRuntime {
             exits,
             entities,
             online_users: Vec::new(),
-            available_commands: available_commands(&self.world, view, &visible_entities)?,
+            available_commands: available_commands(&self.world, &view, &visible_entities)?,
             events,
         })
     }
 
     /// Returns the target view for an exit without moving any player.
     pub fn exit_target(&self, view_id: &str, direction: Direction) -> Result<ViewId, RuntimeError> {
-        let view = self
-            .world
-            .views
-            .get(view_id)
-            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))?;
+        let view = self.view(view_id)?;
         view.exits
             .iter()
             .find(|exit| exit.direction == direction)
@@ -516,6 +511,9 @@ impl GameRuntime {
     }
 
     fn visible_entities(&self, view_id: &str) -> Result<Vec<EntityId>, RuntimeError> {
+        if !self.views.contains_key(view_id) && is_grid_view_id(view_id) {
+            return Ok(Vec::new());
+        }
         Ok(self
             .view_state(view_id)?
             .lock()
@@ -529,6 +527,13 @@ impl GameRuntime {
             .get(view_id)
             .cloned()
             .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
+    }
+
+    fn view(&self, view_id: &str) -> Result<View, RuntimeError> {
+        if let Some(view) = self.world.views.get(view_id) {
+            return Ok(view.clone());
+        }
+        grid_view(view_id).ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
     }
 
     fn player(&self, player_id: &str) -> Result<Arc<Mutex<PlayerState>>, RuntimeError> {
@@ -554,6 +559,9 @@ fn available_commands(
             text: "<text>".to_owned(),
         },
         SemanticCommand::History,
+        SemanticCommand::Memory {
+            rest: "<command>".to_owned(),
+        },
         SemanticCommand::Who,
         SemanticCommand::Settings {
             action: hinemos_core::SettingsAction::Show,
@@ -730,7 +738,52 @@ mod tests {
             )
             .expect("move should succeed");
 
-        assert_eq!(observation.view_id, "west_main_street");
+        assert_eq!(observation.view_id, "grid_road_xm1_y0");
+        assert_eq!(observation.title, "West 1 Rd.");
+    }
+
+    #[test]
+    fn generated_grid_roads_extend_without_static_views() {
+        let runtime = sample_runtime();
+        let first = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::East,
+                },
+            )
+            .expect("first grid move should succeed");
+        let second = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::East,
+                },
+            )
+            .expect("second grid move should succeed");
+        let _back_to_first = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::West,
+                },
+            )
+            .expect("west within grid should succeed");
+        let harbor = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::West,
+                },
+            )
+            .expect("west from East 1 should return to Harbor Square");
+
+        assert_eq!(first.view_id, "grid_road_xp1_y0");
+        assert_eq!(first.title, "East 1 Rd.");
+        assert_eq!(second.view_id, "grid_road_xp2_y0");
+        assert_eq!(second.title, "East 2 Rd.");
+        assert!(second.description.contains("no fixed edge"));
+        assert_eq!(harbor.view_id, "arrival_street");
     }
 
     #[test]

@@ -13,7 +13,11 @@ where
         request: ReadAppRequest<'_>,
     ) -> Result<Vec<UiEvent>, E> {
         let text = match request {
-            ReadAppRequest::MemoryContext => self.memory_context(&identity.player_id).await?.text,
+            ReadAppRequest::MemoryContext => {
+                self.memory_context(&identity.user, &identity.player_id)
+                    .await?
+                    .text
+            }
             ReadAppRequest::MemoryCommand { rest } => {
                 self.memory_command(&identity.player_id, rest).await?.text
             }

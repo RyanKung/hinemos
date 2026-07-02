@@ -73,6 +73,30 @@ pub fn extension_commands(commands: Option<&str>) -> impl Iterator<Item = Semant
         })
 }
 
+/// Returns true when a concrete extension input is authorized by a visible extension template.
+#[must_use]
+pub fn extension_command_input_matches_template(template: &str, input: &str) -> bool {
+    let template = template.trim();
+    let input = input.trim();
+    if !template.contains('<') && !template.contains('|') {
+        return template.eq_ignore_ascii_case(input);
+    }
+    let template_literals = template
+        .split_whitespace()
+        .take_while(|token| !token.contains('<') && !token.contains('|'))
+        .map(|token| token.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if template_literals.is_empty() {
+        return false;
+    }
+    let input_literals = input
+        .split_whitespace()
+        .take(template_literals.len())
+        .map(|token| token.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    template_literals == input_literals && input.split_whitespace().count() > input_literals.len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +119,26 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn extension_command_input_matching_honors_exact_and_placeholder_templates() {
+        assert!(extension_command_input_matches_template(
+            "/position list",
+            "/POSITION list"
+        ));
+        assert!(extension_command_input_matches_template(
+            "/position start <position>",
+            "/position start greeter"
+        ));
+        assert!(!extension_command_input_matches_template(
+            "/position start <position>",
+            "/position start"
+        ));
+        assert!(!extension_command_input_matches_template(
+            "/position list",
+            "/position list extra"
+        ));
     }
 }
 
@@ -170,6 +214,11 @@ pub enum SemanticCommand {
     },
     /// Show private persistent mail.
     Mailbox,
+    /// Show persistent resident memory.
+    Memory {
+        /// Text after `/memory`.
+        rest: String,
+    },
     /// Show current view message history.
     History,
     /// Show global broadcast news.

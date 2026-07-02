@@ -176,6 +176,15 @@ pub struct StoredBalance {
     pub amount: i64,
 }
 
+/// Stored hunger state for a player.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredHungerState {
+    /// Stable player id used by the runtime.
+    pub player_id: String,
+    /// Accumulated hunger points from meaningful interactions.
+    pub hunger_points: i32,
+}
+
 /// Completed MARK transfer summary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredTransfer {
@@ -275,6 +284,8 @@ pub struct StoredServiceRoom {
     pub status_text: Option<String>,
     /// Data-authored command help, one command per line or semicolon.
     pub custom_commands: Option<String>,
+    /// Commands that count as hunger recovery, one command per line or semicolon.
+    pub recovery_commands: Option<String>,
     /// Optional built-in handler key consumed by the built-in room runner.
     pub builtin_handler: Option<String>,
     /// Whether this registration is active.
@@ -318,6 +329,8 @@ pub struct StoredRoomBinding {
     pub status_text: Option<String>,
     /// Data-authored command help for externally hosted rooms.
     pub custom_commands: Option<String>,
+    /// Data-authored hunger recovery commands for externally hosted rooms.
+    pub recovery_commands: Option<String>,
     /// Player-facing entrance line shown in front-view observations.
     pub entry_text: String,
     /// Optional label used to replace the authored ASCII placeholder.
@@ -382,6 +395,7 @@ impl StoredRoomBinding {
             label,
             status_text: None,
             custom_commands: None,
+            recovery_commands: None,
             entry_text: format!("- {entry_label}. Enter: /enter {}.", parcel.parcel_id),
             ascii_label,
             owner_user: parcel.owner_user,
@@ -434,6 +448,7 @@ impl StoredRoomBinding {
             label,
             status_text: room.status_text,
             custom_commands: room.custom_commands,
+            recovery_commands: room.recovery_commands,
             ascii_label: None,
             owner_user: None,
             parcel_status: None,

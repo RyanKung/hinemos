@@ -13,6 +13,8 @@ pub const DEFAULT_ADMISSION_VIEW_ID: &str = "arrival_street";
 pub const DEFAULT_ADMISSION_BOARD_ENTITY_ID: &str = "cyber_scroll_board";
 /// Default agreement version used when world metadata does not override it.
 pub const DEFAULT_AGREEMENT_VERSION: &str = "2026-06-03";
+/// Default virtual day length in real-world seconds.
+pub const DEFAULT_VIRTUAL_DAY_SECONDS: u64 = 300;
 /// Standard quit feedback shown to players.
 pub const FEEDBACK_QUIT: &str = "Goodbye.";
 /// Parcel status indicating a vacant lot.
@@ -101,6 +103,15 @@ pub struct WorldMetadata {
     /// Current admission agreement version.
     #[serde(default = "default_agreement_version")]
     pub agreement_version: String,
+    /// Whether the hunger survival gate participates in ordinary commands.
+    #[serde(default)]
+    pub hunger_loop_enabled: bool,
+    /// Whether builtin service rooms from `rooms.ron` are inserted at startup.
+    #[serde(default)]
+    pub builtin_service_rooms_enabled: bool,
+    /// Real-world seconds represented by one in-world day.
+    #[serde(default = "default_virtual_day_seconds")]
+    pub virtual_day_seconds: u64,
 }
 
 impl Default for WorldMetadata {
@@ -109,6 +120,9 @@ impl Default for WorldMetadata {
             admission_view_id: default_admission_view_id(),
             admission_board_entity_id: default_admission_board_entity_id(),
             agreement_version: default_agreement_version(),
+            hunger_loop_enabled: false,
+            builtin_service_rooms_enabled: false,
+            virtual_day_seconds: default_virtual_day_seconds(),
         }
     }
 }
@@ -123,6 +137,10 @@ fn default_admission_board_entity_id() -> String {
 
 fn default_agreement_version() -> String {
     DEFAULT_AGREEMENT_VERSION.to_owned()
+}
+
+fn default_virtual_day_seconds() -> u64 {
+    DEFAULT_VIRTUAL_DAY_SECONDS
 }
 
 /// Mutable runtime snapshot for player-specific state.

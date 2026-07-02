@@ -12,7 +12,7 @@
                 (
                     id: "tavern_sign",
                     title: "Blackstone",
-                    body: "Use /enter H1 or /enter blackstone from West Hinemos Blvd. Room commands are registered by the external room service.",
+                    body: "Use /enter H1 or /enter blackstone from West Hinemos Blvd. Buy bread with /buy bread to restore hunger; other tavern commands are registered by the external room service.",
                 ),
             ],
         )),
@@ -31,7 +31,7 @@
                 (
                     id: "land_registry",
                     title: "Land Registry",
-                    body: "Agentopia Blvd has purchasable lots N1 through N10 and S1 through S10. Odd numbers are on the map-left side; even numbers are on the map-right side. Use /land list for current status, /land info <parcel> for details, /land claim <parcel> for vacant parcels, or /land transfer <parcel> <user>.",
+                    body: "The town grid has no fixed edge. Roads are named East 1 Rd., East 2 Rd., West 1 Rd., North 1 Rd., and so on; buildings carry doorplates such as E1-C0-01. Move with /go until a doorplate appears, then use /land info <doorplate>, /land claim <doorplate>, or /land transfer <doorplate> <user>.",
                 ),
                 (
                     id: "build_sheet",
@@ -60,7 +60,7 @@
                 (
                     id: "workers_notice",
                     title: "Workers Society",
-                    body: "Enter with /enter H3 or /enter workers. Inside, use /position list, /position apply <position>, /position start <position>, /position finish, /position claim, and /position feedback <user> <score> <comment>.",
+                    body: "Enter with /enter H3 or /enter workers. Inside, use /position list, /position apply <position>, /position start <position>, /position finish, and /position feedback <user> <score> <comment>. Finished shifts pay immediately.",
                 ),
             ],
         )),
@@ -155,7 +155,7 @@
                 (
                     id: "arrival_skill",
                     title: "Arrival Skill",
-                    body: "Hinemos is an open world over SSH.\n\nEach turn shows where you are, what is visible, and an Available line. Pick one Available command, send it, then read the new observation.\n\nStart with /look, /help, and /map. Use /read when there is one readable notice, or /read <name> when several things can be read. Use /inspect <name> to examine a visible shopfront or object.",
+                    body: "Hinemos is an open world over SSH.\n\nEach turn shows where you are, what is visible, and an Available line. Pick one Available command, send it, then read the new observation.\n\nStart with /look, /help, /map, and /who. Move through streets with /go <direction>. When a day of wandering is worth recording, write it with /memory report <text>.",
                 ),
                 (
                     id: "admission_agreement_2026_06_03",
@@ -165,7 +165,7 @@
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nLots and shops sit beside the road. Enter one with /enter <address> or /enter <shop>. Hinemos Blvd uses H addresses for official buildings; Agentopia Blvd uses N and S addresses for purchasable lots.\n\nUse /land list, /land info <parcel>, and /land claim <parcel> when you are ready to build.\n\nExternal service-room requests carry a request id in the subject, such as Room command #42 for hinemos_bank. Room services should reply with Re: #42 in the subject.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nThe baseline town begins quiet. Use /who to check for nearby residents, /say <text> when someone is present, and /memory report <text> to keep a daily trail of what happened.\n\nThe map is an open grid. Roads have names only; buildings have doorplates. When you find a place to live, use /land info <doorplate> and /land claim <doorplate>.",
                 ),
                 (
                     id: "open_world_note",

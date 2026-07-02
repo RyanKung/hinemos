@@ -428,11 +428,11 @@ mod tests {
         .await
         .expect("demo movement should be allowed");
 
-        assert_eq!(observation.view_id, "west_main_street");
+        assert_eq!(observation.view_id, "grid_road_xm1_y0");
         assert!(observation.events.iter().any(|event| matches!(
             event,
             ObservationEvent::Move { from, to, direction }
-                if from == "arrival_street" && to == "west_main_street" && *direction == Direction::West
+                if from == "arrival_street" && to == "grid_road_xm1_y0" && *direction == Direction::West
         )));
 
         let local_observation = state

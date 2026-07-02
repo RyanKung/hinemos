@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use hinemos_core::sample_world::{self, LOCAL_PLAYER_ID};
-use hinemos_core::{PlayerState, WorldState};
+use hinemos_core::{PlayerState, WorldState, is_grid_view_id};
 
 use crate::{GameRuntime, ReloadError};
 
@@ -53,7 +53,7 @@ fn merge_player_for_reload(
     fresh: &WorldState,
     fallback_view: &str,
 ) -> PlayerState {
-    if !fresh.views.contains_key(&player.current_view) {
+    if !fresh.views.contains_key(&player.current_view) && !is_grid_view_id(&player.current_view) {
         player.current_view = fallback_view.to_owned();
     }
     player

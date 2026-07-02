@@ -21,6 +21,9 @@ fn load_world_app_config_uses_defaults_and_meta_overrides() {
 admission_view_id: "custom_street",
 admission_board_entity_id: "custom_board",
 agreement_version: "2030-01-01",
+hunger_loop_enabled: true,
+builtin_service_rooms_enabled: true,
+virtual_day_seconds: 600,
 )"#,
     )
     .expect("write meta.ron");
@@ -32,6 +35,9 @@ agreement_version: "2030-01-01",
             admission_view_id: "custom_street".to_owned(),
             admission_board_entity_id: "custom_board".to_owned(),
             agreement_version: "2030-01-01".to_owned(),
+            hunger_loop_enabled: true,
+            builtin_service_rooms_enabled: true,
+            virtual_day_seconds: 600,
         }
     );
 
@@ -50,6 +56,9 @@ agreement_version: "2030-01-01",
 admission_view_id = "toml_street"
 admission_board_entity_id = "toml_board"
 agreement_version = "2031-02-03"
+hunger_loop_enabled = true
+builtin_service_rooms_enabled = true
+virtual_day_seconds = 900
 "#,
     )
     .expect("write world.toml");
@@ -61,6 +70,9 @@ agreement_version = "2031-02-03"
             admission_view_id: "toml_street".to_owned(),
             admission_board_entity_id: "toml_board".to_owned(),
             agreement_version: "2031-02-03".to_owned(),
+            hunger_loop_enabled: true,
+            builtin_service_rooms_enabled: true,
+            virtual_day_seconds: 900,
         }
     );
 
@@ -105,6 +117,7 @@ agreement_version = "2041-02-02"
             admission_view_id: "meta_street".to_owned(),
             admission_board_entity_id: "meta_board".to_owned(),
             agreement_version: "2040-01-01".to_owned(),
+            ..WorldAppConfig::default()
         }
     );
 
