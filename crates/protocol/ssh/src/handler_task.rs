@@ -4,6 +4,9 @@ use hinemos_core::{
     JsonObservation, ObservationEvent, SemanticCommand, extension_command_input_matches_template,
 };
 
+const TASK_EVENT_TEXT_MAX_CHARS: usize = 512;
+const TASK_EVENT_TEXT_TRUNCATION_MARKER: &str = "... [truncated]";
+
 impl ConnectionHandler {
     pub(super) fn parse_command_line_for_task(
         &self,
@@ -165,7 +168,7 @@ pub(super) fn observation_events_from_ui_events(events: &[UiEvent]) -> Vec<Obser
         match event {
             UiEvent::Text(text) => push_text_observation_event(&mut observations, text),
             UiEvent::Observation(observation) | UiEvent::CommandObservation { observation, .. } => {
-                observations.extend(observation.events.iter().cloned());
+                extend_observation_events_for_task(&mut observations, &observation.events);
             }
             UiEvent::Relocate {
                 message: Some(message),
@@ -177,9 +180,69 @@ pub(super) fn observation_events_from_ui_events(events: &[UiEvent]) -> Vec<Obser
     observations
 }
 
+fn extend_observation_events_for_task(
+    observations: &mut Vec<ObservationEvent>,
+    events: &[ObservationEvent],
+) {
+    for event in events {
+        match event {
+            ObservationEvent::Message { text } => push_text_observation_event(observations, text),
+            ObservationEvent::Move { .. } => observations.push(event.clone()),
+        }
+    }
+}
+
 fn push_text_observation_event(observations: &mut Vec<ObservationEvent>, text: &str) {
-    let text = text.replace("\r\n", "\n").trim().to_owned();
-    if !text.is_empty() {
+    if let Some(text) = task_event_text(text) {
         observations.push(ObservationEvent::Message { text });
+    }
+}
+
+fn task_event_text(text: &str) -> Option<String> {
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(bound_task_event_text(text))
+}
+
+fn bound_task_event_text(text: &str) -> String {
+    let mut chars = text.chars();
+    let mut bounded = chars
+        .by_ref()
+        .take(TASK_EVENT_TEXT_MAX_CHARS)
+        .collect::<String>();
+    if chars.next().is_some() {
+        bounded.push_str(TASK_EVENT_TEXT_TRUNCATION_MARKER);
+    }
+    bounded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_text_observation_events_are_bounded() {
+        let input = "x".repeat(TASK_EVENT_TEXT_MAX_CHARS + 32);
+        let events = observation_events_from_ui_events(&[UiEvent::Text(input)]);
+
+        let Some(ObservationEvent::Message { text }) = events.first() else {
+            panic!("expected a bounded message event");
+        };
+
+        assert!(text.ends_with(TASK_EVENT_TEXT_TRUNCATION_MARKER));
+        assert!(
+            text.chars().count()
+                <= TASK_EVENT_TEXT_MAX_CHARS + TASK_EVENT_TEXT_TRUNCATION_MARKER.chars().count()
+        );
+    }
+
+    #[test]
+    fn task_text_observation_events_drop_empty_text() {
+        let events = observation_events_from_ui_events(&[UiEvent::Text("\r\n \n".to_owned())]);
+
+        assert!(events.is_empty());
     }
 }

@@ -30,6 +30,7 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
             "/position list",
             "/go south",
             "/memory self",
+            "/memory self",
             "/quit",
         ],
     );
@@ -134,6 +135,30 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     assert_eq!(
         latest_step_shape, "/memory self:number:number:array",
         "resident task loop persists an evaluated command transition"
+    );
+    let memory_self_step_count = test_database.query_value(&format!(
+        "select count(*)
+         from agent_self_models
+         where agent_id = '{player_id}'
+           and current_state->'lastStep'->>'commandLine' = '/memory self'"
+    ));
+    assert_eq!(
+        memory_self_step_count, "2",
+        "regression path must record repeated memory introspection commands"
+    );
+    let event_signature_chars = test_database.query_value(&format!(
+        "select char_length(current_state->'lastSnapshot'->>'eventSignature')
+         from agent_self_models
+         where agent_id = '{player_id}'
+         order by version desc
+         limit 1"
+    ));
+    let event_signature_chars = event_signature_chars
+        .parse::<usize>()
+        .expect("event signature char length");
+    assert!(
+        event_signature_chars <= 560,
+        "resident task event signature should stay bounded after repeated /memory self, got {event_signature_chars}"
     );
     let command_history = test_database.query_value(&format!(
         "select coalesce(string_agg(entry->>'commandLine', ','), '')
