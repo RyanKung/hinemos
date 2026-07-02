@@ -5,6 +5,7 @@
 pub mod agent_task;
 mod agent_task_match;
 pub mod command;
+pub mod grid_map;
 pub mod ids;
 pub mod model;
 pub mod observation;
@@ -27,6 +28,10 @@ pub use command::{
     shop_badge_slug_is_valid, shop_badge_title_is_valid, shop_mailing_list_body_is_valid,
     shop_mailing_list_slug_is_valid, shop_mailing_list_subject_is_valid,
     shop_mailing_list_title_is_valid,
+};
+pub use grid_map::{
+    GRID_PARCEL_VIEW_PREFIX, GRID_ROAD_VIEW_PREFIX, GridParcelAddress, GridRoad, grid_view,
+    is_grid_view_id,
 };
 pub use ids::{EntityId, PlayerId, ViewId};
 pub use model::{

@@ -86,7 +86,7 @@ impl Chrome {
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Resident loop: use /map, /go, /who, /say, and /memory report <text> to search for residents and keep daily reports.\n\
-        Land: /land list, /land info <parcel>, /land claim <parcel>, /land token <parcel>, /land transfer <parcel> <user>\n\
+        Land: /land list, /land info <doorplate>, /land claim <doorplate>, /land token <doorplate>, /land transfer <doorplate> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
         Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>; shop chats use /shop mailing-list create <parcel> <slug> <title>, /chat <parcel-or-shop> <slug> -- <message>\n\
         Local extensions appear in Available inside their view.";

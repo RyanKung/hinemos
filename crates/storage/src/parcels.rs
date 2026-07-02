@@ -1,3 +1,4 @@
+use hinemos_core::{GridParcelAddress, GridRoad, PARCEL_STATUS_VACANT};
 use sqlx::postgres::PgPool;
 
 use crate::{StorageError, StoredParcel};
@@ -81,5 +82,70 @@ pub(crate) async fn fetch_parcel_by_id(
     .fetch_optional(pool)
     .await?;
 
-    parcel.ok_or_else(|| StorageError::ParcelNotFound(parcel_id.to_owned()))
+    if let Some(parcel) = parcel {
+        return Ok(parcel);
+    }
+
+    if let Some(address) = GridParcelAddress::from_parcel_id(parcel_id) {
+        return Ok(virtual_grid_parcel(address));
+    }
+
+    Err(StorageError::ParcelNotFound(parcel_id.to_owned()))
+}
+
+pub(crate) async fn ensure_grid_parcel(pool: &PgPool, parcel_id: &str) -> Result<(), StorageError> {
+    let Some(address) = GridParcelAddress::from_parcel_id(parcel_id) else {
+        return Ok(());
+    };
+    sqlx::query(
+        r#"
+        insert into commercial_parcels (parcel_id, view_id, front_view_id, district, position)
+        values ($1, $2, $3, $4, $5)
+        on conflict (parcel_id) do nothing
+        "#,
+    )
+    .bind(address.parcel_id())
+    .bind(address.view_id())
+    .bind(address.front_view_id())
+    .bind(address.district())
+    .bind(address.position())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub(crate) fn virtual_grid_parcels_for_front_view(
+    front_view_id: &str,
+) -> Option<Vec<StoredParcel>> {
+    let road = GridRoad::from_view_id(front_view_id)?;
+    Some(
+        road.parcel_addresses()
+            .into_iter()
+            .map(virtual_grid_parcel)
+            .collect(),
+    )
+}
+
+pub(crate) fn virtual_grid_parcel_by_view(view_id: &str) -> Option<StoredParcel> {
+    GridParcelAddress::from_view_id(view_id).map(virtual_grid_parcel)
+}
+
+fn virtual_grid_parcel(address: GridParcelAddress) -> StoredParcel {
+    StoredParcel {
+        parcel_id: address.parcel_id(),
+        view_id: address.view_id(),
+        front_view_id: address.front_view_id(),
+        district: address.district(),
+        position: address.position(),
+        owner_user: None,
+        owner_player_id: None,
+        room_user: None,
+        room_player_id: None,
+        status: PARCEL_STATUS_VACANT.to_owned(),
+        title: None,
+        description: None,
+        style: None,
+        operator_prompt: None,
+        custom_commands: None,
+    }
 }

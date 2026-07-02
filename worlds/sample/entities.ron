@@ -31,7 +31,7 @@
                 (
                     id: "land_registry",
                     title: "Land Registry",
-                    body: "Agentopia Blvd has purchasable lots N1 through N10 and S1 through S10. Odd numbers are on the map-left side; even numbers are on the map-right side. Use /land list for current status, /land info <parcel> for details, /land claim <parcel> for vacant parcels, or /land transfer <parcel> <user>.",
+                    body: "The town grid has no fixed edge. Roads are named East 1 Rd., East 2 Rd., West 1 Rd., North 1 Rd., and so on; buildings carry doorplates such as E1-C0-01. Move with /go until a doorplate appears, then use /land info <doorplate>, /land claim <doorplate>, or /land transfer <doorplate> <user>.",
                 ),
                 (
                     id: "build_sheet",
@@ -165,7 +165,7 @@
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nThe baseline town begins quiet. Use /who to check for nearby residents, /say <text> when someone is present, and /memory report <text> to keep a daily trail of what happened.\n\nAgentopia Blvd uses N and S addresses for future purchasable lots. Use /land list, /land info <parcel>, and /land claim <parcel> when you are ready to build.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nThe baseline town begins quiet. Use /who to check for nearby residents, /say <text> when someone is present, and /memory report <text> to keep a daily trail of what happened.\n\nThe map is an open grid. Roads have names only; buildings have doorplates. When you find a place to live, use /land info <doorplate> and /land claim <doorplate>.",
                 ),
                 (
                     id: "open_world_note",

@@ -28,6 +28,8 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
             "/go east",
             "/who",
             "/go east",
+            "/land info E2-C0-01",
+            "/land claim E2-C0-01",
             "/memory report I walked the east road and found no residents yet.",
             "/memory self",
             "/memory self",
@@ -58,6 +60,36 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         &output,
         "Virtual time: one in-world day is 300 real seconds",
         "resident context exposes the configured virtual day length",
+    );
+    assert_contains(
+        &output,
+        "East 1 Rd.",
+        "baseline resident path enters the generated east grid road",
+    );
+    assert_contains(
+        &output,
+        "East 2 Rd.",
+        "baseline resident path can continue extending the generated grid",
+    );
+    assert_contains(
+        &output,
+        "E2-C0-01",
+        "generated roads expose building doorplates instead of road-owned lots",
+    );
+    assert_contains(
+        &output,
+        "Parcel E2-C0-01",
+        "dynamic doorplates can be inspected as virtual land",
+    );
+    assert_contains(
+        &output,
+        "Status: vacant",
+        "dynamic doorplates can be inspected as virtual vacant land",
+    );
+    assert_contains(
+        &output,
+        "Claimed parcel E2-C0-01.",
+        "dynamic doorplates can be claimed as a home site",
     );
     assert_contains(
         &output,
@@ -117,7 +149,7 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
          limit 1"
     ));
     assert_eq!(
-        latest_snapshot_view, "east_wilderness",
+        latest_snapshot_view, "grid_road_xp2_y0",
         "resident context refresh writes the latest visible world snapshot"
     );
     let live_meter_types = test_database.query_value(&format!(
@@ -160,6 +192,17 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     assert_eq!(
         memory_self_step_count, "2",
         "regression path must record repeated memory introspection commands"
+    );
+    let claimed_grid_parcel = test_database.query_value(&format!(
+        "select concat_ws(':', parcel_id, front_view_id, owner_user)
+         from commercial_parcels
+         where parcel_id = 'E2-C0-01'
+           and owner_user = '{user}'"
+    ));
+    assert_eq!(
+        claimed_grid_parcel,
+        format!("E2-C0-01:grid_road_xp2_y0:{user}"),
+        "claiming a generated doorplate must materialize the parcel row"
     );
     let daily_report_emotion = test_database.query_value(&format!(
         "select concat_ws(':',

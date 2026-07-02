@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::grid_map::is_grid_view_id;
 use crate::model::{Entity, PlayerState, View, WorldState};
 
 /// Canonical single-player id used by local CLI and tests.
@@ -63,7 +64,7 @@ fn load_views(dir: &Path) -> Result<HashMap<String, View>, WorldLoadError> {
 fn validate_world(world: &WorldState) -> Result<(), WorldLoadError> {
     for view in world.views.values() {
         for exit in &view.exits {
-            if !world.views.contains_key(&exit.target) {
+            if !world.views.contains_key(&exit.target) && !is_grid_view_id(&exit.target) {
                 return Err(WorldLoadError::MissingReference(format!(
                     "view `{}` exit points to missing view `{}`",
                     view.id, exit.target
@@ -114,7 +115,8 @@ fn validate_world(world: &WorldState) -> Result<(), WorldLoadError> {
     }
 
     for player in world.players.values() {
-        if !world.views.contains_key(&player.current_view) {
+        if !world.views.contains_key(&player.current_view) && !is_grid_view_id(&player.current_view)
+        {
             return Err(WorldLoadError::MissingReference(format!(
                 "player `{}` starts in missing view `{}`",
                 player.id, player.current_view

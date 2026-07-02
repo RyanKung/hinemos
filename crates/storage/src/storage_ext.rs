@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use hinemos_app::{MAX_HUNGER_POINTS, RecentPresenceUser};
 use hinemos_core::PlayerState;
 use serde_json::json;
@@ -10,7 +12,10 @@ use crate::accounts::{
     ensure_player_account, ensure_system_account, fetch_balance_pool, fetch_balance_tx,
     player_account_id, resolve_payment_target,
 };
-use crate::parcels::fetch_parcel_by_id;
+use crate::parcels::{
+    ensure_grid_parcel, fetch_parcel_by_id, virtual_grid_parcel_by_view,
+    virtual_grid_parcels_for_front_view,
+};
 use crate::room_mail::{room_mail_player_id, room_mail_user};
 use crate::types::{
     NewMemoryAtom, NewMemoryEvent, PlayerStateRow, StoredBalance, StoredHungerState, StoredParcel,
@@ -659,7 +664,17 @@ impl PgStorage {
         .bind(front_view_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(parcels)
+        let Some(virtual_parcels) = virtual_grid_parcels_for_front_view(front_view_id) else {
+            return Ok(parcels);
+        };
+        let mut existing = parcels
+            .into_iter()
+            .map(|parcel| (parcel.parcel_id.clone(), parcel))
+            .collect::<HashMap<_, _>>();
+        Ok(virtual_parcels
+            .into_iter()
+            .map(|parcel| existing.remove(&parcel.parcel_id).unwrap_or(parcel))
+            .collect())
     }
 
     /// Loads a commercial parcel by parcel id.
@@ -684,7 +699,10 @@ impl PgStorage {
         .bind(view_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(parcel)
+        if parcel.is_some() {
+            return Ok(parcel);
+        }
+        Ok(virtual_grid_parcel_by_view(view_id))
     }
 
     /// Claims a free commercial parcel.
@@ -694,6 +712,7 @@ impl PgStorage {
         owner_user: &str,
         owner_player_id: &str,
     ) -> Result<StoredParcel, StorageError> {
+        ensure_grid_parcel(&self.pool, parcel_id).await?;
         let updated = sqlx::query_as::<_, StoredParcel>(
             r#"
             update commercial_parcels

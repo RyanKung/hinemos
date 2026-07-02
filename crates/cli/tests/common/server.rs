@@ -194,6 +194,30 @@ fn restore_builtin_shopfronts(world_dir: &Path) {
     let mut views = fs::read_to_string(&path).expect("read views.ron");
     replace_in_view(
         &mut views,
+        "arrival_street",
+        r#"(direction: north, target: "grid_road_x0_yp1", label: Some("North 1 Rd."), requirements: [])"#,
+        r#"(direction: north, target: "street_north_01", label: Some("Agentopia Blvd North"), requirements: [])"#,
+    );
+    replace_in_view(
+        &mut views,
+        "arrival_street",
+        r#"(direction: south, target: "grid_road_x0_ym1", label: Some("South 1 Rd."), requirements: [])"#,
+        r#"(direction: south, target: "street_south_01", label: Some("Agentopia Blvd South"), requirements: [])"#,
+    );
+    replace_in_view(
+        &mut views,
+        "arrival_street",
+        r#"(direction: west, target: "grid_road_xm1_y0", label: Some("West 1 Rd."), requirements: [])"#,
+        r#"(direction: west, target: "west_main_street", label: Some("West Hinemos Blvd"), requirements: [])"#,
+    );
+    replace_in_view(
+        &mut views,
+        "arrival_street",
+        r#"(direction: east, target: "grid_road_xp1_y0", label: Some("East 1 Rd."), requirements: [])"#,
+        r#"(direction: east, target: "official_street", label: Some("East Hinemos Blvd"), requirements: [])"#,
+    );
+    replace_in_view(
+        &mut views,
         "west_main_street",
         "West Hinemos Blvd is a quiet grid street. The old H1 and H2 lots are shuttered in this baseline world; farther west the boulevard thins into wilderness, beach, and sea.",
         "West Hinemos Blvd is a hand-kept official street. H1 stands on the north side and H2 on the south side; farther west the boulevard thins into wilderness, beach, and sea.",

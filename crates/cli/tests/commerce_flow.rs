@@ -68,31 +68,31 @@ fn assert_owner_mailing_list_setup(host: &str, port: u16, owner: &str, owner_key
         owner,
         owner_key,
         &[
-            "/shop mailing-list create N1 updates Shop Updates",
-            "/shop mailing-list list N1",
+            "/shop mailing-list create C0-N1-01 updates Shop Updates",
+            "/shop mailing-list list C0-N1-01",
             "/quit",
         ],
     );
     assert_contains(
         &owner_setup,
-        "Created shop chat updates for parcel N1: Shop Updates.",
+        "Created shop chat updates for parcel C0-N1-01: Shop Updates.",
         "owner can create a shop chat",
     );
     assert_contains(
         &owner_setup,
-        "Post: /chat N1 updates -- <message>",
+        "Post: /chat C0-N1-01 updates -- <message>",
         "create response gives chat command",
     );
     assert_contains(
         &owner_setup,
-        "Shop Chats for N1",
+        "Shop Chats for C0-N1-01",
         "owner can list shop chats",
     );
 }
 
 fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
     let shop_command_count = test_database.query_value(
-        "select count(*) from inbox_items where recipient_user = 'room-N1' and kind = 'shop_command' and source_kind = 'operator_command' and body = '/hello'",
+        "select count(*) from inbox_items where recipient_user = 'room-C0-N1-01' and kind = 'shop_command' and source_kind = 'operator_command' and body = '/hello'",
     );
     assert_eq!(
         shop_command_count, "1",
@@ -100,7 +100,7 @@ fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
     );
 
     let duplicate_mail_count = test_database.query_value(
-        "select count(*) from inbox_items where recipient_user = 'room-N1' and kind = 'mail' and body = '/hello'",
+        "select count(*) from inbox_items where recipient_user = 'room-C0-N1-01' and kind = 'mail' and body = '/hello'",
     );
     assert_eq!(
         duplicate_mail_count, "0",
@@ -108,7 +108,7 @@ fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
     );
 
     let world_mail_count = test_database.query_value(
-        "select count(*) from world_messages where target_user = 'room-N1' and kind = 'mail' and body = '/hello'",
+        "select count(*) from world_messages where target_user = 'room-C0-N1-01' and kind = 'mail' and body = '/hello'",
     );
     assert_eq!(
         world_mail_count, "0",
@@ -123,14 +123,14 @@ fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path)
         owner,
         owner_key,
         &[
-            "/land claim N1",
+            "/land claim C0-N1-01",
             "/go north",
-            "/enter N1",
+            "/enter C0-N1-01",
             "/build {\"title\":\"Offline Tool Broker\",\"description\":\"An operator-run shop that sells a simple greeting string.\",\"style\":\"Ledger-first counter service.\",\"prompt\":\"Parse visitor requests, create payment requests, and deliver content only after payment.\"}",
-            "/land info N1",
+            "/land info C0-N1-01",
             "/build publish",
             "/hello",
-            "/land info N1",
+            "/land info C0-N1-01",
             "/quit",
         ],
     );
@@ -141,7 +141,7 @@ fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path)
     );
     assert_not_contains(
         &owner_setup,
-        "Go to parcel_N1",
+        "Go to parcel_C0-N1-01",
         "claim response does not expose internal view ids",
     );
     assert_contains(
@@ -169,7 +169,11 @@ fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path)
         "Commands: /hello preview=hello price=25; /status",
         "owner build custom commands were persisted",
     );
-    assert_contains(&owner_setup, "Published parcel N1", "owner published shop");
+    assert_contains(
+        &owner_setup,
+        "Published parcel C0-N1-01",
+        "owner published shop",
+    );
     assert_contains(
         &owner_setup,
         "You own this shop. Visitors use /hello here",
@@ -188,7 +192,7 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
         port,
         customer,
         customer_key,
-        &["/go north", "/enter N1", "/hello", "/quit"],
+        &["/go north", "/enter C0-N1-01", "/hello", "/quit"],
     );
     assert_contains(
         &customer_visit,
@@ -217,17 +221,17 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
     assert_contains(
         &customer_visit,
-        "Mailing lists: Shop Updates (updates) join: /subscribe N1 updates",
+        "Mailing lists: Shop Updates (updates) join: /subscribe C0-N1-01 updates",
         "customer sees the shop chat join command",
     );
     assert_contains(
         &customer_visit,
-        "joining: /chat N1 updates -- <message>",
+        "joining: /chat C0-N1-01 updates -- <message>",
         "customer sees the shop chat post command",
     );
     assert_contains(
         &customer_visit,
-        "subscriptions: /subscribe N1 updates",
+        "subscriptions: /subscribe C0-N1-01 updates",
         "customer sees subscription command in Available",
     );
     assert_contains(
@@ -285,16 +289,16 @@ fn assert_shop_mailing_list_flow(
         port,
         customer.user,
         customer.key,
-        &["/subscribe N1 updates", "/subscriptions", "/quit"],
+        &["/subscribe C0-N1-01 updates", "/subscriptions", "/quit"],
     );
     assert_contains(
         &customer_subscribe,
-        "Joined shop chat Shop Updates (updates) at N1.",
+        "Joined shop chat Shop Updates (updates) at C0-N1-01.",
         "customer can subscribe to the shop mailing list",
     );
     assert_contains(
         &customer_subscribe,
-        "Post: /chat N1 updates -- <message>",
+        "Post: /chat C0-N1-01 updates -- <message>",
         "subscription response gives chat command",
     );
 
@@ -303,11 +307,11 @@ fn assert_shop_mailing_list_flow(
         port,
         peer.user,
         peer.key,
-        &["/subscribe N1 updates", "/subscriptions", "/quit"],
+        &["/subscribe C0-N1-01 updates", "/subscriptions", "/quit"],
     );
     assert_contains(
         &peer_subscribe,
-        "Joined shop chat Shop Updates (updates) at N1.",
+        "Joined shop chat Shop Updates (updates) at C0-N1-01.",
         "peer can join the same shop chat",
     );
     assert_contains(
@@ -322,14 +326,14 @@ fn assert_shop_mailing_list_flow(
         owner.user,
         owner.key,
         &[
-            "/shop mailing-list subscribers N1 updates",
-            "/shop mailing-list send N1 updates Weekly Deal -- Subscribers get first notice.",
+            "/shop mailing-list subscribers C0-N1-01 updates",
+            "/shop mailing-list send C0-N1-01 updates Weekly Deal -- Subscribers get first notice.",
             "/quit",
         ],
     );
     assert_contains(
         &owner_send,
-        "Shop Chat Members for N1 updates: 2 active",
+        "Shop Chat Members for C0-N1-01 updates: 2 active",
         "owner can inspect active subscriber count",
     );
     assert_contains(
@@ -366,7 +370,7 @@ fn assert_shop_mailing_list_flow(
              from inbox_items
              where recipient_user = '{}'
                and subject = 'Weekly Deal'
-               and body like '%Reply: /chat N1 updates -- <message>%'",
+               and body like '%Reply: /chat C0-N1-01 updates -- <message>%'",
             customer.user
         )),
         "1",
@@ -378,7 +382,10 @@ fn assert_shop_mailing_list_flow(
         port,
         customer.user,
         customer.key,
-        &["/chat N1 updates -- I can vouch for this shop.", "/quit"],
+        &[
+            "/chat C0-N1-01 updates -- I can vouch for this shop.",
+            "/quit",
+        ],
     );
     assert_contains(
         &customer_chat,
@@ -417,11 +424,11 @@ fn assert_shop_mailing_list_flow(
         port,
         customer.user,
         customer.key,
-        &["/unsubscribe N1 updates", "/subscriptions", "/quit"],
+        &["/unsubscribe C0-N1-01 updates", "/subscriptions", "/quit"],
     );
     assert_contains(
         &customer_unsubscribe,
-        "Left shop chat Shop Updates (updates) at N1.",
+        "Left shop chat Shop Updates (updates) at C0-N1-01.",
         "customer can unsubscribe",
     );
     assert_contains(
@@ -435,11 +442,11 @@ fn assert_shop_mailing_list_flow(
         port,
         peer.user,
         peer.key,
-        &["/unsubscribe N1 updates", "/subscriptions", "/quit"],
+        &["/unsubscribe C0-N1-01 updates", "/subscriptions", "/quit"],
     );
     assert_contains(
         &peer_unsubscribe,
-        "Left shop chat Shop Updates (updates) at N1.",
+        "Left shop chat Shop Updates (updates) at C0-N1-01.",
         "peer can leave the shop chat",
     );
 
@@ -449,7 +456,7 @@ fn assert_shop_mailing_list_flow(
         owner.user,
         owner.key,
         &[
-            "/shop mailing-list send N1 updates Hidden Deal -- No one should get this.",
+            "/shop mailing-list send C0-N1-01 updates Hidden Deal -- No one should get this.",
             "/quit",
         ],
     );
@@ -474,24 +481,24 @@ fn assert_shop_badge_flow(
         owner,
         owner_key,
         &[
-            "/shop badge create N1 patron Good Patron -- Paid and polite",
-            "/shop badge list N1",
+            "/shop badge create C0-N1-01 patron Good Patron -- Paid and polite",
+            "/shop badge list C0-N1-01",
             "/quit",
         ],
     );
     assert_contains(
         &owner_create,
-        "Saved badge patron for parcel N1: Good Patron.",
+        "Saved badge patron for parcel C0-N1-01: Good Patron.",
         "owner can create a shop badge",
     );
     assert_contains(
         &owner_create,
-        "/shop badge award N1 patron <user> [note]",
+        "/shop badge award C0-N1-01 patron <user> [note]",
         "create response gives award command",
     );
     assert_contains(
         &owner_create,
-        "Shop Badges for N1",
+        "Shop Badges for C0-N1-01",
         "owner can list shop badges",
     );
 
@@ -501,7 +508,7 @@ fn assert_shop_badge_flow(
         customer,
         customer_key,
         &[
-            &format!("/shop badge award N1 patron {customer} not allowed"),
+            &format!("/shop badge award C0-N1-01 patron {customer} not allowed"),
             "/quit",
         ],
     );
@@ -517,14 +524,14 @@ fn assert_shop_badge_flow(
         owner,
         owner_key,
         &[
-            &format!("/shop badge award N1 patron {customer} first visit"),
-            &format!("/shop badge award N1 patron {customer} duplicate"),
+            &format!("/shop badge award C0-N1-01 patron {customer} first visit"),
+            &format!("/shop badge award C0-N1-01 patron {customer} duplicate"),
             "/quit",
         ],
     );
     assert_contains(
         &owner_award,
-        "Awarded badge Good Patron (patron) from N1",
+        "Awarded badge Good Patron (patron) from C0-N1-01",
         "owner can award a shop badge",
     );
 
@@ -537,7 +544,7 @@ fn assert_shop_badge_flow(
     );
     assert_contains(
         &customer_badges,
-        "Good Patron (patron) from Offline Tool Broker [N1]",
+        "Good Patron (patron) from Offline Tool Broker [C0-N1-01]",
         "badge output includes shop identity and badge title",
     );
     assert_contains(
@@ -555,7 +562,7 @@ fn assert_shop_badge_flow(
     );
     assert_contains(
         &public_badges,
-        "Good Patron (patron) from Offline Tool Broker [N1]",
+        "Good Patron (patron) from Offline Tool Broker [C0-N1-01]",
         "other players can inspect public badges",
     );
 }
