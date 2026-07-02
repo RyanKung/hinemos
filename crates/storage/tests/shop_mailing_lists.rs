@@ -258,6 +258,40 @@ async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
 }
 
 #[tokio::test]
+async fn generated_grid_origin_parcel_is_not_virtual_or_claimable() {
+    if skip_without_database() {
+        return;
+    }
+    let db = TestDatabase::create();
+    let storage = PgStorage::connect(&db.url).await.expect("connect");
+    storage.migrate().await.expect("migrate");
+
+    let detail = storage
+        .commercial_parcel("C0-C0-01")
+        .await
+        .expect_err("origin parcel should not exist");
+    let claim = storage
+        .claim_commercial_parcel("C0-C0-01", "owner", "player:owner")
+        .await
+        .expect_err("origin parcel should not be claimable");
+    let stored_count = db.query_value(
+        "select count(*)
+         from commercial_parcels
+         where parcel_id = 'C0-C0-01'",
+    );
+
+    assert!(matches!(
+        detail,
+        StorageError::ParcelNotFound(parcel_id) if parcel_id == "C0-C0-01"
+    ));
+    assert!(matches!(
+        claim,
+        StorageError::ParcelNotFound(parcel_id) if parcel_id == "C0-C0-01"
+    ));
+    assert_eq!(stored_count, "0");
+}
+
+#[tokio::test]
 async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
     if skip_without_database() {
         return;

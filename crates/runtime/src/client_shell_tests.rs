@@ -53,7 +53,7 @@ fn text_renderer_distinguishes_place_and_item_markers() {
 
 #[test]
 fn text_renderer_renders_generated_grid_ascii_without_header_artifacts() {
-    let view = GridRoad::new(1, 0).to_view();
+    let view = GridRoad::new(1, 0).expect("valid generated road").to_view();
     let rendered = render_text_observation(&JsonObservation {
         player_id: "local_player".to_owned(),
         view_id: view.id,

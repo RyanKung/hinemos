@@ -51,9 +51,20 @@ pub struct GridRoad {
 }
 
 impl GridRoad {
-    /// Creates a grid-road coordinate.
+    /// Creates a generated grid-road coordinate.
+    ///
+    /// Returns `None` for coordinate zero because the plaza origin is represented by a static
+    /// world view rather than a generated road.
     #[must_use]
-    pub const fn new(x: i32, y: i32) -> Self {
+    pub const fn new(x: i32, y: i32) -> Option<Self> {
+        if x == 0 && y == 0 {
+            None
+        } else {
+            Some(Self { x, y })
+        }
+    }
+
+    const fn new_non_origin(x: i32, y: i32) -> Self {
         Self { x, y }
     }
 
@@ -63,10 +74,7 @@ impl GridRoad {
         let rest = view_id.strip_prefix(GRID_ROAD_VIEW_PREFIX)?;
         let (x, y) = rest.split_once("_y")?;
         let x = x.strip_prefix('x')?;
-        Some(Self {
-            x: parse_signed_token(x)?,
-            y: parse_signed_token(y)?,
-        })
+        Self::new(parse_signed_token(x)?, parse_signed_token(y)?)
     }
 
     /// Returns the generated road view id.
@@ -93,21 +101,21 @@ impl GridRoad {
 
     /// Returns the neighboring road after a cardinal move.
     #[must_use]
-    pub fn moved(self, direction: Direction) -> Option<Self> {
-        match direction {
-            Direction::North => Some(Self::new(self.x, self.y.checked_add(1)?)),
-            Direction::South => Some(Self::new(self.x, self.y.checked_sub(1)?)),
-            Direction::East => Some(Self::new(self.x.checked_add(1)?, self.y)),
-            Direction::West => Some(Self::new(self.x.checked_sub(1)?, self.y)),
-            Direction::Up | Direction::Down => None,
-        }
+    fn moved(self, direction: Direction) -> Option<GridRoadMoveTarget> {
+        let (x, y) = match direction {
+            Direction::North => (self.x, self.y.checked_add(1)?),
+            Direction::South => (self.x, self.y.checked_sub(1)?),
+            Direction::East => (self.x.checked_add(1)?, self.y),
+            Direction::West => (self.x.checked_sub(1)?, self.y),
+            Direction::Up | Direction::Down => return None,
+        };
+        Some(GridRoadMoveTarget::from_coordinates(x, y))
     }
 
     /// Player-facing road name.
     #[must_use]
     pub fn title(self) -> String {
         match (self.x, self.y) {
-            (0, 0) => "Harbor Square Grid".to_owned(),
             (0, _) => horizontal_road_name(self.y),
             (_, 0) => vertical_road_name(self.x),
             _ => format!(
@@ -170,10 +178,11 @@ impl GridRoad {
         .into_iter()
         .filter_map(|direction| {
             let target = self.moved(direction)?;
-            let (target, label) = if target == Self::new(0, 0) {
-                (origin.view_id().to_owned(), origin.label().to_owned())
-            } else {
-                (target.view_id(), target.title())
+            let (target, label) = match target {
+                GridRoadMoveTarget::Origin => {
+                    (origin.view_id().to_owned(), origin.label().to_owned())
+                }
+                GridRoadMoveTarget::Road(road) => (road.view_id(), road.title()),
             };
             Some(Exit {
                 direction,
@@ -199,6 +208,18 @@ impl GridRoad {
             "             |        <Me>        |".to_owned(),
             format!("        [{}]              [{}]", door(2), door(3)),
         ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GridRoadMoveTarget {
+    Origin,
+    Road(GridRoad),
+}
+
+impl GridRoadMoveTarget {
+    fn from_coordinates(x: i32, y: i32) -> Self {
+        GridRoad::new(x, y).map_or(Self::Origin, Self::Road)
     }
 }
 
@@ -228,7 +249,7 @@ impl GridParcelAddress {
         let x = parse_axis_code(x, "E", "W")?;
         let y = parse_axis_code(y, "N", "S")?;
         let door = door.parse::<u8>().ok()?;
-        Self::new(GridRoad::new(x, y), door)
+        Self::new(GridRoad::new(x, y)?, door)
     }
 
     /// Returns the canonical player-facing parcel id when the input is a grid doorplate.
@@ -292,19 +313,19 @@ impl GridParcelAddress {
         self.to_view_with_origin(GridOrigin::default_admission())
     }
 
-    /// Builds a runtime view for this generated building cell using a static origin view.
+    /// Builds a runtime view for this generated building cell.
+    ///
+    /// The origin parameter is accepted for symmetry with generated road construction; building
+    /// cells always exit to their front road.
     #[must_use]
-    pub fn to_view_with_origin(self, origin: GridOrigin<'_>) -> View {
+    pub fn to_view_with_origin(self, _origin: GridOrigin<'_>) -> View {
         let exit_direction = if self.door <= 2 {
             Direction::South
         } else {
             Direction::North
         };
-        let (exit_target, exit_label) = if self.road == GridRoad::new(0, 0) {
-            (origin.view_id().to_owned(), origin.label().to_owned())
-        } else {
-            (self.road.view_id(), self.road.title())
-        };
+        let exit_target = self.road.view_id();
+        let exit_label = self.road.title();
         View {
             id: self.view_id(),
             title: format!("Doorplate {}", self.parcel_id()),
@@ -413,10 +434,10 @@ fn origin_ascii_art(origin: GridOrigin<'_>) -> Vec<String> {
 
 fn origin_exits() -> Vec<Exit> {
     [
-        (Direction::North, GridRoad::new(0, 1)),
-        (Direction::South, GridRoad::new(0, -1)),
-        (Direction::West, GridRoad::new(-1, 0)),
-        (Direction::East, GridRoad::new(1, 0)),
+        (Direction::North, GridRoad::new_non_origin(0, 1)),
+        (Direction::South, GridRoad::new_non_origin(0, -1)),
+        (Direction::West, GridRoad::new_non_origin(-1, 0)),
+        (Direction::East, GridRoad::new_non_origin(1, 0)),
     ]
     .into_iter()
     .map(|(direction, road)| Exit {
@@ -520,23 +541,27 @@ fn short_label(label: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
 
+    fn road(x: i32, y: i32) -> GridRoad {
+        GridRoad::new(x, y).expect("valid generated road")
+    }
+
     #[test]
     fn road_view_id_round_trips_signed_coordinates() {
-        let road = GridRoad::new(-12, 34);
+        let road = road(-12, 34);
 
         assert_eq!(GridRoad::from_view_id(&road.view_id()), Some(road));
     }
 
     #[test]
     fn road_title_uses_road_names_not_doorplates() {
-        assert_eq!(GridRoad::new(1, 0).title(), "East 1 Rd.");
-        assert_eq!(GridRoad::new(0, -2).title(), "South 2 Rd.");
-        assert_eq!(GridRoad::new(2, 3).title(), "East 2 Rd. @ North 3 Rd.");
+        assert_eq!(road(1, 0).title(), "East 1 Rd.");
+        assert_eq!(road(0, -2).title(), "South 2 Rd.");
+        assert_eq!(road(2, 3).title(), "East 2 Rd. @ North 3 Rd.");
     }
 
     #[test]
     fn generated_road_exposes_doorplates_around_the_road() {
-        let view = GridRoad::new(1, 0).to_view();
+        let view = road(1, 0).to_view();
 
         assert_eq!(view.title, "East 1 Rd.");
         assert!(view.ascii_art.join("\n").contains("[E1-C0-01]"));
@@ -545,7 +570,7 @@ mod tests {
 
     #[test]
     fn generated_roads_return_to_static_harbor_square_at_origin() {
-        let view = GridRoad::new(1, 0).to_view();
+        let view = road(1, 0).to_view();
         let west = view
             .exits
             .iter()
@@ -558,8 +583,8 @@ mod tests {
 
     #[test]
     fn generated_roads_use_configured_origin_anchor() {
-        let view = GridRoad::new(1, 0)
-            .to_view_with_origin(GridOrigin::new("custom_arrival", "Custom Arrival"));
+        let view =
+            road(1, 0).to_view_with_origin(GridOrigin::new("custom_arrival", "Custom Arrival"));
         let west = view
             .exits
             .iter()
@@ -568,6 +593,31 @@ mod tests {
 
         assert_eq!(west.target, "custom_arrival");
         assert_eq!(west.label.as_deref(), Some("Custom Arrival"));
+    }
+
+    #[test]
+    fn generated_grid_rejects_plaza_origin_as_generated_road() {
+        assert_eq!(GridRoad::new(0, 0), None);
+        assert_eq!(GridRoad::from_view_id("grid_road_x0_y0"), None);
+        assert_eq!(grid_view("grid_road_x0_y0"), None);
+        assert_eq!(
+            generated_map_ascii_with_origin("grid_road_x0_y0", GridOrigin::default_admission()),
+            None
+        );
+        assert_eq!(generated_grid_label("grid_road_x0_y0"), None);
+    }
+
+    #[test]
+    fn generated_grid_rejects_plaza_origin_parcels() {
+        assert_eq!(GridParcelAddress::from_parcel_id("C0-C0-01"), None);
+        assert_eq!(GridParcelAddress::canonical_parcel_id("c0-c0-1"), None);
+        assert_eq!(GridParcelAddress::from_view_id("parcel_C0-C0-01"), None);
+        assert_eq!(grid_view("parcel_C0-C0-01"), None);
+        assert_eq!(
+            generated_map_ascii_with_origin("parcel_C0-C0-01", GridOrigin::default_admission()),
+            None
+        );
+        assert_eq!(generated_grid_label("parcel_C0-C0-01"), None);
     }
 
     #[test]
@@ -662,7 +712,7 @@ mod tests {
     fn parcel_id_round_trips_to_front_road() {
         let address = GridParcelAddress::from_parcel_id("E2-S3-04").expect("valid address");
 
-        assert_eq!(address.road(), GridRoad::new(2, -3));
+        assert_eq!(address.road(), road(2, -3));
         assert_eq!(address.front_view_id(), "grid_road_xp2_ym3");
         assert_eq!(
             GridParcelAddress::from_view_id(&address.view_id()),
