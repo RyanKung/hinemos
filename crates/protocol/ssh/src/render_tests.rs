@@ -64,7 +64,7 @@ fn fixed_indoor_views_keep_authored_ascii_map() {
 }
 
 #[test]
-fn admission_view_map_uses_configured_anchor() {
+fn ssh_map_renderer_does_not_synthesize_missing_maps() {
     let mut observation = JsonObservation {
         player_id: "player".to_owned(),
         view_id: "custom_admission".to_owned(),
@@ -80,19 +80,7 @@ fn admission_view_map_uses_configured_anchor() {
 
     apply_auto_ascii_map(&mut observation, 72, "custom_admission");
 
-    assert!(!observation.ascii_art.is_empty());
-    assert!(
-        observation
-            .ascii_art
-            .iter()
-            .any(|line| line.contains("[<Me>]"))
-    );
-    assert!(
-        observation
-            .ascii_art
-            .iter()
-            .any(|line| line.contains("north"))
-    );
+    assert!(observation.ascii_art.is_empty());
 }
 
 #[test]

@@ -31,7 +31,8 @@ pub use command::{
 };
 pub use grid_map::{
     GRID_PARCEL_VIEW_PREFIX, GRID_ROAD_VIEW_PREFIX, GridOrigin, GridParcelAddress, GridRoad,
-    grid_view, grid_view_with_origin, is_grid_view_id,
+    generated_grid_label, generated_map_ascii_with_origin, generated_origin_view, grid_view,
+    grid_view_with_origin, is_grid_view_id,
 };
 pub use ids::{EntityId, PlayerId, ViewId};
 pub use model::{

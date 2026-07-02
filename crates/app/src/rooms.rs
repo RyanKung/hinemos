@@ -1,4 +1,5 @@
 use crate::*;
+use hinemos_core::generated_grid_label;
 
 impl<S> AppService<S> {
     /// Returns true when a room binding should be visible given the current observation entities.
@@ -255,7 +256,11 @@ where
 }
 
 fn service_room_return_label(front_view_id: Option<&str>) -> Option<String> {
-    Some(match front_view_id? {
+    let view_id = front_view_id?;
+    if let Some(label) = generated_grid_label(view_id) {
+        return Some(label);
+    }
+    Some(match view_id {
         "arrival_street" => "Harbor Square".to_owned(),
         "west_main_street" => "West Hinemos Blvd".to_owned(),
         "official_street" => "East Hinemos Blvd".to_owned(),

@@ -357,6 +357,77 @@ pub fn grid_view_with_origin(view_id: &str, origin: GridOrigin<'_>) -> Option<Vi
     GridParcelAddress::from_view_id(view_id).map(|address| address.to_view_with_origin(origin))
 }
 
+/// Builds generated map ASCII for the grid origin or a generated grid view.
+#[must_use]
+pub fn generated_map_ascii_with_origin(
+    view_id: &str,
+    origin: GridOrigin<'_>,
+) -> Option<Vec<String>> {
+    if view_id == origin.view_id() {
+        return Some(origin_ascii_art(origin));
+    }
+    grid_view_with_origin(view_id, origin).map(|view| view.ascii_art)
+}
+
+/// Builds the generated origin view from a static anchor view.
+#[must_use]
+pub fn generated_origin_view(source: &View, origin: GridOrigin<'_>) -> Option<View> {
+    if source.id != origin.view_id() {
+        return None;
+    }
+    Some(View {
+        id: source.id.clone(),
+        title: origin.label().to_owned(),
+        description: source.description.clone(),
+        ascii_art: origin_ascii_art(origin),
+        exits: origin_exits(),
+        entities: source.entities.clone(),
+        layout: None,
+    })
+}
+
+/// Player-facing generated-grid label for a view id.
+#[must_use]
+pub fn generated_grid_label(view_id: &str) -> Option<String> {
+    if let Some(road) = GridRoad::from_view_id(view_id) {
+        return Some(road.title());
+    }
+    GridParcelAddress::from_view_id(view_id)
+        .map(|address| format!("Doorplate {}", address.parcel_id()))
+}
+
+fn origin_ascii_art(origin: GridOrigin<'_>) -> Vec<String> {
+    let label = short_label(origin.label(), 18);
+    vec![
+        "             North 1 Rd.".to_owned(),
+        "                  |".to_owned(),
+        "      [C0-N1-01]  |  [C0-N1-02]".to_owned(),
+        "        +----+----+----+----+".to_owned(),
+        format!("West 1 Rd. + {label:^18} + East 1 Rd."),
+        "        +----+----+----+----+".to_owned(),
+        "      [C0-S1-03]  |  [C0-S1-04]".to_owned(),
+        "                  |".to_owned(),
+        "             South 1 Rd.".to_owned(),
+    ]
+}
+
+fn origin_exits() -> Vec<Exit> {
+    [
+        (Direction::North, GridRoad::new(0, 1)),
+        (Direction::South, GridRoad::new(0, -1)),
+        (Direction::West, GridRoad::new(-1, 0)),
+        (Direction::East, GridRoad::new(1, 0)),
+    ]
+    .into_iter()
+    .map(|(direction, road)| Exit {
+        direction,
+        target: road.view_id(),
+        label: Some(road.title()),
+        requirements: Vec::new(),
+    })
+    .collect()
+}
+
 fn parse_signed_token(token: &str) -> Option<i32> {
     if token == "0" {
         return Some(0);
@@ -436,6 +507,15 @@ fn horizontal_road_name(y: i32) -> String {
     }
 }
 
+fn short_label(label: &str, max_chars: usize) -> String {
+    let mut output = label.chars().take(max_chars).collect::<String>();
+    if label.chars().count() > max_chars && max_chars > 1 {
+        output.pop();
+        output.push('~');
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,6 +568,94 @@ mod tests {
 
         assert_eq!(west.target, "custom_arrival");
         assert_eq!(west.label.as_deref(), Some("Custom Arrival"));
+    }
+
+    #[test]
+    fn generated_origin_map_draws_plaza_from_anchor_metadata() {
+        let ascii = generated_map_ascii_with_origin(
+            "custom_arrival",
+            GridOrigin::new("custom_arrival", "Custom Arrival"),
+        )
+        .expect("origin map");
+        let rendered = ascii.join("\n");
+
+        assert!(rendered.contains("+----+----+----+----+"));
+        assert!(rendered.contains("Custom Arrival"));
+        assert!(rendered.contains("North 1 Rd."));
+        assert!(rendered.contains("[C0-N1-01]"));
+    }
+
+    #[test]
+    fn generated_origin_view_replaces_static_map_and_exits() {
+        let source = View {
+            id: "custom_arrival".to_owned(),
+            title: "Custom Arrival".to_owned(),
+            description: "A static anchor.".to_owned(),
+            ascii_art: vec!["STALE MAP".to_owned()],
+            exits: vec![Exit {
+                direction: Direction::West,
+                target: "legacy_wilderness".to_owned(),
+                label: Some("wilderness".to_owned()),
+                requirements: Vec::new(),
+            }],
+            entities: vec!["board".to_owned()],
+            layout: None,
+        };
+        let view =
+            generated_origin_view(&source, GridOrigin::new("custom_arrival", "Custom Arrival"))
+                .expect("origin view");
+        let labels = view
+            .exits
+            .iter()
+            .filter_map(|exit| exit.label.as_deref())
+            .collect::<Vec<_>>();
+
+        assert!(!view.ascii_art.join("\n").contains("STALE MAP"));
+        assert_eq!(view.entities, vec!["board".to_owned()]);
+        assert_eq!(
+            labels,
+            vec!["North 1 Rd.", "South 1 Rd.", "West 1 Rd.", "East 1 Rd."]
+        );
+        assert!(
+            view.exits
+                .iter()
+                .any(|exit| exit.target == "grid_road_x0_yp1")
+        );
+        assert!(
+            view.exits
+                .iter()
+                .all(|exit| !exit.target.contains("legacy_wilderness"))
+        );
+    }
+
+    #[test]
+    fn generated_grid_label_is_derived_from_core_model() {
+        assert_eq!(
+            generated_grid_label("grid_road_xm2_yp3").as_deref(),
+            Some("West 2 Rd. @ North 3 Rd.")
+        );
+        assert_eq!(
+            generated_grid_label("parcel_W2-N3-04").as_deref(),
+            Some("Doorplate W2-N3-04")
+        );
+        assert_eq!(generated_grid_label("west_main_street"), None);
+    }
+
+    #[test]
+    fn generated_map_ascii_covers_roads_and_doorplates() {
+        let road =
+            generated_map_ascii_with_origin("grid_road_xm2_yp3", GridOrigin::default_admission())
+                .expect("road map")
+                .join("\n");
+        let parcel =
+            generated_map_ascii_with_origin("parcel_W2-N3-04", GridOrigin::default_admission())
+                .expect("parcel map")
+                .join("\n");
+
+        assert!(road.contains("West 2 Rd. @ North 3 Rd."));
+        assert!(road.contains("[W2-N3-04]"));
+        assert!(parcel.contains("[W2-N3-04]"));
+        assert!(parcel.contains("north to West 2 Rd. @ North 3 Rd."));
     }
 
     #[test]

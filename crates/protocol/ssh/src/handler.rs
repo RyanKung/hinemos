@@ -71,6 +71,15 @@ struct HandlerViewCommand<'a> {
     prompt: bool,
 }
 
+struct RoomBindingLineRequest<'a> {
+    app_identity: &'a AppIdentity,
+    room_binding: Option<&'a StoredRoomBinding>,
+    line: &'a str,
+    before_observation: &'a JsonObservation,
+    task_command: Option<&'a SemanticCommand>,
+    prompt: bool,
+}
+
 impl ConnectionHandler {
     pub(crate) fn new(
         shared: Arc<SharedState>,
@@ -257,12 +266,14 @@ impl ConnectionHandler {
             .handle_room_binding_line(
                 channel,
                 session,
-                &app_identity,
-                room_binding,
-                line,
-                &state.current_observation,
-                room_task_command.as_ref(),
-                prompt,
+                RoomBindingLineRequest {
+                    app_identity: &app_identity,
+                    room_binding,
+                    line,
+                    before_observation: &state.current_observation,
+                    task_command: room_task_command.as_ref(),
+                    prompt,
+                },
             )
             .await?
         {
@@ -429,33 +440,28 @@ impl ConnectionHandler {
         &self,
         channel: ChannelId,
         session: &mut Session,
-        app_identity: &AppIdentity,
-        room_binding: Option<&StoredRoomBinding>,
-        line: &str,
-        before_observation: &JsonObservation,
-        task_command: Option<&SemanticCommand>,
-        prompt: bool,
+        request: RoomBindingLineRequest<'_>,
     ) -> Result<bool> {
-        let Some(binding) = room_binding else {
+        let Some(binding) = request.room_binding else {
             return Ok(false);
         };
         let app = self.shared.app_service().await;
         if let Some(events) = app
-            .handle_room_line_for_binding(app_identity, binding, line)
+            .handle_room_line_for_binding(request.app_identity, binding, request.line)
             .await?
         {
             let task_events = observation_events_from_ui_events(&events);
             self.send_ui_events(channel, session, events).await?;
-            if let Some(command) = task_command {
+            if let Some(command) = request.task_command {
                 self.record_resident_task_step_after_current_view(
-                    app_identity,
-                    before_observation,
+                    request.app_identity,
+                    request.before_observation,
                     command,
                     task_events,
                 )
                 .await;
             }
-            send_prompt_if_requested(session, channel, prompt)?;
+            send_prompt_if_requested(session, channel, request.prompt)?;
             return Ok(true);
         }
         Ok(false)

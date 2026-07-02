@@ -506,6 +506,36 @@ mod tests {
         assert_eq!(west.label.as_deref(), Some("West Hinemos Blvd"));
         assert_eq!(observation.view_id, "west_main_street");
         assert_eq!(observation.title, "West Hinemos Blvd");
+        assert_eq!(
+            observation
+                .exits
+                .iter()
+                .filter_map(|exit| exit.label.as_deref())
+                .collect::<Vec<_>>(),
+            vec!["North 1 Rd.", "South 1 Rd.", "West 1 Rd.", "East 1 Rd."]
+        );
+        assert!(
+            observation
+                .ascii_art
+                .join("\n")
+                .contains("+----+----+----+----+")
+        );
+        assert!(!observation.ascii_art.join("\n").contains("shuttered"));
+        assert!(
+            !observation
+                .exits
+                .iter()
+                .any(|exit| exit.label.as_deref() == Some("wilderness"))
+        );
+        let north = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::North,
+                },
+            )
+            .expect("configured origin keeps generated north exit");
+        assert_eq!(north.view_id, "grid_road_x0_yp1");
 
         fs::remove_dir_all(world_dir).expect("remove temp world dir");
     }

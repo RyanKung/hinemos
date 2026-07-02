@@ -15,9 +15,10 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use hinemos_core::{
     ActionKind, DEFAULT_ADMISSION_VIEW_ID, Direction, Entity, EntityCollection, EntityId,
-    EntityObservation, EntityRef, ExitObservation, GridOrigin, JsonObservation, ObservationEvent,
-    PlayerId, PlayerState, SemanticCommand, TextObservation, View, ViewId, WorldDefinition,
-    WorldState, grid_view_with_origin, is_grid_view_id,
+    EntityKind, EntityObservation, EntityRef, ExitObservation, GridOrigin, JsonObservation,
+    ObservationEvent, PlayerId, PlayerState, SemanticCommand, TextObservation, View, ViewId,
+    WorldDefinition, WorldState, generated_map_ascii_with_origin, generated_origin_view,
+    grid_view_with_origin, is_grid_view_id,
 };
 use thiserror::Error;
 
@@ -388,7 +389,7 @@ impl GameRuntime {
             .map(|entity_id| entity_observation(&self.world, entity_id))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let ascii_art = render_ascii_art_for_view(&view);
+        let ascii_art = self.render_ascii_art_for_view(&view, &entities);
 
         Ok(JsonObservation {
             player_id: player_id.to_owned(),
@@ -549,16 +550,38 @@ impl GameRuntime {
 
     fn view(&self, view_id: &str) -> Result<View, RuntimeError> {
         if let Some(view) = self.world.views.get(view_id) {
+            let origin = self.grid_origin();
+            if let Some(origin_view) = generated_origin_view(view, origin) {
+                return Ok(origin_view);
+            }
             return Ok(view.clone());
         }
-        grid_view_with_origin(
-            view_id,
-            GridOrigin::new(
-                &self.world.grid_origin.view_id,
-                &self.world.grid_origin.label,
-            ),
+        grid_view_with_origin(view_id, self.grid_origin())
+            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
+    }
+
+    fn render_ascii_art_for_view(
+        &self,
+        view: &View,
+        entities: &[EntityObservation],
+    ) -> Vec<String> {
+        let mut ascii_art = generated_map_ascii_with_origin(&view.id, self.grid_origin())
+            .unwrap_or_else(|| view.ascii_art.clone());
+        if self.generated_map_applies_to(&view.id) {
+            append_visible_map_objects(&mut ascii_art, entities);
+        }
+        ascii_art
+    }
+
+    fn generated_map_applies_to(&self, view_id: &str) -> bool {
+        view_id == self.world.grid_origin.view_id || is_grid_view_id(view_id)
+    }
+
+    fn grid_origin(&self) -> GridOrigin<'_> {
+        GridOrigin::new(
+            &self.world.grid_origin.view_id,
+            &self.world.grid_origin.label,
         )
-        .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
     }
 
     fn player(&self, player_id: &str) -> Result<Arc<Mutex<PlayerState>>, RuntimeError> {
@@ -644,6 +667,17 @@ fn entity_observation(
         description: entity.description.clone(),
         actions: entity.actions.clone(),
     })
+}
+
+fn append_visible_map_objects(ascii_art: &mut Vec<String>, entities: &[EntityObservation]) {
+    let names = entities
+        .iter()
+        .filter(|entity| matches!(entity.kind, EntityKind::Item | EntityKind::Object))
+        .map(|entity| entity.name.as_str())
+        .collect::<Vec<_>>();
+    if !names.is_empty() {
+        ascii_art.push(format!("objects: {}", names.join(", ")));
+    }
 }
 
 fn inspect_entity_message(entity: &Entity) -> String {
@@ -733,10 +767,6 @@ fn message(text: String) -> ObservationEvent {
     ObservationEvent::Message { text }
 }
 
-fn render_ascii_art_for_view(view: &View) -> Vec<String> {
-    view.ascii_art.clone()
-}
-
 fn default_grid_origin_view_id(world: &WorldState) -> ViewId {
     world
         .players
@@ -766,7 +796,7 @@ mod tests {
     use std::path::Path;
 
     use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-    use hinemos_core::{Direction, EntityRef, ObservationEvent, SemanticCommand};
+    use hinemos_core::{Direction, EntityRef, Exit, ObservationEvent, SemanticCommand};
 
     use super::*;
 
@@ -875,6 +905,86 @@ mod tests {
         assert_eq!(west.label.as_deref(), Some("Custom Arrival"));
         assert_eq!(observation.view_id, "custom_arrival");
         assert_eq!(observation.title, "Custom Arrival");
+        assert_eq!(
+            observation
+                .exits
+                .iter()
+                .filter_map(|exit| exit.label.as_deref())
+                .collect::<Vec<_>>(),
+            vec!["North 1 Rd.", "South 1 Rd.", "West 1 Rd.", "East 1 Rd."]
+        );
+    }
+
+    #[test]
+    fn origin_map_is_generated_instead_of_read_from_world_ascii() {
+        let mut world = sample_runtime().world().expect("world snapshot");
+        let arrival = world.views.get_mut("arrival_street").expect("arrival view");
+        arrival.ascii_art = vec!["STALE DATA MAP".to_owned()];
+        arrival.exits = vec![Exit {
+            direction: Direction::West,
+            target: "legacy_wilderness".to_owned(),
+            label: Some("wilderness".to_owned()),
+            requirements: Vec::new(),
+        }];
+        let runtime = GameRuntime::new(world);
+
+        let observation = runtime
+            .observe_json(LOCAL_PLAYER_ID, Vec::new())
+            .expect("origin observation");
+        let rendered = observation.ascii_art.join("\n");
+        let exit_labels = observation
+            .exits
+            .iter()
+            .filter_map(|exit| exit.label.as_deref())
+            .collect::<Vec<_>>();
+
+        assert_eq!(observation.view_id, "arrival_street");
+        assert!(!rendered.contains("STALE DATA MAP"));
+        assert!(rendered.contains("+----+----+----+----+"));
+        assert!(rendered.contains("North 1 Rd."));
+        assert!(rendered.contains("[C0-N1-01]"));
+        assert!(rendered.contains("objects: bulletin board"));
+        assert_eq!(
+            exit_labels,
+            vec!["North 1 Rd.", "South 1 Rd.", "West 1 Rd.", "East 1 Rd."]
+        );
+        assert!(
+            !observation
+                .exits
+                .iter()
+                .any(|exit| exit.label.as_deref() == Some("wilderness"))
+        );
+    }
+
+    #[test]
+    fn generated_town_map_does_not_require_authored_ascii() {
+        let mut world = sample_runtime().world().expect("world snapshot");
+        world
+            .views
+            .get_mut("arrival_street")
+            .expect("arrival view")
+            .ascii_art = Vec::new();
+        let runtime = GameRuntime::new(world);
+
+        let origin = runtime
+            .observe_json(LOCAL_PLAYER_ID, Vec::new())
+            .expect("origin observation");
+        let road = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::East,
+                },
+            )
+            .expect("move to generated road");
+        let parcel = runtime
+            .observe_view_json(LOCAL_PLAYER_ID, "parcel_E1-C0-01", Vec::new())
+            .expect("generated parcel observation");
+
+        assert!(origin.ascii_art.join("\n").contains("Harbor Square"));
+        assert!(road.ascii_art.join("\n").contains("East 1 Rd."));
+        assert!(road.ascii_art.join("\n").contains("[E1-C0-01]"));
+        assert!(parcel.ascii_art.join("\n").contains("[E1-C0-01]"));
     }
 
     #[test]

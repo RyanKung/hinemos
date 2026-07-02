@@ -168,7 +168,7 @@ fn load_players(dir: &Path) -> Result<HashMap<String, PlayerState>, WorldLoadErr
 mod tests {
     use crate::{Direction, Entity, EntityKind, Exit, PlayerState, Requirement, View, WorldState};
 
-    use super::{WorldLoadError, load_world_from_dir, validate_world};
+    use super::{WorldLoadError, validate_world};
 
     fn valid_world() -> WorldState {
         WorldState {
@@ -247,20 +247,9 @@ mod tests {
     }
 
     #[test]
-    fn sample_world_has_ascii_art_for_every_view() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(2)
-            .expect("core crate should live under workspace/crates/core");
-        let world = load_world_from_dir(root.join("worlds/sample")).expect("load sample world");
+    fn validation_accepts_views_without_authored_ascii_art() {
+        let world = valid_world();
 
-        let missing = world
-            .views
-            .values()
-            .filter(|view| view.ascii_art.iter().all(|line| line.trim().is_empty()))
-            .map(|view| view.id.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(missing.is_empty(), "views missing ASCII art: {missing:?}");
+        validate_world(&world).expect("authored ASCII is not required for map completeness");
     }
 }
