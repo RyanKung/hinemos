@@ -8,6 +8,8 @@ mod handler_helpers;
 mod handler_io;
 #[path = "handler_observation.rs"]
 mod handler_observation;
+#[path = "handler_task.rs"]
+mod handler_task;
 mod session;
 
 use crate::auth::AuthIdentity;
@@ -17,6 +19,7 @@ use crate::render::*;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use handler_helpers::*;
+use handler_task::observation_events_from_ui_events;
 use hinemos_app::{
     AppCommandContext, AppIdentity, AppRequest, AppViewCommandContext, HungerGateOutcome,
     PendingAdmissionCommandOutcome, RecentPresenceUser, RoomBindingKindView, UiEvent,
@@ -217,7 +220,7 @@ impl ConnectionHandler {
         session: &mut Session,
         prompt: bool,
     ) -> Result<()> {
-        let Some(mut state) = self
+        let Some(state) = self
             .prepare_command_line_state(channel, session, prompt)
             .await?
         else {
@@ -235,12 +238,6 @@ impl ConnectionHandler {
             return Ok(());
         }
 
-        let app = self.shared.app_service().await;
-        app.restrict_pending_admission_observation_for_player(
-            &mut state.current_observation,
-            &state.identity.player_id,
-        )
-        .await?;
         let room_binding = state.room_context.room_binding.as_ref();
         if self
             .handle_hunger_for_room_binding_line(
@@ -255,8 +252,18 @@ impl ConnectionHandler {
         {
             return Ok(());
         }
+        let room_task_command = self.parse_command_line_for_task(&state.current_observation, line);
         if self
-            .handle_room_binding_line(channel, session, &app_identity, room_binding, line, prompt)
+            .handle_room_binding_line(
+                channel,
+                session,
+                &app_identity,
+                room_binding,
+                line,
+                &state.current_observation,
+                room_task_command.as_ref(),
+                prompt,
+            )
             .await?
         {
             return Ok(());
@@ -387,6 +394,9 @@ impl ConnectionHandler {
             send_prompt_if_requested(session, channel, prompt)?;
             return Ok(None);
         }
+        let current_observation = self
+            .enrich_observation_for_context(current_observation, &room_context)
+            .await?;
 
         Ok(Some(CommandLineState {
             identity,
@@ -422,6 +432,8 @@ impl ConnectionHandler {
         app_identity: &AppIdentity,
         room_binding: Option<&StoredRoomBinding>,
         line: &str,
+        before_observation: &JsonObservation,
+        task_command: Option<&SemanticCommand>,
         prompt: bool,
     ) -> Result<bool> {
         let Some(binding) = room_binding else {
@@ -432,7 +444,17 @@ impl ConnectionHandler {
             .handle_room_line_for_binding(app_identity, binding, line)
             .await?
         {
+            let task_events = observation_events_from_ui_events(&events);
             self.send_ui_events(channel, session, events).await?;
+            if let Some(command) = task_command {
+                self.record_resident_task_step_after_current_view(
+                    app_identity,
+                    before_observation,
+                    command,
+                    task_events,
+                )
+                .await;
+            }
             send_prompt_if_requested(session, channel, prompt)?;
             return Ok(true);
         }
@@ -661,7 +683,15 @@ impl ConnectionHandler {
             .await
         {
             Ok(Some(events)) => {
+                let task_events = observation_events_from_ui_events(&events);
                 self.send_ui_events(channel, session, events).await?;
+                self.record_resident_task_step_after_current_view(
+                    request.app_identity,
+                    request.current_observation,
+                    request.command,
+                    task_events,
+                )
+                .await;
                 send_prompt_if_requested(session, channel, request.prompt)?;
                 Ok(true)
             }
@@ -726,20 +756,7 @@ impl ConnectionHandler {
                 return Ok(());
             }
         };
-        let app = self.shared.app_service().await;
-        if let Err(error) = app
-            .record_resident_task_step(
-                &identity.user,
-                &identity.player_id,
-                before_observation,
-                &command,
-                &observation,
-            )
-            .await
-        {
-            send_command_error(session, channel, error.into(), prompt)?;
-            return Ok(());
-        }
+        let observation_for_task = observation.clone();
         if let Err(error) = self
             .send_ui_events(
                 channel,
@@ -757,6 +774,14 @@ impl ConnectionHandler {
             send_command_error(session, channel, error, prompt)?;
             return Ok(());
         }
+        let app_identity = AppIdentity::new(identity.user.clone(), identity.player_id.clone());
+        self.record_resident_task_step_after_observation(
+            &app_identity,
+            before_observation,
+            &command,
+            observation_for_task,
+        )
+        .await;
         if should_quit {
             session.exit_status_request(channel, 0)?;
             session.close(channel)?;

@@ -22,10 +22,11 @@ pub use command::{
     SHOP_MAILING_LIST_SLUG_MAX_CHARS, SHOP_MAILING_LIST_SUBJECT_MAX_CHARS,
     SHOP_MAILING_LIST_TITLE_MAX_CHARS, SHOP_MAILING_LISTS_PER_PARCEL_MAX, SemanticCommand,
     SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
-    extension_commands, role_card_intro_is_valid, role_card_name_is_valid,
-    shop_badge_description_is_valid, shop_badge_note_is_valid, shop_badge_slug_is_valid,
-    shop_badge_title_is_valid, shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
-    shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
+    extension_command_input_matches_template, extension_commands, role_card_intro_is_valid,
+    role_card_name_is_valid, shop_badge_description_is_valid, shop_badge_note_is_valid,
+    shop_badge_slug_is_valid, shop_badge_title_is_valid, shop_mailing_list_body_is_valid,
+    shop_mailing_list_slug_is_valid, shop_mailing_list_subject_is_valid,
+    shop_mailing_list_title_is_valid,
 };
 pub use ids::{EntityId, PlayerId, ViewId};
 pub use model::{

@@ -1,6 +1,7 @@
 use crate::{
     BadgeAction, BuildAction, InboxAction, LandAction, PayAction, SemanticCommand, SettingsAction,
     ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
+    extension_command_input_matches_template,
 };
 
 /// Returns true when `command` is permitted by an observed command template.
@@ -55,7 +56,7 @@ pub(crate) fn command_matches_template(
             SemanticCommand::Extension {
                 input: template, ..
             },
-        ) => extension_template_matches(template, input),
+        ) => extension_command_input_matches_template(template, input),
         (SemanticCommand::Memory { rest }, SemanticCommand::Memory { rest: template }) => {
             template_string_matches(rest, template)
         }
@@ -365,26 +366,4 @@ fn subscription_action_matches(action: &SubscriptionAction, template: &Subscript
         }
         _ => false,
     }
-}
-
-fn extension_template_matches(template: &str, input: &str) -> bool {
-    let template = template.trim();
-    let input = input.trim();
-    if !template.contains('<') && !template.contains('|') {
-        return template.eq_ignore_ascii_case(input);
-    }
-    let template_literals = template
-        .split_whitespace()
-        .take_while(|token| !token.contains('<') && !token.contains('|'))
-        .map(|token| token.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    if template_literals.is_empty() {
-        return false;
-    }
-    let input_literals = input
-        .split_whitespace()
-        .take(template_literals.len())
-        .map(|token| token.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    template_literals == input_literals && input.split_whitespace().count() > input_literals.len()
 }

@@ -19,8 +19,20 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
 
-    let output =
-        run_ssh_batch_with_key(host, port, &user, &key, &["/look", "/memory self", "/quit"]);
+    let output = run_ssh_batch_with_key(
+        host,
+        port,
+        &user,
+        &key,
+        &[
+            "/go east",
+            "/enter H3",
+            "/position list",
+            "/go south",
+            "/memory self",
+            "/quit",
+        ],
+    );
     assert_contains(
         &output,
         "Resident context:",
@@ -58,8 +70,13 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     );
     assert_contains(
         &output,
-        "\"commandLine\":\"/look\"",
-        "task step is tied to the real world command that just ran",
+        "\"commandLine\":\"/go south\"",
+        "memory output sees the visible command that just ran before it",
+    );
+    assert_contains(
+        &output,
+        "Sent to room service room-workers_society",
+        "room command is handled through the visible room surface",
     );
 
     let player_id = test_database.query_value(&format!(
@@ -84,7 +101,7 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
          limit 1"
     ));
     assert_eq!(
-        latest_snapshot_view, "arrival_street",
+        latest_snapshot_view, "official_street",
         "resident context refresh writes the latest visible world snapshot"
     );
     let live_meter_types = test_database.query_value(&format!(
@@ -115,8 +132,29 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
          limit 1"
     ));
     assert_eq!(
-        latest_step_shape, "/look:number:number:array",
+        latest_step_shape, "/memory self:number:number:array",
         "resident task loop persists an evaluated command transition"
+    );
+    let command_history = test_database.query_value(&format!(
+        "select coalesce(string_agg(entry->>'commandLine', ','), '')
+         from (
+             select current_state
+             from agent_self_models
+             where agent_id = '{player_id}'
+             order by version desc
+             limit 1
+         ) latest,
+         jsonb_array_elements(latest.current_state->'commandHistory') entry"
+    ));
+    assert_contains(
+        &command_history,
+        "/position list",
+        "resident task history records a room command",
+    );
+    assert_contains(
+        &command_history,
+        "/memory self",
+        "resident task history records a visible app-view command",
     );
 
     terminate(&mut server);
