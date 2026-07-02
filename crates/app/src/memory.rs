@@ -67,12 +67,13 @@ where
                 previous_model.current_state(),
                 observation,
                 &snapshot,
+                &self.config,
             )
             .await?;
         Ok(MemoryResult {
             text: format!(
                 "{}\r\n",
-                render_resident_context(&task, &snapshot, &self_model, &commitments)
+                render_resident_context(&task, &snapshot, &self_model, &commitments, &self.config)
             ),
         })
     }
@@ -120,6 +121,7 @@ where
             after,
             &evaluation,
             &task.command_history,
+            &self.config,
         );
         self.store
             .record_self_model_state(agent_id, &current_state)
@@ -148,6 +150,14 @@ where
                 .filter(|memory| !commitment_status_is_paid(memory))
                 .collect::<Vec<_>>();
             render_memory_view("Open commitments", None, &open)
+        } else if let Some(report) = rest.strip_prefix("report ") {
+            let report = report.trim();
+            if report.is_empty() {
+                "Usage: /memory report <text>".to_owned()
+            } else {
+                self.store.record_daily_report(agent_id, report).await?;
+                "Daily report recorded.".to_owned()
+            }
         } else if let Some(person) = rest.strip_prefix("recall ") {
             let person = person.trim();
             if person.is_empty() {
@@ -191,7 +201,7 @@ where
         task: &TaskMode,
     ) -> Result<S::SelfModel, E> {
         let identity = default_resident_identity(username, task);
-        let current_state = default_resident_current_state();
+        let current_state = default_resident_current_state(&self.config);
         let style = default_resident_style();
         self.store
             .ensure_self_model(agent_id, &identity, &current_state, &style)
@@ -204,9 +214,10 @@ where
         previous_current_state: &Value,
         observation: &JsonObservation,
         snapshot: &TaskSnapshot,
+        config: &WorldAppConfig,
     ) -> Result<S::SelfModel, E> {
         let current_state =
-            resident_current_state(Some(previous_current_state), observation, snapshot);
+            resident_current_state(Some(previous_current_state), observation, snapshot, config);
         self.store
             .record_self_model_state(agent_id, &current_state)
             .await
@@ -387,6 +398,9 @@ pub trait MemoryStore {
         current_state: &Value,
     ) -> Result<Self::SelfModel, Self::Error>;
 
+    /// Records an in-world daily report authored by the resident.
+    async fn record_daily_report(&self, agent_id: &str, content: &str) -> Result<(), Self::Error>;
+
     /// Searches memory atoms.
     async fn search_memory_atoms(
         &self,
@@ -461,16 +475,20 @@ fn default_resident_identity(username: &str, task: &TaskMode) -> Value {
     json!({
         "name": name,
         "self": format!("I am {name}, a Hinemos resident acting through this SSH session."),
-        "longTerm": "Build wealth, standing, useful relationships, and a life that is not lonely or boring in Hinemos.",
+        "longTerm": "Find other residents, form useful relationships, keep a coherent self-model, and record daily reports in Hinemos.",
         "taskObjective": task.objective.as_str(),
     })
 }
 
-fn default_resident_current_state() -> Value {
+fn default_resident_current_state(config: &WorldAppConfig) -> Value {
     json!({
-        "shortTerm": "Stay able to act: find work, earn MARK, buy food when hungry, keep useful commitments, and seek contact when lonely or bored.",
-        "priority": "Prefer actions that increase MARK, standing, useful commitments, useful social contact, or relief from loneliness and boredom.",
-        "constraint": "Treat hunger as a hard constraint. If hunger blocks ordinary action, recover through in-game work and food.",
+        "shortTerm": "Wander through visible streets, search for residents, and write a daily report when the virtual day turns.",
+        "priority": "Prefer visible commands that find residents, create useful social contact, write daily reports, or change stale state.",
+        "constraint": "The baseline world disables hunger, jobs, and shop loops. Do not route through money, food, or work unless the world visibly enables them.",
+        "virtualTime": {
+            "dayLengthSeconds": config.virtual_day_seconds,
+            "dailyReportCommand": "/memory report <text>",
+        },
     })
 }
 
@@ -478,8 +496,9 @@ fn resident_current_state(
     previous_current_state: Option<&Value>,
     observation: &JsonObservation,
     snapshot: &TaskSnapshot,
+    config: &WorldAppConfig,
 ) -> Value {
-    let mut current_state = default_resident_current_state();
+    let mut current_state = default_resident_current_state(config);
     if let Some(state) = current_state.as_object_mut() {
         if let Some(previous_current_state) = previous_current_state {
             preserve_resident_loop_state(state, previous_current_state);
@@ -509,9 +528,14 @@ fn resident_current_state_after_step(
     observation: &JsonObservation,
     evaluation: &TaskStepEvaluation,
     command_history: &[TaskCommandRecord],
+    config: &WorldAppConfig,
 ) -> Value {
-    let mut current_state =
-        resident_current_state(Some(previous_current_state), observation, &evaluation.after);
+    let mut current_state = resident_current_state(
+        Some(previous_current_state),
+        observation,
+        &evaluation.after,
+        config,
+    );
     if let Some(state) = current_state.as_object_mut() {
         state.insert(
             "shortTerm".to_owned(),
@@ -555,7 +579,7 @@ fn resident_step_summary(evaluation: &TaskStepEvaluation) -> Value {
 
 fn short_term_after_step(evaluation: &TaskStepEvaluation) -> String {
     format!(
-        "Last action {} scored {} reward. Continue through visible commands that increase MARK, standing, commitments, useful contact, or relief from hunger, loneliness, and boredom.",
+        "Last action {} scored {} reward. Continue through visible commands that find residents, create useful contact, write a daily report, or relieve loneliness and boredom.",
         evaluation.command.line(),
         evaluation.reward
     )
@@ -725,7 +749,7 @@ fn usize_to_i64_saturating(value: usize) -> i64 {
 fn default_resident_style() -> Value {
     json!({
         "autonomy": "Use only visible Hinemos commands and room replies. Do not invent a private agent protocol.",
-        "loop": "Observe the room, choose an available in-game command, read the result, and continue.",
+        "loop": "Observe the room, move or talk through available in-game commands, record daily reports, read the result, and continue.",
     })
 }
 
@@ -743,6 +767,7 @@ fn render_resident_context(
     snapshot: &TaskSnapshot,
     model: &impl SelfModelView,
     commitments: &[impl MemoryAtomView],
+    config: &WorldAppConfig,
 ) -> String {
     let mut lines = Vec::new();
     lines.push("Resident context:".to_owned());
@@ -752,14 +777,18 @@ fn render_resident_context(
         task.objective
     ));
     lines.push(
-        "Boundary: Use only visible Hinemos commands and room replies. If hunger blocks action, recover through in-game work and food. Do not drift into lonely or boring repetition when social progress is visible."
+        "Boundary: Use only visible Hinemos commands and room replies. Keep the loop in-world: move, inspect, talk, read memory, write daily reports, then continue."
             .to_owned(),
     );
     lines.push(format!(
-        "Memory: /memory self, /memory commitments. Open commitments: {}.",
+        "Memory: /memory self, /memory commitments, /memory report <text>. Open commitments: {}.",
         commitments.len()
     ));
-    lines.push(format!("Hunger: {}.", hunger_context(snapshot.hunger)));
+    lines.push(format!(
+        "Virtual time: one in-world day is {} real seconds; write a daily report when the day turns.",
+        config.virtual_day_seconds
+    ));
+    lines.push(hunger_policy_context(task.constraints.hunger, snapshot.hunger).to_owned());
     lines.push(format!(
         "Social drives: contact={}, standing={}, commitments={}, loneliness={}, boredom={}.",
         metric_text(snapshot.social_contact_units),
@@ -789,10 +818,21 @@ fn hunger_context(hunger: HungerSignal) -> &'static str {
     }
 }
 
+fn hunger_policy_context(policy: HungerPolicy, hunger: HungerSignal) -> String {
+    match policy {
+        HungerPolicy::Ignore => format!(
+            "Survival: hunger is disabled for this baseline; observed hunger is {}.",
+            hunger_context(hunger)
+        ),
+        HungerPolicy::RequireRecoveryWhenGated => format!("Hunger: {}.", hunger_context(hunger)),
+    }
+}
+
 fn memory_help() -> &'static str {
     "Memory commands:\n\
      /memory self - show self-model and self memories\n\
      /memory commitments - show open obligations\n\
+     /memory report <text> - write a daily resident report\n\
      /memory recall <person> - show relationship memory\n\
      /memory search <query> - search remembered events and memories"
 }

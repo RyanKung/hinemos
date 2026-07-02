@@ -477,6 +477,9 @@ impl ConnectionHandler {
         if !trimmed.starts_with('/') {
             return Ok(false);
         }
+        if !self.shared.app_config().await.hunger_loop_enabled {
+            return Ok(false);
+        }
         let app = self.shared.app_service().await;
         let consumed_by_room = if binding.is_commercial_parcel() {
             app.commercial_parcel_consumes_input(binding, trimmed)
@@ -509,6 +512,9 @@ impl ConnectionHandler {
         command: &SemanticCommand,
         prompt: bool,
     ) -> Result<bool> {
+        if !self.shared.app_config().await.hunger_loop_enabled {
+            return Ok(false);
+        }
         let app = self.shared.app_service().await;
         self.handle_hunger_outcome(
             channel,

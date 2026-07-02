@@ -14,8 +14,18 @@ fn workers_society_finish_credits_wallet_across_room_runner_restart() {
     let port = free_local_port();
     let user = format!("worker{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
+    let world = prepare_builtin_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
     let player_id = test_database.query_value(&format!(
@@ -118,8 +128,18 @@ async fn hungry_player_buys_bread_through_blackstone_and_resumes_interacting() {
     let port = free_local_port();
     let user = format!("hungry{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
+    let world = prepare_builtin_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
     let player_id = test_database.query_value(&format!(
@@ -219,8 +239,18 @@ fn plain_ssh_user_can_become_hungry_and_broke_then_work_for_bread() {
     let user = format!("broke_hungry{}_{}", std::process::id(), epoch_seconds());
     let sink = format!("broke_sink{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
+    let world = prepare_builtin_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
     let _sink_key = admitted_key(&temp, host, port, &sink);

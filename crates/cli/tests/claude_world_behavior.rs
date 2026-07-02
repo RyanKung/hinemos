@@ -75,8 +75,18 @@ fn scripted_llm_protocol_check_for_built_in_rooms_over_ssh() {
     let user = format!("room_probe_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
     let rooms_log = temp.path.join("hinemos-rooms.log");
+    let world = prepare_builtin_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
     let mut rooms = spawn_hinemos_rooms(&root, &rooms_log, &test_database.url, 100);
@@ -192,8 +202,18 @@ fn llm_recovers_seeded_hungry_broke_state_from_game_only() {
     let user = format!("hungry_llm_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
     let rooms_log = temp.path.join("hinemos-rooms.log");
+    let world = prepare_builtin_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, ssh_port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port: ssh_port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, ssh_port, &mut server, &server_log);
     let key = admitted_key(&temp, host, ssh_port, &user);
     seed_hungry_broke_recovery_state(&test_database, &user);

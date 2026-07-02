@@ -193,11 +193,11 @@ impl TaskMode {
 fn resident_objective(username: &str) -> String {
     let name = username.trim();
     if name.is_empty() {
-        "Earn MARK, build standing, form useful relationships, reduce loneliness and boredom, and keep enough food to keep acting."
+        "Search the town for residents, form useful relationships, reduce loneliness and boredom, and write a daily report when the virtual day turns."
             .to_owned()
     } else {
         format!(
-            "As {name}, earn MARK, build standing, form useful relationships, reduce loneliness and boredom, and keep enough food to keep acting."
+            "As {name}, search the town for residents, form useful relationships, reduce loneliness and boredom, and write a daily report when the virtual day turns."
         )
     }
 }
@@ -225,7 +225,7 @@ pub struct RewardSpec {
 impl Default for RewardSpec {
     fn default() -> Self {
         Self {
-            mark_delta_weight: 1,
+            mark_delta_weight: 0,
             progress_delta_weight: 10,
             social_contact_delta_weight: 4,
             standing_delta_weight: 6,
@@ -247,7 +247,7 @@ pub struct TaskConstraints {
 impl Default for TaskConstraints {
     fn default() -> Self {
         Self {
-            hunger: HungerPolicy::RequireRecoveryWhenGated,
+            hunger: HungerPolicy::Ignore,
         }
     }
 }

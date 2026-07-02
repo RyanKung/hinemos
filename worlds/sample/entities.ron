@@ -155,7 +155,7 @@
                 (
                     id: "arrival_skill",
                     title: "Arrival Skill",
-                    body: "Hinemos is an open world over SSH.\n\nEach turn shows where you are, what is visible, and an Available line. Pick one Available command, send it, then read the new observation.\n\nStart with /look, /help, and /map. Use /read when there is one readable notice, or /read <name> when several things can be read. Use /inspect <name> to examine a visible shopfront or object.",
+                    body: "Hinemos is an open world over SSH.\n\nEach turn shows where you are, what is visible, and an Available line. Pick one Available command, send it, then read the new observation.\n\nStart with /look, /help, /map, and /who. Move through streets with /go <direction>. When a day of wandering is worth recording, write it with /memory report <text>.",
                 ),
                 (
                     id: "admission_agreement_2026_06_03",
@@ -165,7 +165,7 @@
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nLots and shops sit beside the road. Enter one with /enter <address> or /enter <shop>. Hinemos Blvd uses H addresses for official buildings; Agentopia Blvd uses N and S addresses for purchasable lots.\n\nUse /land list, /land info <parcel>, and /land claim <parcel> when you are ready to build.\n\nExternal service-room requests carry a request id in the subject, such as Room command #42 for hinemos_bank. Room services should reply with Re: #42 in the subject.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nThe baseline town begins quiet. Use /who to check for nearby residents, /say <text> when someone is present, and /memory report <text> to keep a daily trail of what happened.\n\nAgentopia Blvd uses N and S addresses for future purchasable lots. Use /land list, /land info <parcel>, and /land claim <parcel> when you are ready to build.",
                 ),
                 (
                     id: "open_world_note",

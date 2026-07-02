@@ -26,9 +26,9 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         &key,
         &[
             "/go east",
-            "/enter H3",
-            "/position list",
-            "/go south",
+            "/who",
+            "/go east",
+            "/memory report I walked the east road and found no residents yet.",
             "/memory self",
             "/memory self",
             "/quit",
@@ -46,13 +46,18 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     );
     assert_contains(
         &output,
-        "Memory: /memory self, /memory commitments.",
+        "Memory: /memory self, /memory commitments, /memory report <text>.",
         "resident context points humans and agents to existing memory commands",
     );
     assert_contains(
         &output,
         "Social drives:",
         "resident context exposes live social and subjective meters",
+    );
+    assert_contains(
+        &output,
+        "Virtual time: one in-world day is 300 real seconds",
+        "resident context exposes the configured virtual day length",
     );
     assert_contains(
         &output,
@@ -71,13 +76,23 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     );
     assert_contains(
         &output,
-        "\"commandLine\":\"/go south\"",
-        "memory output sees the visible command that just ran before it",
+        "\"commandLine\":\"/memory report I walked the east road and found no residents yet.\"",
+        "memory output sees the visible daily report command that just ran before it",
     );
     assert_contains(
         &output,
-        "Sent to room service room-workers_society",
-        "room command is handled through the visible room surface",
+        "Daily report recorded.",
+        "resident can write a daily report through the visible memory surface",
+    );
+    assert_not_contains(
+        &output,
+        "Sent to room service",
+        "baseline resident path should not depend on service rooms",
+    );
+    assert_not_contains(
+        &output,
+        "Workers Society front",
+        "baseline resident path should not expose builtin shopfront entities",
     );
 
     let player_id = test_database.query_value(&format!(
@@ -88,7 +103,7 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
          from agent_self_models
          where agent_id = '{player_id}'
            and identity->>'name' = '{user}'
-           and identity->>'taskObjective' like 'As {user}, earn MARK%'"
+           and identity->>'taskObjective' like 'As {user}, search the town%'"
     ));
     assert_ne!(
         model_count, "0",
@@ -102,7 +117,7 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
          limit 1"
     ));
     assert_eq!(
-        latest_snapshot_view, "official_street",
+        latest_snapshot_view, "east_wilderness",
         "resident context refresh writes the latest visible world snapshot"
     );
     let live_meter_types = test_database.query_value(&format!(
@@ -146,6 +161,25 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         memory_self_step_count, "2",
         "regression path must record repeated memory introspection commands"
     );
+    let daily_report_emotion = test_database.query_value(&format!(
+        "select concat_ws(':',
+             object->'emotion'->>'status',
+             coalesce(object->'emotion'->'primaryMood'->>'mood', 'missing'),
+             coalesce(jsonb_typeof(object->'emotion'->'activeMoods'), 'missing'))
+         from memory_atoms
+         where agent_id = '{player_id}'
+           and kind = 'self'
+           and predicate = 'last_daily_report'
+         limit 1"
+    ));
+    assert_ne!(
+        daily_report_emotion, "scored:missing:array",
+        "DADOES should provide a primary mood for the daily report"
+    );
+    assert!(
+        daily_report_emotion.starts_with("scored:"),
+        "daily report should be scored by DADOES, got {daily_report_emotion}"
+    );
     let event_signature_chars = test_database.query_value(&format!(
         "select char_length(current_state->'lastSnapshot'->>'eventSignature')
          from agent_self_models
@@ -173,8 +207,8 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     ));
     assert_contains(
         &command_history,
-        "/position list",
-        "resident task history records a room command",
+        "/memory report I walked the east road and found no residents yet.",
+        "resident task history records the in-world daily report command",
     );
     assert_contains(
         &command_history,

@@ -14,8 +14,18 @@ fn built_in_rooms_reply_through_room_runner_end_to_end() {
     let port = free_local_port();
     let user = format!("rooms{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
+    let world = prepare_builtin_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
 

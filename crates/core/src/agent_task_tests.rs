@@ -3,14 +3,12 @@ use crate::{Direction, ExitObservation, ObservationEvent, ViewId};
 use super::*;
 
 #[test]
-fn resident_task_has_default_goal_and_hunger_constraint() {
+fn resident_task_has_default_social_report_goal_and_ignores_hunger() {
     let task = TaskMode::resident("alice");
 
-    assert!(task.objective.starts_with("As alice, earn MARK"));
-    assert_eq!(
-        task.constraints.hunger,
-        HungerPolicy::RequireRecoveryWhenGated
-    );
+    assert!(task.objective.starts_with("As alice, search the town"));
+    assert!(task.objective.contains("write a daily report"));
+    assert_eq!(task.constraints.hunger, HungerPolicy::Ignore);
     assert!(task.command_history.is_empty());
 }
 
@@ -101,7 +99,11 @@ fn hunger_gate_allows_memory_context_reads() {
 
 #[test]
 fn hunger_gate_allows_available_room_extensions_and_rejects_ordinary_action() {
-    let task = TaskMode::new("make money").expect("task");
+    let task = TaskMode::new("make money")
+        .expect("task")
+        .with_constraints(TaskConstraints {
+            hunger: HungerPolicy::RequireRecoveryWhenGated,
+        });
     let observation = observation(vec![
         SemanticCommand::Say {
             text: String::new(),
@@ -242,7 +244,7 @@ fn reward_prefers_social_progress_over_isolated_survival() {
     let isolated = task.evaluate_step(&before, command.clone(), isolated_after);
     let social = task.evaluate_step(&before, command, social_after);
 
-    assert_eq!(isolated.reward, 25);
+    assert_eq!(isolated.reward, 0);
     assert_eq!(social.reward, 29);
     assert!(social.reward > isolated.reward);
 }

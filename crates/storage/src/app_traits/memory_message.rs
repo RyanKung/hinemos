@@ -1,4 +1,8 @@
 use super::*;
+use crate::{NewMemoryAtom, NewMemoryEvent};
+use dadoes::{DadoesClassifier, EmotionClassifier, Mood, MoodScore, train_seed_model};
+use serde_json::json;
+use std::sync::OnceLock;
 
 impl MemoryAtomView for StoredMemoryAtom {
     fn subject(&self) -> &str {
@@ -112,6 +116,44 @@ impl MemoryStore for PgStorage {
         PgStorage::record_self_model_state(self, agent_id, current_state).await
     }
 
+    async fn record_daily_report(&self, agent_id: &str, content: &str) -> Result<(), Self::Error> {
+        let emotion = daily_report_emotion(content);
+        let event = PgStorage::append_memory_event(
+            self,
+            NewMemoryEvent {
+                agent_id: agent_id.to_owned(),
+                source: "daily_report".to_owned(),
+                event_type: "resident_daily_report".to_owned(),
+                actors: json!([agent_id]),
+                content: content.to_owned(),
+                world_refs: json!({}),
+                salience: 0.7,
+            },
+        )
+        .await?;
+        PgStorage::upsert_memory_atom(
+            self,
+            NewMemoryAtom {
+                agent_id: agent_id.to_owned(),
+                kind: "self".to_owned(),
+                subject: agent_id.to_owned(),
+                predicate: "last_daily_report".to_owned(),
+                object: json!({
+                    "eventId": event.id,
+                    "content": content,
+                    "emotion": emotion.object,
+                }),
+                summary: format!("Daily report: {content}"),
+                evidence_event_ids: vec![event.id],
+                confidence: 0.8,
+                importance: 0.7,
+                emotional_valence: emotion.valence,
+            },
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn search_memory_atoms(
         &self,
         agent_id: &str,
@@ -149,6 +191,81 @@ impl MemoryStore for PgStorage {
     ) -> Result<Option<Self::SocialEdge>, Self::Error> {
         PgStorage::social_edge(self, agent_id, target_id).await
     }
+}
+
+struct DailyReportEmotion {
+    object: Value,
+    valence: f64,
+}
+
+fn daily_report_emotion(content: &str) -> DailyReportEmotion {
+    let Some((classifier, model_source)) = dadoes_classifier() else {
+        return DailyReportEmotion {
+            object: json!({
+                "status": "unavailable",
+                "model": "dadoes",
+            }),
+            valence: 0.0,
+        };
+    };
+    let analysis = classifier.classify(content);
+    let primary = analysis.primary_mood();
+    let active_moods = classifier
+        .active_moods(&analysis)
+        .map(mood_score_json)
+        .collect::<Vec<_>>();
+    DailyReportEmotion {
+        object: json!({
+            "status": "scored",
+            "model": "dadoes",
+            "modelSource": model_source,
+            "threshold": classifier.active_mood_threshold(),
+            "primaryMood": primary.map(mood_score_json),
+            "activeMoods": active_moods,
+        }),
+        valence: primary.map_or(0.0, mood_valence),
+    }
+}
+
+fn dadoes_classifier() -> Option<(&'static DadoesClassifier, &'static str)> {
+    static CLASSIFIER: OnceLock<Option<(DadoesClassifier, &'static str)>> = OnceLock::new();
+    CLASSIFIER
+        .get_or_init(load_dadoes_classifier)
+        .as_ref()
+        .map(|(classifier, source)| (classifier, *source))
+}
+
+fn load_dadoes_classifier() -> Option<(DadoesClassifier, &'static str)> {
+    DadoesClassifier::from_default_model()
+        .map(|classifier| (classifier, "default_checkpoint"))
+        .or_else(|_| {
+            train_seed_model()
+                .map(DadoesClassifier::from_model)
+                .map(|classifier| (classifier, "seed_fallback"))
+        })
+        .ok()
+}
+
+fn mood_score_json(score: MoodScore) -> Value {
+    json!({
+        "mood": score.mood.as_str(),
+        "score": score.score,
+    })
+}
+
+fn mood_valence(score: MoodScore) -> f64 {
+    let polarity = match score.mood {
+        Mood::Happy | Mood::Satisfied | Mood::Excited | Mood::Curious | Mood::Hopeful => 1.0,
+        Mood::Anxious
+        | Mood::Frustrated
+        | Mood::Sad
+        | Mood::Angry
+        | Mood::Lonely
+        | Mood::Bored
+        | Mood::Tired => -1.0,
+        Mood::Neutral => 0.0,
+    };
+    polarity * f64::from(score.score)
 }
 
 impl MessageStore for PgStorage {

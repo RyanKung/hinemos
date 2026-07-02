@@ -218,6 +218,8 @@ impl<S> AppService<S> {
         let Some(registrations) = Self::read_service_room_registrations(world_dir)? else {
             return Ok(());
         };
+        let config = Self::load_world_app_config(world_dir)?;
+        let registrations = service_room_registrations_enabled_by_config(registrations, &config);
         storage
             .disable_service_rooms_except(Self::registered_service_room_view_ids(&registrations))
             .await?;
@@ -376,6 +378,23 @@ impl<S> AppService<S> {
 
 fn default_enabled() -> bool {
     true
+}
+
+fn service_room_registrations_enabled_by_config(
+    registrations: Vec<ServiceRoomRegistration>,
+    config: &WorldAppConfig,
+) -> Vec<ServiceRoomRegistration> {
+    if config.builtin_service_rooms_enabled {
+        return registrations;
+    }
+    registrations
+        .into_iter()
+        .filter(|registration| !service_room_registration_is_builtin(registration))
+        .collect()
+}
+
+fn service_room_registration_is_builtin(registration: &ServiceRoomRegistration) -> bool {
+    registration.builtin_handler.is_some()
 }
 
 fn normalize_enter_token(token: &str) -> String {
