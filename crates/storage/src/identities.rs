@@ -7,6 +7,7 @@ use hinemos_app::RoleCardUpdate;
 use hinemos_core::{role_card_intro_is_valid, role_card_name_is_valid};
 
 use crate::accounts::player_id_from_password_username;
+use crate::parcels::canonical_parcel_id;
 use crate::room_mail::{room_mail_player_id, room_mail_user};
 use crate::{
     PgStorage, StorageError, StoredAccountSettings, StoredAdmission, StoredIdentity,
@@ -328,9 +329,10 @@ impl PgStorage {
                 "room mail auth token must not be empty".to_owned(),
             ));
         }
+        let parcel_id = canonical_parcel_id(parcel_id);
         let mut tx = self.pool.begin().await?;
-        let room_user = room_mail_user(parcel_id);
-        let room_player_id = room_mail_player_id(parcel_id);
+        let room_user = room_mail_user(parcel_id.as_ref());
+        let room_player_id = room_mail_player_id(parcel_id.as_ref());
         let parcel = sqlx::query(
             r#"
             update commercial_parcels
@@ -343,14 +345,14 @@ impl PgStorage {
                       coalesce(room_player_id, $4) as room_player_id
             "#,
         )
-        .bind(parcel_id)
+        .bind(parcel_id.as_ref())
         .bind(owner_player_id)
         .bind(&room_user)
         .bind(&room_player_id)
         .fetch_optional(&mut *tx)
         .await?;
         let Some(parcel) = parcel else {
-            return Err(StorageError::NotParcelOwner(parcel_id.to_owned()));
+            return Err(StorageError::NotParcelOwner(parcel_id.into_owned()));
         };
         let room_user: String = parcel.get("room_user");
         let room_player_id: String = parcel.get("room_player_id");

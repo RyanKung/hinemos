@@ -5,6 +5,7 @@ use hinemos_core::{
 };
 
 use crate::accounts::{PaymentTarget, resolve_payment_target};
+use crate::parcels::canonical_parcel_id;
 use crate::{PgStorage, StorageError, StoredShopBadgeAward, StoredShopBadgeDefinition};
 
 impl PgStorage {
@@ -263,11 +264,11 @@ impl PgStorage {
         slug: &str,
         owner_player_id: &str,
     ) -> Result<StoredShopBadgeDefinition, StorageError> {
-        self.owned_built_parcel(parcel_id, owner_player_id).await?;
-        self.shop_badge_by_parcel_slug(parcel_id, slug)
+        let parcel = self.owned_built_parcel(parcel_id, owner_player_id).await?;
+        self.shop_badge_by_parcel_slug(&parcel.parcel_id, slug)
             .await?
             .ok_or_else(|| StorageError::ShopBadgeNotFound {
-                parcel_id: parcel_id.to_owned(),
+                parcel_id: parcel.parcel_id,
                 slug: slug.to_owned(),
             })
     }
@@ -277,6 +278,7 @@ impl PgStorage {
         parcel_id: &str,
         slug: &str,
     ) -> Result<Option<StoredShopBadgeDefinition>, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
         let row = sqlx::query_as::<_, StoredShopBadgeDefinition>(
             r#"
             select b.id, b.parcel_id, b.owner_player_id, b.slug, b.title, b.description,
@@ -294,7 +296,7 @@ impl PgStorage {
               and b.slug = $2
             "#,
         )
-        .bind(parcel_id)
+        .bind(parcel_id.as_ref())
         .bind(slug)
         .bind(SHOP_BADGE_AWARD_ACTIVE)
         .fetch_optional(&self.pool)
@@ -303,6 +305,7 @@ impl PgStorage {
     }
 
     async fn shop_badge_count(&self, parcel_id: &str) -> Result<usize, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
         let count = sqlx::query_scalar::<_, i64>(
             r#"
             select count(*)::bigint
@@ -310,7 +313,7 @@ impl PgStorage {
             where parcel_id = $1
             "#,
         )
-        .bind(parcel_id)
+        .bind(parcel_id.as_ref())
         .fetch_one(&self.pool)
         .await?;
         usize::try_from(count).map_err(|_| {

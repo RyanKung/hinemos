@@ -14,9 +14,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 use hinemos_core::{
-    ActionKind, Direction, Entity, EntityCollection, EntityId, EntityObservation, EntityRef,
-    ExitObservation, JsonObservation, ObservationEvent, PlayerId, PlayerState, SemanticCommand,
-    TextObservation, View, ViewId, WorldDefinition, WorldState, grid_view, is_grid_view_id,
+    ActionKind, DEFAULT_ADMISSION_VIEW_ID, Direction, Entity, EntityCollection, EntityId,
+    EntityObservation, EntityRef, ExitObservation, JsonObservation, ObservationEvent, PlayerId,
+    PlayerState, SemanticCommand, TextObservation, View, ViewId, WorldDefinition, WorldState,
+    grid_view_with_origin, is_grid_view_id,
 };
 use thiserror::Error;
 
@@ -70,6 +71,7 @@ struct StaticWorld {
     views: HashMap<ViewId, View>,
     entities: HashMap<EntityId, hinemos_core::Entity>,
     template_players: HashMap<PlayerId, PlayerState>,
+    grid_origin_view_id: ViewId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +83,13 @@ impl GameRuntime {
     /// Creates a runtime from an initial world state.
     #[must_use]
     pub fn new(world: WorldState) -> Self {
+        let grid_origin_view_id = default_grid_origin_view_id(&world);
+        Self::new_with_grid_origin(world, grid_origin_view_id)
+    }
+
+    /// Creates a runtime from an initial world state and explicit generated-grid origin.
+    #[must_use]
+    pub fn new_with_grid_origin(world: WorldState, grid_origin_view_id: impl Into<ViewId>) -> Self {
         let definition: WorldDefinition = world.definition();
         let snapshot = world.runtime_snapshot();
         let views = definition
@@ -104,6 +113,7 @@ impl GameRuntime {
             views: definition.views,
             entities: definition.entities,
             template_players: snapshot.players,
+            grid_origin_view_id: grid_origin_view_id.into(),
         };
 
         Self {
@@ -533,7 +543,8 @@ impl GameRuntime {
         if let Some(view) = self.world.views.get(view_id) {
             return Ok(view.clone());
         }
-        grid_view(view_id).ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
+        grid_view_with_origin(view_id, &self.world.grid_origin_view_id)
+            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
     }
 
     fn player(&self, player_id: &str) -> Result<Arc<Mutex<PlayerState>>, RuntimeError> {
@@ -712,6 +723,21 @@ fn render_ascii_art_for_view(view: &View) -> Vec<String> {
     view.ascii_art.clone()
 }
 
+fn default_grid_origin_view_id(world: &WorldState) -> ViewId {
+    world
+        .players
+        .get(hinemos_core::sample_world::LOCAL_PLAYER_ID)
+        .map(|player| player.current_view.clone())
+        .or_else(|| {
+            world
+                .views
+                .contains_key(DEFAULT_ADMISSION_VIEW_ID)
+                .then(|| DEFAULT_ADMISSION_VIEW_ID.to_owned())
+        })
+        .or_else(|| world.views.keys().next().cloned())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -784,6 +810,20 @@ mod tests {
         assert_eq!(second.title, "East 2 Rd.");
         assert!(second.description.contains("no fixed edge"));
         assert_eq!(harbor.view_id, "arrival_street");
+    }
+
+    #[test]
+    fn generated_grid_uses_configured_origin_anchor() {
+        let runtime = GameRuntime::new_with_grid_origin(
+            sample_runtime().world().expect("world snapshot"),
+            "custom_arrival",
+        );
+
+        let target = runtime
+            .exit_target("grid_road_xp1_y0", Direction::West)
+            .expect("grid exit");
+
+        assert_eq!(target, "custom_arrival");
     }
 
     #[test]

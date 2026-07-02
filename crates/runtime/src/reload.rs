@@ -16,11 +16,24 @@ impl GameRuntime {
         &self,
         dir: impl Into<PathBuf>,
     ) -> Result<Self, ReloadError> {
+        let grid_origin_view_id = self.world.grid_origin_view_id.clone();
+        self.reload_from_world_dir_preserving_players_with_grid_origin(dir, grid_origin_view_id)
+    }
+
+    /// Reloads world files from `dir` while updating the generated-grid origin.
+    pub fn reload_from_world_dir_preserving_players_with_grid_origin(
+        &self,
+        dir: impl Into<PathBuf>,
+        grid_origin_view_id: impl Into<String>,
+    ) -> Result<Self, ReloadError> {
         let dir = dir.into();
         let fresh = sample_world::load_world_from_dir(&dir)?;
         let old_world = self.world()?;
         let merged = merge_world_reload(fresh, &old_world.players);
-        Ok(GameRuntime::new(merged))
+        Ok(GameRuntime::new_with_grid_origin(
+            merged,
+            grid_origin_view_id.into(),
+        ))
     }
 }
 

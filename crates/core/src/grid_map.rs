@@ -104,6 +104,12 @@ impl GridRoad {
     /// Builds a runtime view for this generated road.
     #[must_use]
     pub fn to_view(self) -> View {
+        self.to_view_with_origin(DEFAULT_ADMISSION_VIEW_ID)
+    }
+
+    /// Builds a runtime view for this generated road using a static origin view.
+    #[must_use]
+    pub fn to_view_with_origin(self, origin_view_id: &str) -> View {
         let parcels = self.parcel_addresses();
         View {
             id: self.view_id(),
@@ -113,13 +119,13 @@ impl GridRoad {
                 self.title()
             ),
             ascii_art: self.ascii_art(&parcels),
-            exits: self.exits(),
+            exits: self.exits(origin_view_id),
             entities: Vec::new(),
             layout: None,
         }
     }
 
-    fn exits(self) -> Vec<Exit> {
+    fn exits(self, origin_view_id: &str) -> Vec<Exit> {
         [
             Direction::North,
             Direction::South,
@@ -130,10 +136,7 @@ impl GridRoad {
         .filter_map(|direction| {
             let target = self.moved(direction)?;
             let (target, label) = if target == Self::new(0, 0) {
-                (
-                    DEFAULT_ADMISSION_VIEW_ID.to_owned(),
-                    "Harbor Square".to_owned(),
-                )
+                (origin_view_id.to_owned(), "Harbor Square".to_owned())
             } else {
                 (target.view_id(), target.title())
             };
@@ -155,12 +158,11 @@ impl GridRoad {
                 .unwrap_or_else(|| "-".to_owned())
         };
         vec![
-            "------------------------------------------------------------".to_owned(),
-            format!("                    {}", self.title().to_ascii_uppercase()),
-            "------------------------------------------------------------".to_owned(),
-            format!("        [{}] | {} | [{}]", door(0), self.title(), door(1)),
-            "                 |        <Me>        |".to_owned(),
-            format!("        [{}] |                  | [{}]", door(2), door(3)),
+            format!("        [{}]              [{}]", door(0), door(1)),
+            "             |                    |".to_owned(),
+            format!("-------------+ {} +-------------", self.title()),
+            "             |        <Me>        |".to_owned(),
+            format!("        [{}]              [{}]", door(2), door(3)),
         ]
     }
 }
@@ -192,6 +194,12 @@ impl GridParcelAddress {
         let y = parse_axis_code(y, "N", "S")?;
         let door = door.parse::<u8>().ok()?;
         Self::new(GridRoad::new(x, y), door)
+    }
+
+    /// Returns the canonical player-facing parcel id when the input is a grid doorplate.
+    #[must_use]
+    pub fn canonical_parcel_id(parcel_id: &str) -> Option<String> {
+        Self::from_parcel_id(parcel_id).map(Self::parcel_id)
     }
 
     /// Parses a generated parcel room view id.
@@ -246,10 +254,21 @@ impl GridParcelAddress {
     /// Builds a runtime view for this generated building cell.
     #[must_use]
     pub fn to_view(self) -> View {
+        self.to_view_with_origin(DEFAULT_ADMISSION_VIEW_ID)
+    }
+
+    /// Builds a runtime view for this generated building cell using a static origin view.
+    #[must_use]
+    pub fn to_view_with_origin(self, origin_view_id: &str) -> View {
         let exit_direction = if self.door <= 2 {
             Direction::South
         } else {
             Direction::North
+        };
+        let exit_target = if self.road == GridRoad::new(0, 0) {
+            origin_view_id.to_owned()
+        } else {
+            self.road.view_id()
         };
         View {
             id: self.view_id(),
@@ -260,11 +279,10 @@ impl GridParcelAddress {
                 self.road.title()
             ),
             ascii_art: vec![
-                "------------------------------------------------------------".to_owned(),
-                format!("                    DOORPLATE {}", self.parcel_id()),
-                "------------------------------------------------------------".to_owned(),
                 format!("                 [{}]", self.parcel_id()),
+                "                    |".to_owned(),
                 "                   <Me>".to_owned(),
+                "                    |".to_owned(),
                 format!(
                     "             {} to {}",
                     exit_direction.as_str(),
@@ -273,7 +291,7 @@ impl GridParcelAddress {
             ],
             exits: vec![Exit {
                 direction: exit_direction,
-                target: self.road.view_id(),
+                target: exit_target,
                 label: Some(self.road.title()),
                 requirements: Vec::new(),
             }],
@@ -292,10 +310,17 @@ pub fn is_grid_view_id(view_id: &str) -> bool {
 /// Builds a generated grid view when the id is in the grid namespace.
 #[must_use]
 pub fn grid_view(view_id: &str) -> Option<View> {
+    grid_view_with_origin(view_id, DEFAULT_ADMISSION_VIEW_ID)
+}
+
+/// Builds a generated grid view using a static origin view id when the id is in the grid namespace.
+#[must_use]
+pub fn grid_view_with_origin(view_id: &str, origin_view_id: &str) -> Option<View> {
     if let Some(road) = GridRoad::from_view_id(view_id) {
-        return Some(road.to_view());
+        return Some(road.to_view_with_origin(origin_view_id));
     }
-    GridParcelAddress::from_view_id(view_id).map(GridParcelAddress::to_view)
+    GridParcelAddress::from_view_id(view_id)
+        .map(|address| address.to_view_with_origin(origin_view_id))
 }
 
 fn parse_signed_token(token: &str) -> Option<i32> {
@@ -418,6 +443,18 @@ mod tests {
     }
 
     #[test]
+    fn generated_roads_use_configured_origin_anchor() {
+        let view = GridRoad::new(1, 0).to_view_with_origin("custom_arrival");
+        let west = view
+            .exits
+            .iter()
+            .find(|exit| exit.direction == Direction::West)
+            .expect("west exit");
+
+        assert_eq!(west.target, "custom_arrival");
+    }
+
+    #[test]
     fn parcel_id_round_trips_to_front_road() {
         let address = GridParcelAddress::from_parcel_id("E2-S3-04").expect("valid address");
 
@@ -426,6 +463,14 @@ mod tests {
         assert_eq!(
             GridParcelAddress::from_view_id(&address.view_id()),
             Some(address)
+        );
+    }
+
+    #[test]
+    fn parcel_id_canonicalizes_human_input() {
+        assert_eq!(
+            GridParcelAddress::canonical_parcel_id("e2-s3-4").as_deref(),
+            Some("E2-S3-04")
         );
     }
 }

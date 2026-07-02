@@ -150,6 +150,50 @@ async fn storage_with_built_shop() -> (TestDatabase, PgStorage) {
 }
 
 #[tokio::test]
+async fn badge_actions_canonicalize_generated_grid_parcel_ids() {
+    if skip_without_database() {
+        return;
+    }
+    let (db, storage) = storage_with_built_shop().await;
+    storage
+        .claim_commercial_parcel("e1-c0-1", "owner", "player:owner")
+        .await
+        .expect("claim generated parcel");
+    db.query_value(
+        "update commercial_parcels
+         set status = 'built',
+             title = 'Grid Shop'
+         where parcel_id = 'E1-C0-01'",
+    );
+
+    let badge = storage
+        .create_shop_badge("E1-C0-1", "player:owner", "patron", "Grid Patron", None)
+        .await
+        .expect("create grid badge");
+    assert_eq!(badge.parcel_id, "E1-C0-01");
+
+    let award = storage
+        .award_shop_badge(
+            "e1-c0-1",
+            "patron",
+            "owner",
+            "player:owner",
+            "customer",
+            None,
+        )
+        .await
+        .expect("award grid badge");
+    assert_eq!(award.parcel_id, "E1-C0-01");
+
+    let visible = storage
+        .shop_badges_for_player("player:customer", 10)
+        .await
+        .expect("visible grid badge");
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].parcel_id, "E1-C0-01");
+}
+
+#[tokio::test]
 async fn badge_award_lifecycle_is_persisted_and_idempotent() {
     if skip_without_database() {
         return;

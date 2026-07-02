@@ -13,7 +13,7 @@ use crate::accounts::{
     player_account_id, resolve_payment_target,
 };
 use crate::parcels::{
-    ensure_grid_parcel, fetch_parcel_by_id, virtual_grid_parcel_by_view,
+    canonical_parcel_id, ensure_grid_parcel, fetch_parcel_by_id, virtual_grid_parcel_by_view,
     virtual_grid_parcels_for_front_view,
 };
 use crate::room_mail::{room_mail_player_id, room_mail_user};
@@ -712,7 +712,8 @@ impl PgStorage {
         owner_user: &str,
         owner_player_id: &str,
     ) -> Result<StoredParcel, StorageError> {
-        ensure_grid_parcel(&self.pool, parcel_id).await?;
+        let parcel_id = canonical_parcel_id(parcel_id);
+        ensure_grid_parcel(&self.pool, parcel_id.as_ref()).await?;
         let updated = sqlx::query_as::<_, StoredParcel>(
             r#"
             update commercial_parcels
@@ -729,11 +730,11 @@ impl PgStorage {
                       status, title, description, style, operator_prompt, custom_commands
             "#,
         )
-        .bind(parcel_id)
+        .bind(parcel_id.as_ref())
         .bind(owner_user)
         .bind(owner_player_id)
-        .bind(room_mail_user(parcel_id))
-        .bind(room_mail_player_id(parcel_id))
+        .bind(room_mail_user(parcel_id.as_ref()))
+        .bind(room_mail_player_id(parcel_id.as_ref()))
         .fetch_optional(&self.pool)
         .await?;
 
@@ -741,9 +742,9 @@ impl PgStorage {
             return Ok(parcel);
         }
 
-        let existing = self.commercial_parcel(parcel_id).await?;
+        let existing = self.commercial_parcel(parcel_id.as_ref()).await?;
         if existing.owner_player_id.is_some() {
-            Err(StorageError::ParcelAlreadyOwned(parcel_id.to_owned()))
+            Err(StorageError::ParcelAlreadyOwned(parcel_id.into_owned()))
         } else {
             Ok(existing)
         }
@@ -756,6 +757,7 @@ impl PgStorage {
         owner_player_id: &str,
         target: &str,
     ) -> Result<StoredParcel, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
         let mut tx = self.pool.begin().await?;
         let target = resolve_payment_target(&mut tx, target).await?;
         let updated = sqlx::query_as::<_, StoredParcel>(
@@ -771,7 +773,7 @@ impl PgStorage {
                       status, title, description, style, operator_prompt, custom_commands
             "#,
         )
-        .bind(parcel_id)
+        .bind(parcel_id.as_ref())
         .bind(owner_player_id)
         .bind(&target.username)
         .bind(&target.player_id)
@@ -779,7 +781,7 @@ impl PgStorage {
         .await?;
         tx.commit().await?;
 
-        updated.ok_or_else(|| StorageError::NotParcelOwner(parcel_id.to_owned()))
+        updated.ok_or_else(|| StorageError::NotParcelOwner(parcel_id.into_owned()))
     }
 
     /// Updates one build sheet field for an owned parcel.

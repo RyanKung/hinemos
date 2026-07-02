@@ -2,7 +2,10 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use hinemos_core::SHOP_MAILING_LISTS_PER_PARCEL_MAX;
+use hinemos_core::{
+    PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT,
+    SHOP_MAILING_LISTS_PER_PARCEL_MAX,
+};
 use hinemos_storage::{PgStorage, StorageError};
 
 static TEST_DATABASE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -152,6 +155,106 @@ async fn storage_with_built_shop() -> (TestDatabase, PgStorage) {
          where parcel_id = 'N1'",
     );
     (db, storage)
+}
+
+#[tokio::test]
+async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
+    if skip_without_database() {
+        return;
+    }
+    let db = TestDatabase::create();
+    let storage = PgStorage::connect(&db.url).await.expect("connect");
+    storage.migrate().await.expect("migrate");
+
+    let virtual_parcels = storage
+        .commercial_parcels_by_front_view("grid_road_xp1_y0")
+        .await
+        .expect("virtual parcels");
+    let parcel_ids = virtual_parcels
+        .iter()
+        .map(|parcel| parcel.parcel_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        parcel_ids,
+        vec!["E1-C0-01", "E1-C0-02", "E1-C0-03", "E1-C0-04"]
+    );
+    assert!(
+        virtual_parcels
+            .iter()
+            .all(|parcel| parcel.status == PARCEL_STATUS_VACANT)
+    );
+
+    let virtual_detail = storage
+        .commercial_parcel("e1-c0-1")
+        .await
+        .expect("canonical virtual parcel detail");
+    assert_eq!(virtual_detail.parcel_id, "E1-C0-01");
+    assert_eq!(virtual_detail.status, PARCEL_STATUS_VACANT);
+
+    let claimed = storage
+        .claim_commercial_parcel("e1-c0-1", "owner", "player:owner")
+        .await
+        .expect("claim canonicalized parcel");
+    assert_eq!(claimed.parcel_id, "E1-C0-01");
+    assert_eq!(claimed.status, PARCEL_STATUS_CLAIMED);
+
+    let mail = storage
+        .set_room_mail_auth_token("E1-C0-1", "player:owner", "token")
+        .await
+        .expect("room mail token uses canonical parcel");
+    assert_eq!(mail.username, "room-E1-C0-01");
+
+    let stored = storage
+        .commercial_parcel("E1-C0-1")
+        .await
+        .expect("canonical stored parcel detail");
+    assert_eq!(stored.parcel_id, "E1-C0-01");
+    assert_eq!(stored.owner_player_id.as_deref(), Some("player:owner"));
+    assert_eq!(stored.room_user.as_deref(), Some("room-E1-C0-01"));
+
+    db.query_value(
+        "update commercial_parcels
+         set status = 'built',
+             title = 'Grid Shop'
+         where parcel_id = 'E1-C0-01'",
+    );
+    let list = storage
+        .create_shop_mailing_list("E1-C0-1", "player:owner", "updates", "Grid Updates")
+        .await
+        .expect("mailing-list create canonicalizes parcel id");
+    assert_eq!(list.parcel_id, "E1-C0-01");
+    let listed = storage
+        .shop_mailing_lists("e1-c0-1", "player:owner")
+        .await
+        .expect("mailing-list list canonicalizes parcel id");
+    assert_eq!(listed.len(), 1);
+    let subscription = storage
+        .subscribe_shop_mailing_list("E1-C0-1", "updates", "customer", "player:customer")
+        .await
+        .expect("mailing-list subscribe canonicalizes parcel id");
+    assert_eq!(subscription.parcel_id, "E1-C0-01");
+
+    let by_view = storage
+        .commercial_parcel_by_view("parcel_E1-C0-01")
+        .await
+        .expect("parcel by view")
+        .expect("generated parcel binding");
+    assert_eq!(by_view.parcel_id, "E1-C0-01");
+    assert_eq!(by_view.owner_player_id.as_deref(), Some("player:owner"));
+
+    let overlaid = storage
+        .commercial_parcels_by_front_view("grid_road_xp1_y0")
+        .await
+        .expect("front-view overlay");
+    let claimed_overlay = overlaid
+        .iter()
+        .find(|parcel| parcel.parcel_id == "E1-C0-01")
+        .expect("claimed parcel overlay");
+    assert_eq!(
+        claimed_overlay.owner_player_id.as_deref(),
+        Some("player:owner")
+    );
+    assert_eq!(claimed_overlay.status, PARCEL_STATUS_BUILT);
 }
 
 #[tokio::test]

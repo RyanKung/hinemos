@@ -54,6 +54,7 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
     storage.migrate().await?;
     let world = load_world_from_dir(&cli.world)
         .with_context(|| format!("failed to load world from {}", cli.world.display()))?;
+    let app_config = AppService::<PgStorage>::load_world_app_config(&cli.world)?;
     AppService::<PgStorage>::load_service_room_registrations(
         &storage,
         &cli.world,
@@ -61,7 +62,7 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
         None::<&()>,
     )
     .await?;
-    let runtime = RuntimeHandle::new(world);
+    let runtime = RuntimeHandle::new_with_grid_origin(world, app_config.admission_view_id.clone());
 
     let host_key = load_or_create_host_key(&cli.host_key)
         .with_context(|| format!("failed to load host key from {}", cli.host_key.display()))?;
@@ -88,9 +89,8 @@ pub async fn run_daemon(args: SshArgs) -> Result<()> {
         auth_policy: PublicKeyAuthPolicy,
         storage,
         mail_domain,
-        app_config: Mutex::new(WorldAppConfig::default()),
+        app_config: Mutex::new(app_config),
     });
-    shared.reload_app_config_from_world_dir(&cli.world).await?;
 
     #[cfg(unix)]
     {
@@ -569,15 +569,13 @@ impl SharedState {
         *self.app_config.lock().await = app_config;
     }
 
-    async fn reload_app_config_from_world_dir(&self, world_dir: &Path) -> Result<()> {
-        let app_config = AppService::<PgStorage>::load_world_app_config(world_dir)?;
-        self.set_app_config(app_config).await;
-        Ok(())
-    }
-
     async fn reload_world_from_dir(&self, world_dir: &Path) -> Result<()> {
+        let app_config = AppService::<PgStorage>::load_world_app_config(world_dir)?;
         self.runtime
-            .reload_from_world_dir_preserving_players(world_dir)
+            .reload_from_world_dir_preserving_players(
+                world_dir,
+                app_config.admission_view_id.clone(),
+            )
             .await?;
         let world = load_world_from_dir(world_dir)
             .with_context(|| format!("failed to load world from {}", world_dir.display()))?;
@@ -588,7 +586,7 @@ impl SharedState {
             Some(self),
         )
         .await?;
-        self.reload_app_config_from_world_dir(world_dir).await?;
+        self.set_app_config(app_config).await;
         self.clear_room_cache().await;
         self.notify_closed_rooms_after_reload().await?;
         Ok(())

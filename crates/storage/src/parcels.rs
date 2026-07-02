@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use hinemos_core::{GridParcelAddress, GridRoad, PARCEL_STATUS_VACANT};
 use sqlx::postgres::PgPool;
 
@@ -69,6 +71,7 @@ pub(crate) async fn fetch_parcel_by_id(
     pool: &PgPool,
     parcel_id: &str,
 ) -> Result<StoredParcel, StorageError> {
+    let lookup_id = canonical_parcel_id(parcel_id);
     let parcel = sqlx::query_as::<_, StoredParcel>(
         r#"
         select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
@@ -78,7 +81,7 @@ pub(crate) async fn fetch_parcel_by_id(
         where parcel_id = $1
         "#,
     )
-    .bind(parcel_id)
+    .bind(lookup_id.as_ref())
     .fetch_optional(pool)
     .await?;
 
@@ -91,6 +94,12 @@ pub(crate) async fn fetch_parcel_by_id(
     }
 
     Err(StorageError::ParcelNotFound(parcel_id.to_owned()))
+}
+
+pub(crate) fn canonical_parcel_id(parcel_id: &str) -> Cow<'_, str> {
+    GridParcelAddress::canonical_parcel_id(parcel_id)
+        .map(Cow::Owned)
+        .unwrap_or_else(|| Cow::Borrowed(parcel_id))
 }
 
 pub(crate) async fn ensure_grid_parcel(pool: &PgPool, parcel_id: &str) -> Result<(), StorageError> {
