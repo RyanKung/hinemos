@@ -195,18 +195,6 @@ fn restore_builtin_shopfronts(world_dir: &Path) {
     replace_in_view(
         &mut views,
         "arrival_street",
-        r#"(direction: north, target: "grid_road_x0_yp1", label: Some("North 1 Rd."), requirements: [])"#,
-        r#"(direction: north, target: "street_north_01", label: Some("Agentopia Blvd North"), requirements: [])"#,
-    );
-    replace_in_view(
-        &mut views,
-        "arrival_street",
-        r#"(direction: south, target: "grid_road_x0_ym1", label: Some("South 1 Rd."), requirements: [])"#,
-        r#"(direction: south, target: "street_south_01", label: Some("Agentopia Blvd South"), requirements: [])"#,
-    );
-    replace_in_view(
-        &mut views,
-        "arrival_street",
         r#"(direction: west, target: "grid_road_xm1_y0", label: Some("West 1 Rd."), requirements: [])"#,
         r#"(direction: west, target: "west_main_street", label: Some("West Hinemos Blvd"), requirements: [])"#,
     );
