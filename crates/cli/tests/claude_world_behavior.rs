@@ -956,8 +956,8 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
     ));
     let daily_report_emotion = test_database.query_value(&format!(
         "select concat_ws(':',
-             object->'emotion'->>'status',
-             coalesce(object->'emotion'->'primaryMood'->>'mood', 'missing'),
+             coalesce(object->'emotion'->>'status', 'missing'),
+             coalesce(nullif(object->'emotion'->'primaryMood'->>'mood', ''), 'missing'),
              coalesce(jsonb_typeof(object->'emotion'->'activeMoods'), 'missing'))
          from memory_atoms
          where agent_id = '{player_id}'
@@ -979,13 +979,20 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
               where sender_user = '{user}'
                 and recipient_user = 'room-workers_society'),
              (select count(*)
+              from inbox_items
+              where sender_user = '{user}'
+                and recipient_user = 'room-blackstone_izakaya'),
+             (select count(*)
               from world_ledger_entries
               where reason = 'room_wage'
                 and credit_account_id = 'player:{player_id}'),
              (select count(*)
+              from world_ledger_entries
+              where reason = 'room_food'
+                and debit_account_id = 'player:{player_id}'),
+             (select count(*)
               from player_hunger
-              where player_id = '{player_id}'
-                and hunger_points > 0))"
+              where player_id = '{player_id}'))"
     ));
 
     assert_at_least(&self_loop_steps, 3, "resident search loop steps");
@@ -1035,13 +1042,27 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
         min_boredom <= 1,
         "LLM resident loop should relieve boredom below the default pressure, got {min_boredom}"
     );
-    assert!(
-        daily_report_emotion.starts_with("scored:"),
+    let emotion_parts = daily_report_emotion.split(':').collect::<Vec<_>>();
+    assert_eq!(
+        emotion_parts.len(),
+        3,
+        "daily report emotion query should return status, primary mood, and active mood type: {daily_report_emotion}"
+    );
+    assert_eq!(
+        emotion_parts[0], "scored",
         "LLM daily report should be persisted and scored by DADOES, got {daily_report_emotion}"
     );
     assert_ne!(
-        daily_report_emotion, "scored:missing:array",
+        emotion_parts[1], "missing",
         "DADOES should provide a primary mood for the LLM daily report"
+    );
+    assert!(
+        !emotion_parts[1].is_empty(),
+        "DADOES primary mood should not be empty for the LLM daily report"
+    );
+    assert_eq!(
+        emotion_parts[2], "array",
+        "DADOES active moods should be stored as an array for the LLM daily report"
     );
     assert_at_least(
         &report_step_count,
@@ -1049,8 +1070,8 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
         "resident daily report completion steps",
     );
     assert_eq!(
-        old_loop_effects, "0:0:0",
-        "baseline LLM self-loop must not fall back to workers, room wages, or hunger recovery"
+        old_loop_effects, "0:0:0:0:0",
+        "baseline LLM self-loop must not fall back to workers, Blackstone food, room wages, or hunger recovery"
     );
 }
 
