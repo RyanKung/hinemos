@@ -1,6 +1,7 @@
 mod common;
 
 use std::fs;
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -138,8 +139,18 @@ fn llm_can_discover_and_repeat_self_loop_from_game_only() {
     let user = format!("task_loop_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
     let rooms_log = temp.path.join("hinemos-rooms.log");
+    let world = prepare_fast_resident_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, ssh_port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port: ssh_port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, ssh_port, &mut server, &server_log);
     let key = admitted_key(&temp, host, ssh_port, &user);
     let mut rooms = spawn_hinemos_rooms(&root, &rooms_log, &test_database.url, 100);
@@ -181,7 +192,7 @@ fn llm_can_discover_and_repeat_self_loop_from_game_only() {
         temp.path.display()
     );
     assert_llm_self_loop_evidence(&stdout, &temp);
-    assert_llm_three_loop_database_effects(&test_database, &user);
+    assert_llm_self_loop_database_effects(&test_database, &user);
 
     temp.remove_on_drop();
 }
@@ -427,6 +438,22 @@ fn seed_hungry_broke_recovery_state(test_database: &TestDatabase, user: &str) {
                 "hungry broke allowance should be seeded"
             );
         });
+}
+
+fn prepare_fast_resident_world(root: &std::path::Path, temp: &TestTempDir) -> PathBuf {
+    let world_dir = temp.path.join("fast-resident-world");
+    copy_dir_recursive(&root.join("worlds/sample"), &world_dir);
+    fs::write(
+        world_dir.join("meta.ron"),
+        r#"(
+admission_view_id: "arrival_street",
+admission_board_entity_id: "cyber_scroll_board",
+agreement_version: "2026-06-03",
+virtual_day_seconds: 45,
+)"#,
+    )
+    .expect("write fast resident world meta");
+    world_dir
 }
 
 fn hungry_broke_recovery_prompt(host: &str, ssh_port: u16, user: &str, key_path: &str) -> String {
@@ -792,8 +819,10 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
         stdout,
         &[
             "DISCOVERY=",
-            "Paid shift loop",
-            "/position list",
+            "Resident loop",
+            "/go",
+            "/who",
+            "/memory report",
             "Available",
         ],
         "evidence that game output taught the repeatable loop",
@@ -805,8 +834,13 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
     assert_contains(stdout, "SUSTAIN=", "durable repeated-activity report");
     require_output(
         stdout,
-        &["Wallet credited", "Claimed", "MARK", "Balance"],
-        "evidence that work produced observable wages",
+        &[
+            "Daily report recorded",
+            "Social drives",
+            "loneliness",
+            "boredom",
+        ],
+        "evidence that the resident loop produced observable in-world state",
         temp,
     );
     require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
@@ -854,32 +888,87 @@ fn assert_llm_room_database_effects(test_database: &TestDatabase, user: &str) {
     );
 }
 
-fn assert_llm_three_loop_database_effects(test_database: &TestDatabase, user: &str) {
+fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &str) {
     let player_id = test_database.query_value(&format!(
         "select player_id from ssh_identities where username = '{user}'"
     ));
-    let wage_count = test_database.query_value(&format!(
+    let self_loop_steps = test_database.query_value(&format!(
         "select count(*)
-         from world_ledger_entries
-         where reason = 'room_wage'
-           and credit_account_id = 'player:{player_id}'"
+         from agent_self_models
+         where agent_id = '{player_id}'
+           and current_state->'lastStep'->>'commandLine' in (
+               '/go north', '/go south', '/go east', '/go west', '/who', '/look', '/map'
+           )"
     ));
-    let wage_sum = test_database.query_value(&format!(
-        "select coalesce(sum(amount), 0)
-         from world_ledger_entries
-         where reason = 'room_wage'
-           and credit_account_id = 'player:{player_id}'"
+    let generated_grid_snapshots = test_database.query_value(&format!(
+        "select count(*)
+         from agent_self_models
+         where agent_id = '{player_id}'
+           and current_state->'lastSnapshot'->>'viewId' like 'grid_road_%'"
     ));
-    let finish_count = room_command_count(
-        test_database,
-        user,
-        "room-workers_society",
-        "/position finish",
-    );
+    let best_loop_pressure = test_database.query_value(&format!(
+        "select concat_ws(':',
+             min((current_state->'lastSnapshot'->>'lonelinessPoints')::int),
+             min((current_state->'lastSnapshot'->>'boredomPoints')::int))
+         from agent_self_models
+         where agent_id = '{player_id}'
+           and current_state->'lastSnapshot' ? 'lonelinessPoints'
+           and current_state->'lastSnapshot' ? 'boredomPoints'"
+    ));
+    let daily_report_emotion = test_database.query_value(&format!(
+        "select concat_ws(':',
+             object->'emotion'->>'status',
+             coalesce(object->'emotion'->'primaryMood'->>'mood', 'missing'),
+             coalesce(jsonb_typeof(object->'emotion'->'activeMoods'), 'missing'))
+         from memory_atoms
+         where agent_id = '{player_id}'
+           and kind = 'self'
+           and predicate = 'last_daily_report'
+         limit 1"
+    ));
+    let report_step_count = test_database.query_value(&format!(
+        "select count(*)
+         from agent_self_models
+         where agent_id = '{player_id}'
+           and current_state->'lastStep'->>'commandLine' like '/memory report %'
+           and current_state->'virtualTime'->>'reportDue' = 'false'"
+    ));
 
-    assert_at_least(&wage_count, 3, "worker wage ledger entries");
-    assert_at_least(&wage_sum, 75, "total worker wages");
-    assert_at_least(&finish_count, 3, "worker finish room commands");
+    assert_at_least(&self_loop_steps, 3, "resident search loop steps");
+    assert_at_least(
+        &generated_grid_snapshots,
+        1,
+        "resident generated-grid exploration snapshots",
+    );
+    let pressure_parts = best_loop_pressure.split(':').collect::<Vec<_>>();
+    assert_eq!(
+        pressure_parts.len(),
+        2,
+        "loop pressure query should return loneliness and boredom minima: {best_loop_pressure}"
+    );
+    let min_loneliness = pressure_parts[0]
+        .parse::<i64>()
+        .expect("minimum loneliness points");
+    let min_boredom = pressure_parts[1]
+        .parse::<i64>()
+        .expect("minimum boredom points");
+    assert!(
+        min_loneliness <= 2,
+        "LLM resident loop should relieve loneliness below the default pressure, got {min_loneliness}"
+    );
+    assert!(
+        min_boredom <= 1,
+        "LLM resident loop should relieve boredom below the default pressure, got {min_boredom}"
+    );
+    assert!(
+        daily_report_emotion.starts_with("scored:"),
+        "LLM daily report should be persisted and scored by DADOES, got {daily_report_emotion}"
+    );
+    assert_at_least(
+        &report_step_count,
+        1,
+        "resident daily report completion steps",
+    );
 }
 
 fn assert_at_least(value: &str, minimum: i64, description: &str) {
