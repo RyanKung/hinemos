@@ -41,12 +41,13 @@ pub use hinemos_core::{
 pub(crate) use messages::NewInboxItem;
 pub use types::{
     NewMemoryAtom, NewMemoryEvent, StoredAccountSettings, StoredAdmission, StoredAgentSelfModel,
-    StoredBalance, StoredIdentity, StoredInboxItem, StoredMailAuthToken, StoredMarriageCertificate,
-    StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
-    StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind,
-    StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward, StoredShopBadgeDefinition,
-    StoredShopMailingList, StoredShopMailingListPost, StoredShopMailingListSubscriber,
-    StoredShopMailingListSubscription, StoredSocialEdge, StoredTransfer, StoredWorldMessage,
+    StoredBalance, StoredHungerState, StoredIdentity, StoredInboxItem, StoredMailAuthToken,
+    StoredMarriageCertificate, StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand,
+    StoredParcel, StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding,
+    StoredRoomBindingKind, StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward,
+    StoredShopBadgeDefinition, StoredShopMailingList, StoredShopMailingListPost,
+    StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredSocialEdge,
+    StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
@@ -77,6 +78,8 @@ pub struct ServiceRoomUpsert<'a> {
     pub status_text: Option<&'a str>,
     /// Optional command list supplied by the room service.
     pub custom_commands: Option<&'a str>,
+    /// Optional command list that counts as hunger recovery.
+    pub recovery_commands: Option<&'a str>,
     /// Optional built-in handler key consumed by the built-in room runner.
     pub builtin_handler: Option<&'a str>,
     /// Whether the room is currently enabled.

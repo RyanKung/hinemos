@@ -1,4 +1,6 @@
-use hinemos_app::RecentPresenceUser;
+use std::collections::HashMap;
+
+use hinemos_app::{MAX_HUNGER_POINTS, RecentPresenceUser};
 use hinemos_core::PlayerState;
 use serde_json::json;
 use sqlx::Row;
@@ -10,10 +12,14 @@ use crate::accounts::{
     ensure_player_account, ensure_system_account, fetch_balance_pool, fetch_balance_tx,
     player_account_id, resolve_payment_target,
 };
-use crate::parcels::fetch_parcel_by_id;
+use crate::parcels::{
+    canonical_parcel_id, ensure_grid_parcel, fetch_parcel_by_id, virtual_grid_parcel_by_view,
+    virtual_grid_parcels_for_front_view,
+};
 use crate::room_mail::{room_mail_player_id, room_mail_user};
 use crate::types::{
-    NewMemoryAtom, NewMemoryEvent, PlayerStateRow, StoredBalance, StoredParcel, StoredTransfer,
+    NewMemoryAtom, NewMemoryEvent, PlayerStateRow, StoredBalance, StoredHungerState, StoredParcel,
+    StoredTransfer,
 };
 use crate::{PgStorage, TEST_CURRENCY};
 
@@ -122,6 +128,154 @@ impl PgStorage {
         }
 
         Ok(balance)
+    }
+
+    /// Debits MARK from a player to the system account, using an idempotency key.
+    pub async fn debit_player_mark(
+        &self,
+        username: &str,
+        player_id: &str,
+        amount: i64,
+        reason: &str,
+        memo: &str,
+        idempotency_key: &str,
+    ) -> Result<StoredBalance, StorageError> {
+        if amount <= 0 {
+            return Err(StorageError::InvalidAmount(amount));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let account_id = player_account_id(player_id);
+        ensure_system_account(&mut tx).await?;
+        ensure_player_account(&mut tx, &account_id, username, player_id).await?;
+        ensure_balance_row(&mut tx, &account_id).await?;
+
+        let ledger_id = sqlx::query(
+            r#"
+            insert into world_ledger_entries (
+                asset, debit_account_id, credit_account_id, amount, reason, memo, idempotency_key
+            )
+            values ('MARK', $1, $2, $3, $4, $5, $6)
+            on conflict (idempotency_key) do nothing
+            returning id
+            "#,
+        )
+        .bind(&account_id)
+        .bind(SYSTEM_MARK_ACCOUNT_ID)
+        .bind(amount)
+        .bind(reason)
+        .bind(memo)
+        .bind(idempotency_key)
+        .fetch_optional(&mut *tx)
+        .await?
+        .map(|row| row.get::<i64, _>("id"));
+
+        if ledger_id.is_some() {
+            debit_balance(&mut tx, &account_id, amount).await?;
+            credit_balance(&mut tx, SYSTEM_MARK_ACCOUNT_ID, amount).await?;
+        }
+
+        let balance = fetch_balance_tx(&mut tx, &account_id).await?;
+        tx.commit().await?;
+
+        Ok(balance)
+    }
+
+    /// Loads or creates a player's hunger state.
+    pub async fn player_hunger(&self, player_id: &str) -> Result<StoredHungerState, StorageError> {
+        sqlx::query(
+            r#"
+            insert into player_hunger (player_id)
+            values ($1)
+            on conflict (player_id) do nothing
+            "#,
+        )
+        .bind(player_id)
+        .execute(&self.pool)
+        .await?;
+        fetch_hunger_state(&self.pool, player_id).await
+    }
+
+    /// Adds hunger points after a meaningful interaction.
+    pub async fn record_hunger_interaction(
+        &self,
+        player_id: &str,
+        points: i32,
+    ) -> Result<StoredHungerState, StorageError> {
+        if points <= 0 {
+            return Err(StorageError::InvalidAccountSetting(format!(
+                "hunger points must be positive: {points}"
+            )));
+        }
+        sqlx::query_as::<_, StoredHungerState>(
+            r#"
+            insert into player_hunger (player_id, hunger_points)
+            values ($1, least($2, $3))
+            on conflict (player_id) do update
+            set hunger_points = least(player_hunger.hunger_points + $2, $3),
+                updated_at = now()
+            returning player_id, hunger_points
+            "#,
+        )
+        .bind(player_id)
+        .bind(points)
+        .bind(MAX_HUNGER_POINTS)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Restores a player's hunger state after eating food.
+    pub async fn restore_player_hunger(
+        &self,
+        player_id: &str,
+        _food: &str,
+    ) -> Result<StoredHungerState, StorageError> {
+        sqlx::query_as::<_, StoredHungerState>(
+            r#"
+            insert into player_hunger (player_id, hunger_points)
+            values ($1, 0)
+            on conflict (player_id) do update
+            set hunger_points = 0,
+                updated_at = now()
+            returning player_id, hunger_points
+            "#,
+        )
+        .bind(player_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Records one hungry-broke interaction if the cooldown permits it.
+    pub async fn try_record_hungry_broke_interaction(
+        &self,
+        player_id: &str,
+        cooldown_seconds: i64,
+    ) -> Result<bool, StorageError> {
+        if cooldown_seconds <= 0 {
+            return Err(StorageError::InvalidAccountSetting(format!(
+                "hunger cooldown must be positive: {cooldown_seconds}"
+            )));
+        }
+        let row = sqlx::query(
+            r#"
+            insert into player_hunger (player_id, last_hungry_broke_allowed_at)
+            values ($1, now())
+            on conflict (player_id) do update
+            set last_hungry_broke_allowed_at = now(),
+                updated_at = now()
+            where player_hunger.last_hungry_broke_allowed_at is null
+               or player_hunger.last_hungry_broke_allowed_at
+                    <= now() - ($2::double precision * interval '1 second')
+            returning player_id
+            "#,
+        )
+        .bind(player_id)
+        .bind(cooldown_seconds)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.is_some())
     }
 
     /// Records the player's latest observed view for cross-session presence hints.
@@ -510,7 +664,17 @@ impl PgStorage {
         .bind(front_view_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(parcels)
+        let Some(virtual_parcels) = virtual_grid_parcels_for_front_view(front_view_id) else {
+            return Ok(parcels);
+        };
+        let mut existing = parcels
+            .into_iter()
+            .map(|parcel| (parcel.parcel_id.clone(), parcel))
+            .collect::<HashMap<_, _>>();
+        Ok(virtual_parcels
+            .into_iter()
+            .map(|parcel| existing.remove(&parcel.parcel_id).unwrap_or(parcel))
+            .collect())
     }
 
     /// Loads a commercial parcel by parcel id.
@@ -535,7 +699,10 @@ impl PgStorage {
         .bind(view_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(parcel)
+        if parcel.is_some() {
+            return Ok(parcel);
+        }
+        Ok(virtual_grid_parcel_by_view(view_id))
     }
 
     /// Claims a free commercial parcel.
@@ -545,6 +712,8 @@ impl PgStorage {
         owner_user: &str,
         owner_player_id: &str,
     ) -> Result<StoredParcel, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
+        ensure_grid_parcel(&self.pool, parcel_id.as_ref()).await?;
         let updated = sqlx::query_as::<_, StoredParcel>(
             r#"
             update commercial_parcels
@@ -561,11 +730,11 @@ impl PgStorage {
                       status, title, description, style, operator_prompt, custom_commands
             "#,
         )
-        .bind(parcel_id)
+        .bind(parcel_id.as_ref())
         .bind(owner_user)
         .bind(owner_player_id)
-        .bind(room_mail_user(parcel_id))
-        .bind(room_mail_player_id(parcel_id))
+        .bind(room_mail_user(parcel_id.as_ref()))
+        .bind(room_mail_player_id(parcel_id.as_ref()))
         .fetch_optional(&self.pool)
         .await?;
 
@@ -573,9 +742,9 @@ impl PgStorage {
             return Ok(parcel);
         }
 
-        let existing = self.commercial_parcel(parcel_id).await?;
+        let existing = self.commercial_parcel(parcel_id.as_ref()).await?;
         if existing.owner_player_id.is_some() {
-            Err(StorageError::ParcelAlreadyOwned(parcel_id.to_owned()))
+            Err(StorageError::ParcelAlreadyOwned(parcel_id.into_owned()))
         } else {
             Ok(existing)
         }
@@ -588,6 +757,7 @@ impl PgStorage {
         owner_player_id: &str,
         target: &str,
     ) -> Result<StoredParcel, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
         let mut tx = self.pool.begin().await?;
         let target = resolve_payment_target(&mut tx, target).await?;
         let updated = sqlx::query_as::<_, StoredParcel>(
@@ -603,7 +773,7 @@ impl PgStorage {
                       status, title, description, style, operator_prompt, custom_commands
             "#,
         )
-        .bind(parcel_id)
+        .bind(parcel_id.as_ref())
         .bind(owner_player_id)
         .bind(&target.username)
         .bind(&target.player_id)
@@ -611,7 +781,7 @@ impl PgStorage {
         .await?;
         tx.commit().await?;
 
-        updated.ok_or_else(|| StorageError::NotParcelOwner(parcel_id.to_owned()))
+        updated.ok_or_else(|| StorageError::NotParcelOwner(parcel_id.into_owned()))
     }
 
     /// Updates one build sheet field for an owned parcel.
@@ -718,4 +888,21 @@ impl PgStorage {
 
         Ok(())
     }
+}
+
+async fn fetch_hunger_state(
+    pool: &sqlx::postgres::PgPool,
+    player_id: &str,
+) -> Result<StoredHungerState, StorageError> {
+    sqlx::query_as::<_, StoredHungerState>(
+        r#"
+        select player_id, hunger_points
+        from player_hunger
+        where player_id = $1
+        "#,
+    )
+    .bind(player_id)
+    .fetch_one(pool)
+    .await
+    .map_err(Into::into)
 }

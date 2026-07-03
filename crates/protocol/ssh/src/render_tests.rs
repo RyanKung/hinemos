@@ -64,7 +64,7 @@ fn fixed_indoor_views_keep_authored_ascii_map() {
 }
 
 #[test]
-fn admission_view_map_uses_configured_anchor() {
+fn ssh_map_renderer_does_not_synthesize_missing_maps() {
     let mut observation = JsonObservation {
         player_id: "player".to_owned(),
         view_id: "custom_admission".to_owned(),
@@ -80,19 +80,7 @@ fn admission_view_map_uses_configured_anchor() {
 
     apply_auto_ascii_map(&mut observation, 72, "custom_admission");
 
-    assert!(!observation.ascii_art.is_empty());
-    assert!(
-        observation
-            .ascii_art
-            .iter()
-            .any(|line| line.contains("[<Me>]"))
-    );
-    assert!(
-        observation
-            .ascii_art
-            .iter()
-            .any(|line| line.contains("north"))
-    );
+    assert!(observation.ascii_art.is_empty());
 }
 
 #[test]
@@ -341,6 +329,7 @@ fn service_room_binding_respects_front_entity_before_overlay() {
         label: "Hinemos Bank".to_owned(),
         status_text: Some("Open weekdays".to_owned()),
         custom_commands: Some("/balance".to_owned()),
+        recovery_commands: None,
         entry_text: "- bank Hinemos Bank. Enter: /enter bank.".to_owned(),
         ascii_label: None,
         owner_user: None,
@@ -400,6 +389,7 @@ fn service_room_binding_overlays_status_without_duplicating_commands() {
         label: "External Room".to_owned(),
         status_text: Some("Status line".to_owned()),
         custom_commands: Some("/room ask <question>;/room status".to_owned()),
+        recovery_commands: None,
         entry_text: "- ER1 External Room. Enter: /enter ER1.".to_owned(),
         ascii_label: None,
         owner_user: None,
@@ -459,6 +449,7 @@ fn service_room_binding_without_status_keeps_description_and_no_extensions() {
         label: "External Room".to_owned(),
         status_text: None,
         custom_commands: None,
+        recovery_commands: None,
         entry_text: "- ER1 External Room. Enter: /enter ER1.".to_owned(),
         ascii_label: None,
         owner_user: None,
@@ -511,6 +502,7 @@ fn room_binding_entries_keep_visible_order_and_skip_hidden_front_entity() {
         label: "Hidden".to_owned(),
         status_text: None,
         custom_commands: None,
+        recovery_commands: None,
         entry_text: "- hidden Hidden. Enter: /enter hidden.".to_owned(),
         ascii_label: Some("hidden".to_owned()),
         owner_user: None,
@@ -536,6 +528,7 @@ fn room_binding_entries_keep_visible_order_and_skip_hidden_front_entity() {
         label: "Visible".to_owned(),
         status_text: None,
         custom_commands: None,
+        recovery_commands: None,
         entry_text: "- visible Visible. Enter: /enter visible.".to_owned(),
         ascii_label: Some("visible".to_owned()),
         owner_user: None,

@@ -2,6 +2,7 @@ use crate::{
     NewMemoryAtom, NewMemoryEvent, PgStorage, StorageError, StoredAgentSelfModel, StoredMemoryAtom,
     StoredMemoryEvent, StoredSocialEdge,
 };
+use serde_json::Value;
 
 impl PgStorage {
     /// Appends an immutable memory event.
@@ -277,5 +278,94 @@ impl PgStorage {
         .await?;
 
         Ok(model)
+    }
+
+    /// Ensures a default self-model exists and returns the latest model.
+    pub async fn ensure_self_model(
+        &self,
+        agent_id: &str,
+        identity: &Value,
+        current_state: &Value,
+        style: &Value,
+    ) -> Result<StoredAgentSelfModel, StorageError> {
+        if let Some(model) = self.latest_self_model(agent_id).await? {
+            return Ok(model);
+        }
+
+        sqlx::query(
+            r#"
+            insert into agent_self_models (
+                agent_id, version, identity, current_state, style, derived_from_memory_ids
+            )
+            values ($1, 1, $2, $3, $4, array[]::bigint[])
+            on conflict (agent_id, version) do nothing
+            "#,
+        )
+        .bind(agent_id)
+        .bind(identity)
+        .bind(current_state)
+        .bind(style)
+        .execute(&self.pool)
+        .await?;
+
+        self.latest_self_model(agent_id)
+            .await?
+            .ok_or_else(|| StorageError::Sqlx(sqlx::Error::RowNotFound))
+    }
+
+    /// Records a new self-model current-state version when the state changed.
+    pub async fn record_self_model_state(
+        &self,
+        agent_id: &str,
+        current_state: &Value,
+    ) -> Result<StoredAgentSelfModel, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("select pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(agent_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let Some(latest) = sqlx::query_as::<_, StoredAgentSelfModel>(
+            r#"
+            select agent_id, version, identity, current_state, style, derived_from_memory_ids,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from agent_self_models
+            where agent_id = $1
+            order by version desc
+            limit 1
+            "#,
+        )
+        .bind(agent_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        else {
+            return Err(StorageError::Sqlx(sqlx::Error::RowNotFound));
+        };
+        if latest.current_state == *current_state {
+            tx.commit().await?;
+            return Ok(latest);
+        }
+
+        let inserted = sqlx::query_as::<_, StoredAgentSelfModel>(
+            r#"
+            insert into agent_self_models (
+                agent_id, version, identity, current_state, style, derived_from_memory_ids
+            )
+            values ($1, $2, $3, $4, $5, $6)
+            returning agent_id, version, identity, current_state, style, derived_from_memory_ids,
+                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            "#,
+        )
+        .bind(agent_id)
+        .bind(latest.version + 1)
+        .bind(&latest.identity)
+        .bind(current_state)
+        .bind(&latest.style)
+        .bind(&latest.derived_from_memory_ids)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(inserted)
     }
 }

@@ -3,7 +3,7 @@
 //! HTTP adapter for the Hinemos runtime and landing page.
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -13,6 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Args;
+use hinemos_app::AppService;
 use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
 use hinemos_core::{ActionKind, Direction, JsonObservation, ObservationEvent, SemanticCommand};
 use hinemos_runtime::GameRuntime;
@@ -43,9 +44,7 @@ pub struct HttpArgs {
 
 /// Runs the HTTP server until shutdown.
 pub async fn run_daemon(args: HttpArgs) -> Result<()> {
-    let world = load_world_from_dir(&args.world)
-        .with_context(|| format!("failed to load world from {}", args.world.display()))?;
-    let runtime = Arc::new(GameRuntime::new(world));
+    let runtime = Arc::new(load_runtime_from_world_dir(&args.world)?);
     let state = AppState { runtime };
 
     let api = Router::new()
@@ -73,6 +72,16 @@ pub async fn run_daemon(args: HttpArgs) -> Result<()> {
     println!("Serving frontend assets from {}", args.static_dir.display());
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn load_runtime_from_world_dir(world_dir: &FsPath) -> Result<GameRuntime> {
+    let world = load_world_from_dir(world_dir)
+        .with_context(|| format!("failed to load world from {}", world_dir.display()))?;
+    let app_config = AppService::<()>::load_world_app_config(world_dir)?;
+    Ok(GameRuntime::new_with_grid_origin(
+        world,
+        app_config.admission_view_id,
+    )?)
 }
 
 #[derive(Clone)]
@@ -189,15 +198,22 @@ async fn execute_anonymous_command(
     State(state): State<AppState>,
     Json(request): Json<AnonymousCommandRequest>,
 ) -> Result<Json<JsonObservation>, ApiError> {
-    if let SemanticCommand::Move { direction } = request.command {
-        return execute_anonymous_move(state, direction, request.view_id).await;
+    if let SemanticCommand::Move { direction } = &request.command {
+        return execute_anonymous_move(state, *direction, request.view_id).await;
     }
     if !anonymous_command_is_demo_safe(&request.command) {
         return Err(ApiError::forbidden(ANONYMOUS_SSH_GUIDANCE));
     }
-    state
-        .runtime
-        .execute(LOCAL_PLAYER_ID, &request.command)
+    let observation = if let Some(view_id) = request.view_id {
+        state.runtime.execute_read_only_at_view(
+            ANONYMOUS_DEMO_PLAYER_ID,
+            &view_id,
+            &request.command,
+        )
+    } else {
+        state.runtime.execute(LOCAL_PLAYER_ID, &request.command)
+    };
+    observation
         .map(|mut observation| {
             sanitize_anonymous_observation(&mut observation, false);
             Json(observation)
@@ -330,21 +346,40 @@ impl IntoResponse for ApiError {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::fs;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use axum::extract::{Path as AxumPath, State};
-    use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-    use hinemos_core::{Direction, EntityRef, ObservationEvent};
+    use hinemos_core::sample_world::LOCAL_PLAYER_ID;
+    use hinemos_core::{Direction, EntityRef, ObservationEvent, SemanticCommand};
 
     use super::*;
 
     fn test_state() -> AppState {
         let world_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../worlds/sample");
-        let world = load_world_from_dir(world_dir).expect("sample world should load");
         AppState {
-            runtime: Arc::new(GameRuntime::new(world)),
+            runtime: Arc::new(load_runtime_from_world_dir(&world_dir).expect("load runtime")),
         }
+    }
+
+    fn copy_sample_world_with_meta(meta: &str) -> PathBuf {
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../worlds/sample");
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "hinemos-http-world-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).expect("create temp world dir");
+        for file in ["views.ron", "entities.ron", "players.ron", "rooms.ron"] {
+            fs::copy(sample.join(file), dir.join(file)).expect("copy sample world file");
+        }
+        fs::write(dir.join("meta.ron"), meta).expect("write temp meta");
+        dir
     }
 
     #[tokio::test]
@@ -428,11 +463,11 @@ mod tests {
         .await
         .expect("demo movement should be allowed");
 
-        assert_eq!(observation.view_id, "west_main_street");
+        assert_eq!(observation.view_id, "grid_road_xm1_y0");
         assert!(observation.events.iter().any(|event| matches!(
             event,
             ObservationEvent::Move { from, to, direction }
-                if from == "arrival_street" && to == "west_main_street" && *direction == Direction::West
+                if from == "arrival_street" && to == "grid_road_xm1_y0" && *direction == Direction::West
         )));
 
         let local_observation = state
@@ -440,6 +475,124 @@ mod tests {
             .observe_json(LOCAL_PLAYER_ID, Vec::new())
             .expect("local player should remain observable");
         assert_eq!(local_observation.view_id, "arrival_street");
+    }
+
+    #[tokio::test]
+    async fn anonymous_read_only_command_uses_supplied_view_id() {
+        let state = test_state();
+        let mut player = state
+            .runtime
+            .player_state(LOCAL_PLAYER_ID)
+            .expect("local player state");
+        player.current_view = "grid_road_xp1_y0".to_owned();
+        state
+            .runtime
+            .set_player_state(player)
+            .expect("move local player away from origin");
+
+        let Json(observation) = execute_anonymous_command(
+            State(state),
+            Json(AnonymousCommandRequest {
+                command: SemanticCommand::Read {
+                    target: EntityRef::new("cyber_scroll_board"),
+                },
+                view_id: Some("arrival_street".to_owned()),
+            }),
+        )
+        .await
+        .expect("read-only command should use supplied view");
+
+        assert_eq!(observation.view_id, "arrival_street");
+        assert!(observation.events.iter().any(|event| matches!(
+            event,
+            ObservationEvent::Message { text } if text.contains("Admission Agreement")
+        )));
+    }
+
+    #[test]
+    fn runtime_loader_uses_metadata_for_generated_grid_origin() {
+        let world_dir = copy_sample_world_with_meta(
+            r#"(
+                admission_view_id: "west_main_street",
+                admission_board_entity_id: "cyber_scroll_board",
+                agreement_version: "2026-06-03",
+            )"#,
+        );
+        let runtime = load_runtime_from_world_dir(&world_dir).expect("load runtime with meta");
+        let mut player = runtime
+            .player_state(LOCAL_PLAYER_ID)
+            .expect("local player state");
+        player.current_view = "grid_road_xp1_y0".to_owned();
+        runtime.set_player_state(player).expect("set player state");
+
+        let road = runtime
+            .observe_json(LOCAL_PLAYER_ID, Vec::new())
+            .expect("grid observation");
+        let west = road
+            .exits
+            .iter()
+            .find(|exit| exit.direction == Direction::West)
+            .expect("west exit");
+        let observation = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::West,
+                },
+            )
+            .expect("move to configured origin");
+
+        assert_eq!(west.label.as_deref(), Some("West Hinemos Blvd"));
+        assert_eq!(observation.view_id, "west_main_street");
+        assert_eq!(observation.title, "West Hinemos Blvd");
+        assert_eq!(
+            observation
+                .exits
+                .iter()
+                .filter_map(|exit| exit.label.as_deref())
+                .collect::<Vec<_>>(),
+            vec!["North 1 Rd.", "South 1 Rd.", "West 1 Rd.", "East 1 Rd."]
+        );
+        assert!(
+            observation
+                .ascii_art
+                .join("\n")
+                .contains("+----+----+----+----+")
+        );
+        assert!(!observation.ascii_art.join("\n").contains("shuttered"));
+        assert!(
+            !observation
+                .exits
+                .iter()
+                .any(|exit| exit.label.as_deref() == Some("wilderness"))
+        );
+        let north = runtime
+            .execute(
+                LOCAL_PLAYER_ID,
+                &SemanticCommand::Move {
+                    direction: Direction::North,
+                },
+            )
+            .expect("configured origin keeps generated north exit");
+        assert_eq!(north.view_id, "grid_road_x0_yp1");
+
+        fs::remove_dir_all(world_dir).expect("remove temp world dir");
+    }
+
+    #[test]
+    fn runtime_loader_rejects_missing_generated_grid_origin() {
+        let world_dir = copy_sample_world_with_meta(
+            r#"(
+                admission_view_id: "missing_origin",
+                admission_board_entity_id: "cyber_scroll_board",
+                agreement_version: "2026-06-03",
+            )"#,
+        );
+
+        let err = load_runtime_from_world_dir(&world_dir).expect_err("missing origin should fail");
+
+        assert!(err.to_string().contains("view not found: missing_origin"));
+        fs::remove_dir_all(world_dir).expect("remove temp world dir");
     }
 
     #[tokio::test]

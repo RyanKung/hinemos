@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use hinemos_core::{
     ActionKind, BadgeAction, BuildAction, Direction, EntityKind, EntityObservation, EntityRef,
-    Gender, InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand,
+    Gender, GridRoad, InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand,
     SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
 };
 
@@ -49,6 +49,28 @@ fn text_renderer_distinguishes_place_and_item_markers() {
     assert!(rendered.contains("[Workshop]"));
     assert!(rendered.contains(Chrome::ANSI_ITEM_MARKER));
     assert!(rendered.contains("{bulletin board}"));
+}
+
+#[test]
+fn text_renderer_renders_generated_grid_ascii_without_header_artifacts() {
+    let view = GridRoad::new(1, 0).expect("valid generated road").to_view();
+    let rendered = render_text_observation(&JsonObservation {
+        player_id: "local_player".to_owned(),
+        view_id: view.id,
+        title: view.title,
+        ascii_art: view.ascii_art,
+        description: view.description,
+        exits: Vec::new(),
+        entities: Vec::new(),
+        online_users: Vec::new(),
+        available_commands: Vec::new(),
+        events: Vec::new(),
+    });
+
+    assert!(rendered.contains("E1-C0-01"));
+    assert!(rendered.contains("<Me>"));
+    assert!(!rendered.contains("------------------------------------------------------------"));
+    assert!(!rendered.contains("EAST 1 RD."));
 }
 
 #[test]

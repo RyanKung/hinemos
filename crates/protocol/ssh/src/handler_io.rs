@@ -4,27 +4,6 @@ use hinemos_app::{AppIdentity, AppRequest, LiveInboxNotice, UiEvent};
 use hinemos_core::{Direction, JsonObservation, PlayerState, SemanticCommand};
 
 impl ConnectionHandler {
-    pub(super) async fn send_app_request(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        identity: &AuthIdentity,
-        request: AppRequest<'_>,
-    ) -> Result<()> {
-        let events = self.app_request_events(identity, request).await?;
-        self.send_ui_events(channel, session, events).await
-    }
-
-    pub(super) async fn app_request_events(
-        &self,
-        identity: &AuthIdentity,
-        request: AppRequest<'_>,
-    ) -> Result<Vec<UiEvent>> {
-        let app = self.shared.app_service().await;
-        let app_identity = AppIdentity::new(identity.user.clone(), identity.player_id.clone());
-        Ok(app.handle(&app_identity, request).await?)
-    }
-
     pub(super) async fn send_ui_events(
         &self,
         channel: ChannelId,
@@ -302,9 +281,48 @@ impl ConnectionHandler {
         &self,
         channel: ChannelId,
         session: &mut Session,
-        mut observation: JsonObservation,
+        observation: JsonObservation,
         room_context: &RoomViewContext,
     ) -> Result<()> {
+        let mut observation = self
+            .enrich_observation_for_context(observation, room_context)
+            .await?;
+        let app = self.shared.app_service().await;
+        if let Some(identity) = self.identity.as_ref() {
+            let admission = app.player_admission(&identity.player_id).await?;
+            if admission.is_agreed() {
+                let context = app
+                    .resident_context(&identity.user, &identity.player_id, &observation)
+                    .await?;
+                if !self
+                    .resident_context_sent
+                    .swap(true, std::sync::atomic::Ordering::AcqRel)
+                {
+                    append_resident_context(&mut observation.description, &context.text);
+                } else {
+                    append_resident_context(
+                        &mut observation.description,
+                        &resident_context_status(&context.text),
+                    );
+                }
+            }
+        }
+        let app_config = self.shared.app_config().await;
+        send_text_observation(
+            session,
+            channel,
+            &observation,
+            self.terminal_cols,
+            &app_config.admission_view_id,
+        )?;
+        Ok(())
+    }
+
+    pub(super) async fn enrich_observation_for_context(
+        &self,
+        mut observation: JsonObservation,
+        room_context: &RoomViewContext,
+    ) -> Result<JsonObservation> {
         match room_context {
             RoomViewContext {
                 room_binding: Some(room),
@@ -330,22 +348,13 @@ impl ConnectionHandler {
             _ => {}
         }
         let player_id = observation.player_id.clone();
+        let view_id = observation.view_id.clone();
         let app = self.shared.app_service().await;
         app.restrict_pending_admission_observation_for_player(&mut observation, &player_id)
             .await?;
-        let view_users = self
-            .online_view_users(&app, &observation.view_id, &player_id)
-            .await?;
+        let view_users = self.online_view_users(&app, &view_id, &player_id).await?;
         observation.online_users = render_online_summary(&view_users, 10);
-        let app_config = self.shared.app_config().await;
-        send_text_observation(
-            session,
-            channel,
-            &observation,
-            self.terminal_cols,
-            &app_config.admission_view_id,
-        )?;
-        Ok(())
+        Ok(observation)
     }
 
     pub(super) async fn send_command_observation(
@@ -693,6 +702,25 @@ impl ConnectionHandler {
         }
         Ok(())
     }
+}
+
+fn append_resident_context(description: &mut String, context: &str) {
+    let context = context.trim();
+    if context.is_empty() {
+        return;
+    }
+    if !description.trim().is_empty() {
+        description.push_str("\n\n");
+    }
+    description.push_str(context);
+}
+
+fn resident_context_status(context: &str) -> String {
+    context
+        .lines()
+        .filter(|line| line.starts_with("Loop:") || line.starts_with("Social drives:"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn send_text_event(session: &mut Session, channel: ChannelId, text: &str) -> Result<()> {

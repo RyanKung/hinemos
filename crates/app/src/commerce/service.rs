@@ -15,9 +15,9 @@ use super::results::{
 };
 use crate::{
     AppIdentity, AppService, BuildSheet, LiveInboxNotice, MailAuthTokenView, OperatorCommandView,
-    PARCEL_STATUS_BUILT, RoomBindingKindView, RoomCommandPolicyView, UiEvent,
-    shop_badge_description_is_valid, shop_badge_note_is_valid, shop_badge_slug_is_valid,
-    shop_badge_title_is_valid, shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
+    PARCEL_STATUS_BUILT, RoomBindingKindView, UiEvent, shop_badge_description_is_valid,
+    shop_badge_note_is_valid, shop_badge_slug_is_valid, shop_badge_title_is_valid,
+    shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
     shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
 };
 
@@ -26,6 +26,18 @@ where
     S: ShopStore<Error = E>,
     E: FromMailingListValidation + FromShopBadgeValidation,
 {
+    /// Returns true when a commercial parcel will consume this raw input line.
+    #[must_use]
+    pub fn commercial_parcel_consumes_input<P>(&self, binding: &P, raw_line: &str) -> bool
+    where
+        P: ParcelView + RoomBindingKindView,
+    {
+        RoomBindingKindView::is_commercial_parcel(binding)
+            && binding.status() == PARCEL_STATUS_BUILT
+            && ParcelView::owner_player_id(binding).is_some()
+            && is_custom_command_input(binding, raw_line)
+    }
+
     /// Builds the shop operator inbox text.
     pub async fn shop_inbox(&self, owner_player_id: &str) -> Result<BusinessListResult, E> {
         let commands = self
@@ -392,12 +404,9 @@ where
         raw_line: &str,
     ) -> Result<Option<Vec<UiEvent>>, E>
     where
-        P: ParcelView + RoomBindingKindView + RoomCommandPolicyView + Sync,
+        P: ParcelView + RoomBindingKindView + Sync,
     {
-        if !self.room_binding_accepts_input(binding, raw_line) {
-            return Ok(None);
-        }
-        if binding.status() != PARCEL_STATUS_BUILT {
+        if !self.commercial_parcel_consumes_input(binding, raw_line) {
             return Ok(None);
         }
         let Some(owner_player_id) = ParcelView::owner_player_id(binding) else {

@@ -14,8 +14,18 @@ fn built_in_rooms_reply_through_room_runner_end_to_end() {
     let port = free_local_port();
     let user = format!("rooms{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
+    let world = prepare_builtin_world(&root, &temp);
 
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
+    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
+        root: &root,
+        host,
+        port,
+        log_path: &server_log,
+        database_url: &test_database.url,
+        world: Some(&world),
+        admin_socket: None,
+        envs: [],
+    });
     wait_for_server(host, port, &mut server, &server_log);
     let key = admitted_key(&temp, host, port, &user);
 
@@ -34,7 +44,7 @@ fn built_in_rooms_reply_through_room_runner_end_to_end() {
     let rooms_output = run_hinemos_rooms_once(&root, &test_database.url);
     assert_contains(
         &rooms_output,
-        "Processed 16 room request(s).",
+        "Processed 15 room request(s).",
         "room runner consumes all queued built-in room requests",
     );
 
@@ -84,7 +94,7 @@ fn built_in_rooms_reply_through_room_runner_end_to_end() {
     assert_eq!(
         wage_ledger_summary(&test_database),
         "1:25",
-        "workers room claim creates one wage ledger entry",
+        "workers room finish creates one wage ledger entry",
     );
     assert_eq!(
         broadcast_summary(&test_database),
@@ -125,7 +135,6 @@ fn queue_all_built_in_room_commands(
             "/position apply street-sweeper",
             "/position start street-sweeper",
             "/position finish",
-            "/position claim",
             "/go south",
             "/enter H4",
             "/bank balance",

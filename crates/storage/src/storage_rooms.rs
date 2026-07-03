@@ -16,8 +16,8 @@ impl PgStorage {
         let room = sqlx::query_as::<_, StoredServiceRoom>(
             r#"
             select view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-                   room_user, room_player_id, status_text, custom_commands, builtin_handler,
-                   enabled
+                   room_user, room_player_id, status_text, custom_commands, recovery_commands,
+                   builtin_handler, enabled
             from service_rooms
             where view_id = $1
               and enabled
@@ -37,8 +37,8 @@ impl PgStorage {
         let room = sqlx::query_as::<_, StoredServiceRoom>(
             r#"
             select view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-                   room_user, room_player_id, status_text, custom_commands, builtin_handler,
-                   enabled
+                   room_user, room_player_id, status_text, custom_commands, recovery_commands,
+                   builtin_handler, enabled
             from service_rooms
             where view_id = $1
             "#,
@@ -57,8 +57,8 @@ impl PgStorage {
         let rooms = sqlx::query_as::<_, StoredServiceRoom>(
             r#"
             select view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-                   room_user, room_player_id, status_text, custom_commands, builtin_handler,
-                   enabled
+                   room_user, room_player_id, status_text, custom_commands, recovery_commands,
+                   builtin_handler, enabled
             from service_rooms
             where front_view_id = $1
               and enabled
@@ -126,8 +126,8 @@ impl PgStorage {
         let rooms = sqlx::query_as::<_, StoredServiceRoom>(
             r#"
             select view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-                   room_user, room_player_id, status_text, custom_commands, builtin_handler,
-                   enabled
+                   room_user, room_player_id, status_text, custom_commands, recovery_commands,
+                   builtin_handler, enabled
             from service_rooms
             where room_user = $1
               and enabled
@@ -145,8 +145,8 @@ impl PgStorage {
         let rooms = sqlx::query_as::<_, StoredServiceRoom>(
             r#"
             select view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-                   room_user, room_player_id, status_text, custom_commands, builtin_handler,
-                   enabled
+                   room_user, room_player_id, status_text, custom_commands, recovery_commands,
+                   builtin_handler, enabled
             from service_rooms
             where builtin_handler is not null
               and enabled
@@ -167,9 +167,10 @@ impl PgStorage {
             r#"
             insert into service_rooms (
                 view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-                room_user, room_player_id, status_text, custom_commands, builtin_handler, enabled
+                room_user, room_player_id, status_text, custom_commands, recovery_commands,
+                builtin_handler, enabled
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             on conflict (view_id) do update
             set front_view_id = excluded.front_view_id,
                 front_entity_id = excluded.front_entity_id,
@@ -180,12 +181,13 @@ impl PgStorage {
                 room_player_id = excluded.room_player_id,
                 status_text = excluded.status_text,
                 custom_commands = excluded.custom_commands,
+                recovery_commands = excluded.recovery_commands,
                 builtin_handler = excluded.builtin_handler,
                 enabled = excluded.enabled,
                 updated_at = now()
             returning view_id, front_view_id, front_entity_id, address, label, enter_aliases,
-                      room_user, room_player_id, status_text, custom_commands, builtin_handler,
-                      enabled
+                      room_user, room_player_id, status_text, custom_commands, recovery_commands,
+                      builtin_handler, enabled
             "#,
         )
         .bind(params.view_id)
@@ -198,6 +200,7 @@ impl PgStorage {
         .bind(params.room_player_id)
         .bind(params.status_text)
         .bind(params.custom_commands)
+        .bind(params.recovery_commands)
         .bind(params.builtin_handler)
         .bind(params.enabled)
         .fetch_one(&self.pool)

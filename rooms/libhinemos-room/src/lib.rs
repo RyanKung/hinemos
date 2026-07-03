@@ -73,6 +73,18 @@ pub enum RoomEffect {
         /// Domain reason for the credit.
         reason: CreditReason,
     },
+    /// Debit MARK from the player who sent the room request.
+    DebitPlayerMark {
+        /// Positive MARK amount to debit.
+        amount: i64,
+        /// Domain reason for the debit.
+        reason: DebitReason,
+    },
+    /// Restore the requester's hunger state after eating.
+    RestorePlayerHunger {
+        /// Player-facing food item consumed by the requester.
+        food: String,
+    },
     /// Publish a room-authored broadcast message.
     PublishBroadcast {
         /// Broadcast body to persist in the host world.
@@ -88,8 +100,43 @@ pub enum RoomEffect {
 /// Domain reason for a player MARK credit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreditReason {
-    /// Wage paid by the Workers Society room.
+    /// Wage paid by a room service.
     WorkerWage,
+}
+
+/// Domain reason for a player MARK debit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DebitReason {
+    /// Food sold by a room service.
+    Food,
+}
+
+/// A job offer owned by a provider venue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobOffer {
+    /// Stable player-facing id used by job commands.
+    pub id: &'static str,
+    /// Display title shown to workers.
+    pub title: &'static str,
+    /// Work location shown to workers.
+    pub location: &'static str,
+    /// Expected worker behavior.
+    pub behavior: &'static str,
+    /// Player-facing payout text.
+    pub payout: &'static str,
+    /// MARK wage paid after completing the offer.
+    pub wage: i64,
+}
+
+/// A venue or shop that owns one or more job offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobOfferProvider {
+    /// Stable service-room view id that owns these offers.
+    pub venue_id: &'static str,
+    /// Display label for the provider venue.
+    pub label: &'static str,
+    /// Offers authored by this provider.
+    pub offers: &'static [JobOffer],
 }
 
 /// Host-side marriage registry operation.

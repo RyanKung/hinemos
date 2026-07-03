@@ -3,6 +3,9 @@
 //! Runtime command execution for the Hinemos world.
 
 mod client_shell;
+mod grid;
+#[cfg(test)]
+mod grid_tests;
 mod reload;
 
 pub use client_shell::{
@@ -13,10 +16,11 @@ pub use client_shell::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
+use grid::{RuntimeGridOrigin, default_grid_origin_view_id, grid_origin_from_view_id};
 use hinemos_core::{
     ActionKind, Direction, Entity, EntityCollection, EntityId, EntityObservation, EntityRef,
     ExitObservation, JsonObservation, ObservationEvent, PlayerId, PlayerState, SemanticCommand,
-    TextObservation, View, ViewId, WorldDefinition, WorldState,
+    TextObservation, View, ViewId, WorldDefinition, WorldState, is_grid_view_id,
 };
 use thiserror::Error;
 
@@ -70,6 +74,7 @@ struct StaticWorld {
     views: HashMap<ViewId, View>,
     entities: HashMap<EntityId, hinemos_core::Entity>,
     template_players: HashMap<PlayerId, PlayerState>,
+    grid_origin: RuntimeGridOrigin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,8 +84,18 @@ struct ViewState {
 
 impl GameRuntime {
     /// Creates a runtime from an initial world state.
-    #[must_use]
-    pub fn new(world: WorldState) -> Self {
+    pub fn new(world: WorldState) -> Result<Self, RuntimeError> {
+        let grid_origin_view_id = default_grid_origin_view_id(&world);
+        Self::new_with_grid_origin(world, grid_origin_view_id)
+    }
+
+    /// Creates a runtime from an initial world state and explicit generated-grid origin.
+    pub fn new_with_grid_origin(
+        world: WorldState,
+        grid_origin_view_id: impl Into<ViewId>,
+    ) -> Result<Self, RuntimeError> {
+        let grid_origin_view_id = grid_origin_view_id.into();
+        let grid_origin = grid_origin_from_view_id(&world, grid_origin_view_id)?;
         let definition: WorldDefinition = world.definition();
         let snapshot = world.runtime_snapshot();
         let views = definition
@@ -104,13 +119,14 @@ impl GameRuntime {
             views: definition.views,
             entities: definition.entities,
             template_players: snapshot.players,
+            grid_origin,
         };
 
-        Self {
+        Ok(Self {
             world: Arc::new(world),
             players: RwLock::new(players),
             views,
-        }
+        })
     }
 
     /// Returns a snapshot of the current world state.
@@ -272,6 +288,9 @@ impl GameRuntime {
             SemanticCommand::Mailbox => {
                 vec![message("Mailbox is available in SSH sessions.".to_owned())]
             }
+            SemanticCommand::Memory { .. } => {
+                vec![message("Memory is available in SSH sessions.".to_owned())]
+            }
             SemanticCommand::History => {
                 vec![message(
                     "Room history is available in SSH sessions.".to_owned(),
@@ -327,6 +346,32 @@ impl GameRuntime {
         self.observe_json(player_id, events)
     }
 
+    /// Executes a read-only command against a supplied view without moving or mutating a player.
+    pub fn execute_read_only_at_view(
+        &self,
+        player_id: &str,
+        view_id: &str,
+        command: &SemanticCommand,
+    ) -> Result<JsonObservation, RuntimeError> {
+        let events = match command {
+            SemanticCommand::Look | SemanticCommand::Map | SemanticCommand::Inventory => Vec::new(),
+            SemanticCommand::Help => vec![message(Chrome::HELP_SUMMARY.to_owned())],
+            SemanticCommand::Inspect { target } => {
+                let entity = self.visible_entity_in_view(view_id, target)?;
+                vec![message(inspect_entity_message(entity))]
+            }
+            SemanticCommand::Read { target } => {
+                let entity = self.visible_entity_in_view(view_id, target)?;
+                vec![message(read_entity_message(entity))]
+            }
+            _ => vec![message(
+                "That command is not available in stateless view mode.".to_owned(),
+            )],
+        };
+
+        self.observe_view_json(player_id, view_id, events)
+    }
+
     /// Builds a structured observation for the player.
     pub fn observe_json(
         &self,
@@ -349,11 +394,7 @@ impl GameRuntime {
         view_id: &str,
         events: Vec<ObservationEvent>,
     ) -> Result<JsonObservation, RuntimeError> {
-        let view = self
-            .world
-            .views
-            .get(view_id)
-            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))?;
+        let view = self.view(view_id)?;
 
         let exits = view
             .exits
@@ -371,7 +412,7 @@ impl GameRuntime {
             .map(|entity_id| entity_observation(&self.world, entity_id))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let ascii_art = render_ascii_art_for_view(view);
+        let ascii_art = self.render_ascii_art_for_view(&view, &entities);
 
         Ok(JsonObservation {
             player_id: player_id.to_owned(),
@@ -382,18 +423,14 @@ impl GameRuntime {
             exits,
             entities,
             online_users: Vec::new(),
-            available_commands: available_commands(&self.world, view, &visible_entities)?,
+            available_commands: available_commands(&self.world, &view, &visible_entities)?,
             events,
         })
     }
 
     /// Returns the target view for an exit without moving any player.
     pub fn exit_target(&self, view_id: &str, direction: Direction) -> Result<ViewId, RuntimeError> {
-        let view = self
-            .world
-            .views
-            .get(view_id)
-            .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))?;
+        let view = self.view(view_id)?;
         view.exits
             .iter()
             .find(|exit| exit.direction == direction)
@@ -452,6 +489,7 @@ impl GameRuntime {
         let mut player = player.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         let current_view = player.current_view.clone();
         let target = self.exit_target(&current_view, direction)?;
+        self.ensure_observable_view(&target)?;
         player.current_view = target.clone();
 
         Ok(vec![ObservationEvent::Move {
@@ -478,7 +516,7 @@ impl GameRuntime {
         let player = self.player(player_id)?;
         let mut player = player.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         let current_view = player.current_view.clone();
-        let view_state = self.view_state(&current_view)?;
+        let view_state = self.view_state_for_visible_entity(&current_view, target)?;
         let mut view_state = view_state.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         if !view_state.dropped_entities.contains(&target.id) {
             return Err(RuntimeError::EntityNotVisible(target.id.clone()));
@@ -515,13 +553,19 @@ impl GameRuntime {
             .ok_or_else(|| RuntimeError::EntityNotFound(target.id.clone()))
     }
 
-    fn visible_entities(&self, view_id: &str) -> Result<Vec<EntityId>, RuntimeError> {
-        Ok(self
-            .view_state(view_id)?
-            .lock()
-            .map_err(|_| RuntimeError::StatePoisoned)?
-            .dropped_entities
-            .clone())
+    fn visible_entity_in_view(
+        &self,
+        view_id: &str,
+        target: &EntityRef,
+    ) -> Result<&Entity, RuntimeError> {
+        if self.visible_entities(view_id)?.contains(&target.id) {
+            self.world
+                .entities
+                .get(&target.id)
+                .ok_or_else(|| RuntimeError::EntityNotFound(target.id.clone()))
+        } else {
+            Err(RuntimeError::EntityNotVisible(target.id.clone()))
+        }
     }
 
     fn view_state(&self, view_id: &str) -> Result<Arc<Mutex<ViewState>>, RuntimeError> {
@@ -529,6 +573,20 @@ impl GameRuntime {
             .get(view_id)
             .cloned()
             .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
+    }
+
+    fn view_state_for_visible_entity(
+        &self,
+        view_id: &str,
+        target: &EntityRef,
+    ) -> Result<Arc<Mutex<ViewState>>, RuntimeError> {
+        self.views.get(view_id).cloned().ok_or_else(|| {
+            if is_grid_view_id(view_id) {
+                RuntimeError::EntityNotVisible(target.id.clone())
+            } else {
+                RuntimeError::ViewNotFound(view_id.to_owned())
+            }
+        })
     }
 
     fn player(&self, player_id: &str) -> Result<Arc<Mutex<PlayerState>>, RuntimeError> {
@@ -554,6 +612,9 @@ fn available_commands(
             text: "<text>".to_owned(),
         },
         SemanticCommand::History,
+        SemanticCommand::Memory {
+            rest: "<command>".to_owned(),
+        },
         SemanticCommand::Who,
         SemanticCommand::Settings {
             action: hinemos_core::SettingsAction::Show,
@@ -700,10 +761,6 @@ fn message(text: String) -> ObservationEvent {
     ObservationEvent::Message { text }
 }
 
-fn render_ascii_art_for_view(view: &View) -> Vec<String> {
-    view.ascii_art.clone()
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -716,21 +773,44 @@ mod tests {
     fn sample_runtime() -> GameRuntime {
         let world_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds/sample");
         GameRuntime::new(load_world_from_dir(world_dir).expect("sample world should load"))
+            .expect("sample runtime should build")
     }
 
     #[test]
-    fn moving_updates_current_view() {
-        let runtime = sample_runtime();
-        let observation = runtime
+    fn failed_move_does_not_mutate_player_view() {
+        let mut world = sample_runtime().world().expect("world snapshot");
+        world
+            .players
+            .get_mut(LOCAL_PLAYER_ID)
+            .expect("local player")
+            .current_view = "west_main_street".to_owned();
+        let west = world
+            .views
+            .get_mut("west_main_street")
+            .expect("west street");
+        let west_exit = west
+            .exits
+            .iter_mut()
+            .find(|exit| exit.direction == Direction::West)
+            .expect("west exit");
+        west_exit.target = "missing_view".to_owned();
+        let runtime = GameRuntime::new_with_grid_origin(world, "arrival_street")
+            .expect("runtime should build");
+
+        let err = runtime
             .execute(
                 LOCAL_PLAYER_ID,
                 &SemanticCommand::Move {
                     direction: Direction::West,
                 },
             )
-            .expect("move should succeed");
+            .expect_err("move to missing target should fail");
+        let player = runtime
+            .player_state(LOCAL_PLAYER_ID)
+            .expect("player state should remain readable");
 
-        assert_eq!(observation.view_id, "west_main_street");
+        assert_eq!(err, RuntimeError::ViewNotFound("missing_view".to_owned()));
+        assert_eq!(player.current_view, "west_main_street");
     }
 
     #[test]

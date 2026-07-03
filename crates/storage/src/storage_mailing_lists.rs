@@ -7,7 +7,7 @@ use hinemos_core::{
 };
 use serde_json::json;
 
-use crate::parcels::fetch_parcel_by_id;
+use crate::parcels::{canonical_parcel_id, fetch_parcel_by_id};
 use crate::{
     NewInboxItem, PgStorage, StorageError, StoredInboxItem, StoredParcel, StoredShopMailingList,
     StoredShopMailingListPost, StoredShopMailingListSubscriber, StoredShopMailingListSubscription,
@@ -82,6 +82,7 @@ impl PgStorage {
         &self,
         parcel_id: &str,
     ) -> Result<Vec<StoredShopMailingList>, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
         let rows = sqlx::query_as::<_, StoredShopMailingList>(
             r#"
             select l.id, l.parcel_id, l.owner_player_id, l.slug, l.title, l.status,
@@ -98,7 +99,7 @@ impl PgStorage {
             order by l.created_at desc, l.slug
             "#,
         )
-        .bind(parcel_id)
+        .bind(parcel_id.as_ref())
         .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
@@ -453,11 +454,11 @@ impl PgStorage {
         owner_player_id: &str,
     ) -> Result<StoredShopMailingList, StorageError> {
         validate_slug(slug)?;
-        self.owned_built_parcel(parcel_id, owner_player_id).await?;
-        self.shop_mailing_list_by_parcel_slug(parcel_id, slug)
+        let parcel = self.owned_built_parcel(parcel_id, owner_player_id).await?;
+        self.shop_mailing_list_by_parcel_slug(&parcel.parcel_id, slug)
             .await?
             .ok_or_else(|| StorageError::MailingListNotFound {
-                parcel_id: parcel_id.to_owned(),
+                parcel_id: parcel.parcel_id,
                 slug: slug.to_owned(),
             })
     }
@@ -514,6 +515,7 @@ impl PgStorage {
         target: &str,
         slug: &str,
     ) -> Result<StoredShopMailingList, StorageError> {
+        let target = canonical_parcel_id(target);
         let rows = sqlx::query_as::<_, StoredShopMailingList>(
             r#"
             select l.id, l.parcel_id, l.owner_player_id, l.slug, l.title, l.status,
@@ -537,7 +539,7 @@ impl PgStorage {
             limit 2
             "#,
         )
-        .bind(target)
+        .bind(target.as_ref())
         .bind(slug)
         .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .bind(PARCEL_STATUS_BUILT)
@@ -546,13 +548,14 @@ impl PgStorage {
         let mut rows = rows.into_iter();
         let Some(first) = rows.next() else {
             return Err(StorageError::MailingListNotFound {
-                parcel_id: target.to_owned(),
+                parcel_id: target.into_owned(),
                 slug: slug.to_owned(),
             });
         };
         if rows.next().is_some() {
             return Err(StorageError::InvalidMailingList(format!(
-                "ambiguous shop target: {target}"
+                "ambiguous shop target: {}",
+                target.as_ref()
             )));
         }
         Ok(first)

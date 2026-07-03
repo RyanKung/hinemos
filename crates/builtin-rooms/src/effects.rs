@@ -4,7 +4,9 @@ use hinemos_storage::{
     PgStorage, StorageError, StoredBalance, StoredInboxItem, StoredMarriageCertificate,
     StoredMemoryEvent,
 };
-use libhinemos_room::{CreditReason, MarriageRegistryAction, OutgoingMail, RoomEffect, RoomReply};
+use libhinemos_room::{
+    CreditReason, DebitReason, MarriageRegistryAction, OutgoingMail, RoomEffect, RoomReply,
+};
 
 use super::definitions::{BuiltinHandler, RoomDefinition};
 
@@ -24,6 +26,35 @@ pub(super) async fn apply_room_effects(
                     "\nWallet credited. Balance: {} MARK.",
                     balance.amount
                 ));
+            }
+            RoomEffect::DebitPlayerMark { amount, reason } => {
+                ensure_effect_allowed(room, BuiltinHandler::Blackstone, "debit MARK")?;
+                match debit_player_mark(storage, request, amount, &reason).await {
+                    Ok(balance) => {
+                        mail.body.push_str(&format!(
+                            "\nWallet debited. Balance: {} MARK.",
+                            balance.amount
+                        ));
+                    }
+                    Err(StorageError::InsufficientFunds) => {
+                        mail.body = format!(
+                            "Bread costs {amount} MARK, but your wallet does not have enough. Earn MARK through in-game work, then buy bread here."
+                        );
+                        return Ok(mail);
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            RoomEffect::RestorePlayerHunger { food } => {
+                ensure_effect_allowed(room, BuiltinHandler::Blackstone, "restore hunger")?;
+                storage
+                    .restore_player_hunger(&request.sender_player_id, &food)
+                    .await
+                    .with_context(|| {
+                        format!("failed to restore hunger for {}", request.sender_player_id)
+                    })?;
+                mail.body
+                    .push_str(&format!("\nHunger restored after eating {food}."));
             }
             RoomEffect::PublishBroadcast { body } => {
                 ensure_effect_allowed(room, BuiltinHandler::Newspaper, "publish broadcasts")?;
@@ -156,6 +187,26 @@ async fn credit_player_mark(
         .with_context(|| format!("failed to credit room MARK for request {}", request.id))
 }
 
+async fn debit_player_mark(
+    storage: &PgStorage,
+    request: &StoredInboxItem,
+    amount: i64,
+    reason: &DebitReason,
+) -> Result<StoredBalance, StorageError> {
+    let metadata = debit_reason_metadata(reason);
+    let idempotency_key = format!("{}:{}", metadata.idempotency_prefix, request.id);
+    storage
+        .debit_player_mark(
+            &request.sender_user,
+            &request.sender_player_id,
+            amount,
+            metadata.ledger_kind,
+            &format!("{} for request #{}", metadata.memo_prefix, request.id),
+            &idempotency_key,
+        )
+        .await
+}
+
 struct CreditReasonMetadata {
     idempotency_prefix: &'static str,
     ledger_kind: &'static str,
@@ -168,6 +219,22 @@ fn credit_reason_metadata(reason: &CreditReason) -> CreditReasonMetadata {
             idempotency_prefix: "workers:wage",
             ledger_kind: "room_wage",
             memo_prefix: "Workers Society wage",
+        },
+    }
+}
+
+struct DebitReasonMetadata {
+    idempotency_prefix: &'static str,
+    ledger_kind: &'static str,
+    memo_prefix: &'static str,
+}
+
+fn debit_reason_metadata(reason: &DebitReason) -> DebitReasonMetadata {
+    match reason {
+        DebitReason::Food => DebitReasonMetadata {
+            idempotency_prefix: "blackstone:food",
+            ledger_kind: "room_food",
+            memo_prefix: "Blackstone Izakaya food",
         },
     }
 }

@@ -216,7 +216,7 @@ fn push_common_commands(observation: &JsonObservation, parts: &mut Vec<String>) 
     type CommandPredicate = fn(&SemanticCommand) -> bool;
     type CommonCommand = (&'static str, CommandPredicate);
 
-    let commands: [CommonCommand; 8] = [
+    let commands: [CommonCommand; 9] = [
         ("/look", |command: &SemanticCommand| {
             matches!(command, SemanticCommand::Look)
         }),
@@ -228,6 +228,9 @@ fn push_common_commands(observation: &JsonObservation, parts: &mut Vec<String>) 
         }),
         ("/history", |command: &SemanticCommand| {
             matches!(command, SemanticCommand::History)
+        }),
+        ("/memory", |command: &SemanticCommand| {
+            matches!(command, SemanticCommand::Memory { .. })
         }),
         ("/help", |command: &SemanticCommand| {
             matches!(command, SemanticCommand::Help)

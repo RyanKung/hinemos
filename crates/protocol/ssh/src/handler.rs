@@ -8,6 +8,8 @@ mod handler_helpers;
 mod handler_io;
 #[path = "handler_observation.rs"]
 mod handler_observation;
+#[path = "handler_task.rs"]
+mod handler_task;
 mod session;
 
 use crate::auth::AuthIdentity;
@@ -17,14 +19,16 @@ use crate::render::*;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use handler_helpers::*;
+use handler_task::observation_events_from_ui_events;
 use hinemos_app::{
-    AppCommandContext, AppIdentity, AppRequest, AppViewCommandContext,
+    AppCommandContext, AppIdentity, AppRequest, AppViewCommandContext, HungerGateOutcome,
     PendingAdmissionCommandOutcome, RecentPresenceUser, RoomBindingKindView, UiEvent,
     WhoPopulation, service_room_unavailable_text,
 };
 use hinemos_core::{JsonObservation, ObservationEvent, PlayerState, SemanticCommand};
 use rand::Rng;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConnectionMode {
@@ -44,6 +48,7 @@ pub(crate) struct ConnectionHandler {
     input_buffer: String,
     discarding_oversized_input: bool,
     commands_seen: u64,
+    resident_context_sent: AtomicBool,
     channel: Option<ChannelId>,
     chrome: Option<Chrome>,
     mode: Option<ConnectionMode>,
@@ -66,6 +71,15 @@ struct HandlerViewCommand<'a> {
     prompt: bool,
 }
 
+struct RoomBindingLineRequest<'a> {
+    app_identity: &'a AppIdentity,
+    room_binding: Option<&'a StoredRoomBinding>,
+    line: &'a str,
+    before_observation: &'a JsonObservation,
+    task_command: Option<&'a SemanticCommand>,
+    prompt: bool,
+}
+
 impl ConnectionHandler {
     pub(crate) fn new(
         shared: Arc<SharedState>,
@@ -80,6 +94,7 @@ impl ConnectionHandler {
             input_buffer: String::new(),
             discarding_oversized_input: false,
             commands_seen: 0,
+            resident_context_sent: AtomicBool::new(false),
             channel: None,
             chrome: None,
             mode: None,
@@ -124,12 +139,6 @@ impl ConnectionHandler {
                 Ok(Some(summary)) => session.data(channel, summary.into_bytes())?,
                 Ok(None) => {}
                 Err(error) => send_command_error(session, channel, error.into(), false)?,
-            }
-            if let Err(error) = self
-                .send_app_request(channel, session, identity, AppRequest::MemoryContext)
-                .await
-            {
-                send_command_error(session, channel, error, false)?;
             }
         } else {
             session.data(
@@ -220,7 +229,7 @@ impl ConnectionHandler {
         session: &mut Session,
         prompt: bool,
     ) -> Result<()> {
-        let Some(mut state) = self
+        let Some(state) = self
             .prepare_command_line_state(channel, session, prompt)
             .await?
         else {
@@ -238,15 +247,34 @@ impl ConnectionHandler {
             return Ok(());
         }
 
-        let app = self.shared.app_service().await;
-        app.restrict_pending_admission_observation_for_player(
-            &mut state.current_observation,
-            &state.identity.player_id,
-        )
-        .await?;
         let room_binding = state.room_context.room_binding.as_ref();
         if self
-            .handle_room_binding_line(channel, session, &app_identity, room_binding, line, prompt)
+            .handle_hunger_for_room_binding_line(
+                channel,
+                session,
+                &app_identity,
+                room_binding,
+                line,
+                prompt,
+            )
+            .await?
+        {
+            return Ok(());
+        }
+        let room_task_command = self.parse_command_line_for_task(&state.current_observation, line);
+        if self
+            .handle_room_binding_line(
+                channel,
+                session,
+                RoomBindingLineRequest {
+                    app_identity: &app_identity,
+                    room_binding,
+                    line,
+                    before_observation: &state.current_observation,
+                    task_command: room_task_command.as_ref(),
+                    prompt,
+                },
+            )
             .await?
         {
             return Ok(());
@@ -266,6 +294,9 @@ impl ConnectionHandler {
         if self
             .handle_pending_admission_command(channel, session, &app_identity, &command, prompt)
             .await?
+            || self
+                .handle_hunger_for_command(channel, session, &state.identity, &command, prompt)
+                .await?
             || self
                 .handle_app_view_command(
                     channel,
@@ -297,8 +328,15 @@ impl ConnectionHandler {
             send_command_error(session, channel, error, prompt)?;
             return Ok(());
         }
-        self.execute_runtime_command(channel, session, &state.identity, command, prompt)
-            .await
+        self.execute_runtime_command(
+            channel,
+            session,
+            &state.identity,
+            &state.current_observation,
+            command,
+            prompt,
+        )
+        .await
     }
 
     async fn prepare_command_line_state(
@@ -367,6 +405,9 @@ impl ConnectionHandler {
             send_prompt_if_requested(session, channel, prompt)?;
             return Ok(None);
         }
+        let current_observation = self
+            .enrich_observation_for_context(current_observation, &room_context)
+            .await?;
 
         Ok(Some(CommandLineState {
             identity,
@@ -399,6 +440,37 @@ impl ConnectionHandler {
         &self,
         channel: ChannelId,
         session: &mut Session,
+        request: RoomBindingLineRequest<'_>,
+    ) -> Result<bool> {
+        let Some(binding) = request.room_binding else {
+            return Ok(false);
+        };
+        let app = self.shared.app_service().await;
+        if let Some(events) = app
+            .handle_room_line_for_binding(request.app_identity, binding, request.line)
+            .await?
+        {
+            let task_events = observation_events_from_ui_events(&events);
+            self.send_ui_events(channel, session, events).await?;
+            if let Some(command) = request.task_command {
+                self.record_resident_task_step_after_current_view(
+                    request.app_identity,
+                    request.before_observation,
+                    command,
+                    task_events,
+                )
+                .await;
+            }
+            send_prompt_if_requested(session, channel, request.prompt)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    async fn handle_hunger_for_room_binding_line(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
         app_identity: &AppIdentity,
         room_binding: Option<&StoredRoomBinding>,
         line: &str,
@@ -407,16 +479,75 @@ impl ConnectionHandler {
         let Some(binding) = room_binding else {
             return Ok(false);
         };
-        let app = self.shared.app_service().await;
-        if let Some(events) = app
-            .handle_room_line_for_binding(app_identity, binding, line)
-            .await?
-        {
-            self.send_ui_events(channel, session, events).await?;
-            send_prompt_if_requested(session, channel, prompt)?;
-            return Ok(true);
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with('/') {
+            return Ok(false);
         }
-        Ok(false)
+        if !self.shared.app_config().await.hunger_loop_enabled {
+            return Ok(false);
+        }
+        let app = self.shared.app_service().await;
+        let consumed_by_room = if binding.is_commercial_parcel() {
+            app.commercial_parcel_consumes_input(binding, trimmed)
+        } else {
+            app.room_binding_accepts_input(binding, trimmed)
+        };
+        if !consumed_by_room {
+            return Ok(false);
+        }
+        self.handle_hunger_outcome(
+            channel,
+            session,
+            if binding.is_service_room() {
+                app.check_hunger_room_line(&app_identity.player_id, trimmed, binding)
+                    .await?
+            } else {
+                app.check_hunger_raw_line(&app_identity.player_id, trimmed)
+                    .await?
+            },
+            prompt,
+        )
+        .await
+    }
+
+    async fn handle_hunger_for_command(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        identity: &AuthIdentity,
+        command: &SemanticCommand,
+        prompt: bool,
+    ) -> Result<bool> {
+        if !self.shared.app_config().await.hunger_loop_enabled {
+            return Ok(false);
+        }
+        let app = self.shared.app_service().await;
+        self.handle_hunger_outcome(
+            channel,
+            session,
+            app.check_hunger_command(&identity.player_id, command)
+                .await?,
+            prompt,
+        )
+        .await
+    }
+
+    async fn handle_hunger_outcome(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        outcome: HungerGateOutcome,
+        prompt: bool,
+    ) -> Result<bool> {
+        match outcome {
+            HungerGateOutcome::Allow => Ok(false),
+            HungerGateOutcome::Block(text) => {
+                self.send_ui_events(channel, session, vec![UiEvent::Text(text)])
+                    .await?;
+                send_prompt_if_requested(session, channel, prompt)?;
+                Ok(true)
+            }
+        }
     }
 
     fn parse_command_line_or_reply(
@@ -564,7 +695,15 @@ impl ConnectionHandler {
             .await
         {
             Ok(Some(events)) => {
+                let task_events = observation_events_from_ui_events(&events);
                 self.send_ui_events(channel, session, events).await?;
+                self.record_resident_task_step_after_current_view(
+                    request.app_identity,
+                    request.current_observation,
+                    request.command,
+                    task_events,
+                )
+                .await;
                 send_prompt_if_requested(session, channel, request.prompt)?;
                 Ok(true)
             }
@@ -608,6 +747,7 @@ impl ConnectionHandler {
         channel: ChannelId,
         session: &mut Session,
         identity: &AuthIdentity,
+        before_observation: &JsonObservation,
         command: SemanticCommand,
         prompt: bool,
     ) -> Result<()> {
@@ -628,6 +768,7 @@ impl ConnectionHandler {
                 return Ok(());
             }
         };
+        let observation_for_task = observation.clone();
         if let Err(error) = self
             .send_ui_events(
                 channel,
@@ -645,6 +786,14 @@ impl ConnectionHandler {
             send_command_error(session, channel, error, prompt)?;
             return Ok(());
         }
+        let app_identity = AppIdentity::new(identity.user.clone(), identity.player_id.clone());
+        self.record_resident_task_step_after_observation(
+            &app_identity,
+            before_observation,
+            &command,
+            observation_for_task,
+        )
+        .await;
         if should_quit {
             session.exit_status_request(channel, 0)?;
             session.close(channel)?;

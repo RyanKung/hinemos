@@ -102,5 +102,8 @@ jobs:
       - name: Compile integration tests
         run: cargo test --workspace --tests --no-run
 
+      - name: Run self-model storage concurrency test
+        run: cargo test -p hinemos-storage --test self_models concurrent_self_model_state_writes_preserve_both_versions -- --nocapture
+
       - name: Run mail sidecar integration smoke
         run: cargo test -p hinemos-cli --test mail_sidecar smtp_and_imap_sidecar_use_mail_token_auth_and_share_mailbox -- --nocapture

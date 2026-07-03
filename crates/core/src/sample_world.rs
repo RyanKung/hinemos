@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::grid_map::{is_grid_view_id, is_reserved_grid_view_id};
 use crate::model::{Entity, PlayerState, View, WorldState};
 
 /// Canonical single-player id used by local CLI and tests.
@@ -26,6 +27,9 @@ pub enum WorldLoadError {
     /// A world object references an id that does not exist.
     #[error("missing world reference: {0}")]
     MissingReference(String),
+    /// A static world view tries to occupy a generated runtime namespace.
+    #[error("reserved generated view id: {0}")]
+    ReservedViewId(String),
     /// A view layout has inconsistent row-major data.
     #[error("invalid view layout: {0}")]
     InvalidLayout(String),
@@ -62,8 +66,15 @@ fn load_views(dir: &Path) -> Result<HashMap<String, View>, WorldLoadError> {
 
 fn validate_world(world: &WorldState) -> Result<(), WorldLoadError> {
     for view in world.views.values() {
+        if is_reserved_grid_view_id(&view.id) {
+            return Err(WorldLoadError::ReservedViewId(format!(
+                "view `{}` uses the generated grid namespace",
+                view.id
+            )));
+        }
+
         for exit in &view.exits {
-            if !world.views.contains_key(&exit.target) {
+            if !world.views.contains_key(&exit.target) && !is_grid_view_id(&exit.target) {
                 return Err(WorldLoadError::MissingReference(format!(
                     "view `{}` exit points to missing view `{}`",
                     view.id, exit.target
@@ -114,7 +125,8 @@ fn validate_world(world: &WorldState) -> Result<(), WorldLoadError> {
     }
 
     for player in world.players.values() {
-        if !world.views.contains_key(&player.current_view) {
+        if !world.views.contains_key(&player.current_view) && !is_grid_view_id(&player.current_view)
+        {
             return Err(WorldLoadError::MissingReference(format!(
                 "player `{}` starts in missing view `{}`",
                 player.id, player.current_view
@@ -166,7 +178,7 @@ fn load_players(dir: &Path) -> Result<HashMap<String, PlayerState>, WorldLoadErr
 mod tests {
     use crate::{Direction, Entity, EntityKind, Exit, PlayerState, Requirement, View, WorldState};
 
-    use super::{WorldLoadError, load_world_from_dir, validate_world};
+    use super::{WorldLoadError, validate_world};
 
     fn valid_world() -> WorldState {
         WorldState {
@@ -245,20 +257,53 @@ mod tests {
     }
 
     #[test]
-    fn sample_world_has_ascii_art_for_every_view() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(2)
-            .expect("core crate should live under workspace/crates/core");
-        let world = load_world_from_dir(root.join("worlds/sample")).expect("load sample world");
+    fn validation_accepts_views_without_authored_ascii_art() {
+        let world = valid_world();
 
-        let missing = world
-            .views
-            .values()
-            .filter(|view| view.ascii_art.iter().all(|line| line.trim().is_empty()))
-            .map(|view| view.id.as_str())
-            .collect::<Vec<_>>();
+        validate_world(&world).expect("authored ASCII is not required for map completeness");
+    }
 
-        assert!(missing.is_empty(), "views missing ASCII art: {missing:?}");
+    #[test]
+    fn validation_rejects_authored_generated_road_view_id() {
+        let mut world = valid_world();
+        let mut view = world.views.remove("start").expect("start view exists");
+        view.id = "grid_road_xp1_y0".to_owned();
+        world.views.insert(view.id.clone(), view);
+
+        let err = validate_world(&world).expect_err("generated road id should fail");
+        assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
+    }
+
+    #[test]
+    fn validation_rejects_authored_generated_parcel_view_id() {
+        let mut world = valid_world();
+        let mut view = world.views.remove("start").expect("start view exists");
+        view.id = "parcel_E1-C0-01".to_owned();
+        world.views.insert(view.id.clone(), view);
+
+        let err = validate_world(&world).expect_err("generated parcel id should fail");
+        assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
+    }
+
+    #[test]
+    fn validation_rejects_authored_origin_road_view_id() {
+        let mut world = valid_world();
+        let mut view = world.views.remove("start").expect("start view exists");
+        view.id = "grid_road_x0_y0".to_owned();
+        world.views.insert(view.id.clone(), view);
+
+        let err = validate_world(&world).expect_err("generated origin road id should fail");
+        assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
+    }
+
+    #[test]
+    fn validation_rejects_authored_origin_parcel_view_id() {
+        let mut world = valid_world();
+        let mut view = world.views.remove("start").expect("start view exists");
+        view.id = "parcel_C0-C0-01".to_owned();
+        world.views.insert(view.id.clone(), view);
+
+        let err = validate_world(&world).expect_err("generated origin parcel id should fail");
+        assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
     }
 }

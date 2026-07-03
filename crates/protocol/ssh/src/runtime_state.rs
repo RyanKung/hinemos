@@ -11,10 +11,16 @@ pub(crate) struct RuntimeHandle {
 }
 
 impl RuntimeHandle {
-    pub(crate) fn new(world: WorldState) -> Self {
-        Self {
-            state: RwLock::new(RuntimeState::new(world)),
-        }
+    pub(crate) fn new_with_grid_origin(
+        world: WorldState,
+        grid_origin_view_id: String,
+    ) -> Result<Self, RuntimeError> {
+        Ok(Self {
+            state: RwLock::new(RuntimeState::new_with_grid_origin(
+                world,
+                grid_origin_view_id,
+            )?),
+        })
     }
 
     pub(crate) async fn chrome(&self) -> Chrome {
@@ -70,12 +76,13 @@ impl RuntimeHandle {
     pub(crate) async fn reload_from_world_dir_preserving_players(
         &self,
         dir: impl Into<std::path::PathBuf>,
+        grid_origin_view_id: String,
     ) -> Result<(), ReloadError> {
         let dir = dir.into();
         let mut state = self.state.write().await;
         let runtime = state
             .runtime
-            .reload_from_world_dir_preserving_players(dir)?;
+            .reload_from_world_dir_preserving_players_with_grid_origin(dir, grid_origin_view_id)?;
         let world = runtime.world()?;
         *state = RuntimeState {
             chrome: Chrome::with_world(&world),
@@ -121,10 +128,13 @@ struct RuntimeState {
 }
 
 impl RuntimeState {
-    fn new(world: WorldState) -> Self {
+    fn new_with_grid_origin(
+        world: WorldState,
+        grid_origin_view_id: String,
+    ) -> Result<Self, RuntimeError> {
         let chrome = Chrome::with_world(&world);
-        let runtime = GameRuntime::new(world);
-        Self { runtime, chrome }
+        let runtime = GameRuntime::new_with_grid_origin(world, grid_origin_view_id)?;
+        Ok(Self { runtime, chrome })
     }
 }
 

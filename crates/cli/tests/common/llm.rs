@@ -28,6 +28,17 @@ pub fn run_claude_agent_until(
     timeout: Duration,
     evidence: impl Fn(&str) -> bool,
 ) -> AgentRun {
+    run_claude_agent_until_with_tools(prompt, provider_env, timeout, &["Bash(ssh *)"], evidence)
+}
+
+pub fn run_claude_agent_until_with_tools(
+    prompt: &str,
+    provider_env: &HashMap<String, String>,
+    timeout: Duration,
+    allowed_tools: &[&str],
+    evidence: impl Fn(&str) -> bool,
+) -> AgentRun {
+    let allowed_tools = allowed_tools.join(",");
     let mut child = Command::new("claude")
         .args([
             "--print",
@@ -38,7 +49,7 @@ pub fn run_claude_agent_until(
             "--permission-mode",
             "bypassPermissions",
             "--allowedTools",
-            "Bash(ssh *)",
+            &allowed_tools,
         ])
         .envs(provider_env)
         .stdin(Stdio::piped())

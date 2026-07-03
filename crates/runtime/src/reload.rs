@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use hinemos_core::sample_world::{self, LOCAL_PLAYER_ID};
-use hinemos_core::{PlayerState, WorldState};
+use hinemos_core::{PlayerState, WorldState, is_grid_view_id};
 
 use crate::{GameRuntime, ReloadError};
 
@@ -16,11 +16,24 @@ impl GameRuntime {
         &self,
         dir: impl Into<PathBuf>,
     ) -> Result<Self, ReloadError> {
+        let grid_origin_view_id = self.world.grid_origin.view_id.clone();
+        self.reload_from_world_dir_preserving_players_with_grid_origin(dir, grid_origin_view_id)
+    }
+
+    /// Reloads world files from `dir` while updating the generated-grid origin.
+    pub fn reload_from_world_dir_preserving_players_with_grid_origin(
+        &self,
+        dir: impl Into<PathBuf>,
+        grid_origin_view_id: impl Into<String>,
+    ) -> Result<Self, ReloadError> {
         let dir = dir.into();
         let fresh = sample_world::load_world_from_dir(&dir)?;
         let old_world = self.world()?;
         let merged = merge_world_reload(fresh, &old_world.players);
-        Ok(GameRuntime::new(merged))
+        Ok(GameRuntime::new_with_grid_origin(
+            merged,
+            grid_origin_view_id.into(),
+        )?)
     }
 }
 
@@ -53,7 +66,7 @@ fn merge_player_for_reload(
     fresh: &WorldState,
     fallback_view: &str,
 ) -> PlayerState {
-    if !fresh.views.contains_key(&player.current_view) {
+    if !fresh.views.contains_key(&player.current_view) && !is_grid_view_id(&player.current_view) {
         player.current_view = fallback_view.to_owned();
     }
     player
