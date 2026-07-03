@@ -299,6 +299,11 @@ impl ConnectionHandler {
                     .swap(true, std::sync::atomic::Ordering::AcqRel)
                 {
                     append_resident_context(&mut observation.description, &context.text);
+                } else {
+                    append_resident_context(
+                        &mut observation.description,
+                        &resident_context_status(&context.text),
+                    );
                 }
             }
         }
@@ -708,6 +713,14 @@ fn append_resident_context(description: &mut String, context: &str) {
         description.push_str("\n\n");
     }
     description.push_str(context);
+}
+
+fn resident_context_status(context: &str) -> String {
+    context
+        .lines()
+        .filter(|line| line.starts_with("Loop:") || line.starts_with("Social drives:"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn send_text_event(session: &mut Session, channel: ChannelId, text: &str) -> Result<()> {

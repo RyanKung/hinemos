@@ -1,3 +1,8 @@
+use crate::resident_loop::{
+    RESIDENT_LOOP_STATE_KEYS, ResidentLoopAction, ResidentLoopClock, ResidentTaskMemoryMetrics,
+    current_unix_seconds, default_virtual_time_state, observation_event_signature,
+    resident_loop_clock, resident_observed_task_state, resident_stored_observed_task_state,
+};
 use crate::*;
 use serde_json::json;
 
@@ -51,13 +56,16 @@ where
             .ensure_default_self_model(username, agent_id, &task)
             .await?;
         let (commitments, memory_metrics) = self.resident_task_memory(agent_id).await?;
+        let clock = resident_loop_clock(&self.config, current_unix_seconds());
         let observed_state =
-            resident_stored_observed_task_state(previous_model.current_state(), observation)
+            resident_stored_observed_task_state(previous_model.current_state(), observation, clock)
                 .unwrap_or_else(|| {
                     resident_observed_task_state(
                         observation,
                         previous_model.current_state(),
                         memory_metrics,
+                        clock,
+                        ResidentLoopAction::Observe,
                     )
                 });
         let snapshot = task.snapshot(observation, observed_state);
@@ -67,7 +75,8 @@ where
                 previous_model.current_state(),
                 observation,
                 &snapshot,
-                &self.config,
+                clock,
+                ResidentLoopAction::Observe,
             )
             .await?;
         Ok(MemoryResult {
@@ -92,26 +101,36 @@ where
             .ensure_default_self_model(username, agent_id, &task)
             .await?;
         let (_, memory_metrics) = self.resident_task_memory(agent_id).await?;
+        let clock = resident_loop_clock(&self.config, current_unix_seconds());
         let before_state =
-            resident_stored_observed_task_state(previous_model.current_state(), before)
+            resident_stored_observed_task_state(previous_model.current_state(), before, clock)
                 .unwrap_or_else(|| {
                     resident_observed_task_state(
                         before,
                         previous_model.current_state(),
                         memory_metrics,
+                        clock,
+                        ResidentLoopAction::Observe,
                     )
                 });
         let before_snapshot = task.snapshot(before, before_state);
         let Ok(task_command) = task.validate_command(&before_snapshot, command.clone()) else {
             return Ok(());
         };
+        let loop_action = ResidentLoopAction::from_command(&task_command.command);
 
         task.command_history =
             bounded_task_command_history(resident_command_history(previous_model.current_state()));
         task.last_snapshot = Some(before_snapshot.clone());
         let after_snapshot = task.snapshot(
             after,
-            resident_observed_task_state(after, previous_model.current_state(), memory_metrics),
+            resident_observed_task_state(
+                after,
+                previous_model.current_state(),
+                memory_metrics,
+                clock,
+                loop_action,
+            ),
         );
         let evaluation = task.evaluate_step(&before_snapshot, task_command, after_snapshot);
         task.record_step(evaluation.clone());
@@ -121,7 +140,8 @@ where
             after,
             &evaluation,
             &task.command_history,
-            &self.config,
+            clock,
+            loop_action,
         );
         self.store
             .record_self_model_state(agent_id, &current_state)
@@ -201,7 +221,8 @@ where
         task: &TaskMode,
     ) -> Result<S::SelfModel, E> {
         let identity = default_resident_identity(username, task);
-        let current_state = default_resident_current_state(&self.config);
+        let clock = resident_loop_clock(&self.config, current_unix_seconds());
+        let current_state = default_resident_current_state(clock, ResidentLoopAction::Observe);
         let style = default_resident_style();
         self.store
             .ensure_self_model(agent_id, &identity, &current_state, &style)
@@ -214,10 +235,16 @@ where
         previous_current_state: &Value,
         observation: &JsonObservation,
         snapshot: &TaskSnapshot,
-        config: &WorldAppConfig,
+        clock: ResidentLoopClock,
+        action: ResidentLoopAction,
     ) -> Result<S::SelfModel, E> {
-        let current_state =
-            resident_current_state(Some(previous_current_state), observation, snapshot, config);
+        let current_state = resident_current_state(
+            Some(previous_current_state),
+            observation,
+            snapshot,
+            clock,
+            action,
+        );
         self.store
             .record_self_model_state(agent_id, &current_state)
             .await
@@ -453,18 +480,7 @@ pub(crate) fn memory_command_rest(line: &str) -> Option<&str> {
 }
 
 const MEMORY_COMMITMENT_STATUS_PAID: &str = "paid";
-const DEFAULT_LONELINESS_POINTS: i64 = 4;
-const DEFAULT_BOREDOM_POINTS: i64 = 3;
-const MAX_SUBJECTIVE_PRESSURE_POINTS: i64 = 10;
 const MAX_TASK_COMMAND_HISTORY: usize = 10;
-const RESIDENT_LOOP_STATE_KEYS: &[&str] =
-    &["shortTerm", "lastStep", "lastReward", "commandHistory"];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ResidentTaskMemoryMetrics {
-    social_memory_count: usize,
-    satisfied_commitment_count: usize,
-}
 
 fn commitment_status_is_paid(memory: &impl MemoryAtomView) -> bool {
     memory.object().get("status").and_then(Value::as_str) == Some(MEMORY_COMMITMENT_STATUS_PAID)
@@ -480,15 +496,12 @@ fn default_resident_identity(username: &str, task: &TaskMode) -> Value {
     })
 }
 
-fn default_resident_current_state(config: &WorldAppConfig) -> Value {
+fn default_resident_current_state(clock: ResidentLoopClock, action: ResidentLoopAction) -> Value {
     json!({
         "shortTerm": "Wander through visible streets, search for residents, and write a daily report when the virtual day turns.",
         "priority": "Prefer visible commands that find residents, create useful social contact, write daily reports, or change stale state.",
         "constraint": "The baseline world disables hunger, jobs, and shop loops. Do not route through money, food, or work unless the world visibly enables them.",
-        "virtualTime": {
-            "dayLengthSeconds": config.virtual_day_seconds,
-            "dailyReportCommand": "/memory report <text>",
-        },
+        "virtualTime": default_virtual_time_state(clock, None, action),
     })
 }
 
@@ -496,18 +509,24 @@ fn resident_current_state(
     previous_current_state: Option<&Value>,
     observation: &JsonObservation,
     snapshot: &TaskSnapshot,
-    config: &WorldAppConfig,
+    clock: ResidentLoopClock,
+    action: ResidentLoopAction,
 ) -> Value {
-    let mut current_state = default_resident_current_state(config);
+    let mut current_state = default_resident_current_state(clock, action);
     if let Some(state) = current_state.as_object_mut() {
         if let Some(previous_current_state) = previous_current_state {
             preserve_resident_loop_state(state, previous_current_state);
+            state.insert(
+                "virtualTime".to_owned(),
+                default_virtual_time_state(clock, Some(previous_current_state), action),
+            );
         }
         state.insert(
             "lastSnapshot".to_owned(),
             json!({
                 "viewId": snapshot.view_id.as_str(),
                 "title": observation.title.as_str(),
+                "virtualDay": clock.current_day,
                 "eventSignature": observation_event_signature(observation),
                 "hunger": hunger_context(snapshot.hunger),
                 "hungerSignal": snapshot.hunger,
@@ -528,13 +547,15 @@ fn resident_current_state_after_step(
     observation: &JsonObservation,
     evaluation: &TaskStepEvaluation,
     command_history: &[TaskCommandRecord],
-    config: &WorldAppConfig,
+    clock: ResidentLoopClock,
+    action: ResidentLoopAction,
 ) -> Value {
     let mut current_state = resident_current_state(
         Some(previous_current_state),
         observation,
         &evaluation.after,
-        config,
+        clock,
+        action,
     );
     if let Some(state) = current_state.as_object_mut() {
         state.insert(
@@ -601,151 +622,6 @@ fn bounded_task_command_history(mut history: Vec<TaskCommandRecord>) -> Vec<Task
     history
 }
 
-fn resident_observed_task_state(
-    observation: &JsonObservation,
-    previous_current_state: &Value,
-    memory_metrics: ResidentTaskMemoryMetrics,
-) -> ObservedTaskState {
-    let social_contact_units = visible_social_contact_units(observation);
-    ObservedTaskState {
-        hunger: HungerSignal::from_observation(observation),
-        progress_units: last_snapshot_i64(previous_current_state, "progressUnits")
-            .unwrap_or_default(),
-        social_contact_units: Some(social_contact_units),
-        standing_units: Some(standing_units(memory_metrics, social_contact_units)),
-        commitment_satisfaction_units: Some(usize_to_i64_saturating(
-            memory_metrics.satisfied_commitment_count,
-        )),
-        loneliness_points: Some(next_loneliness_points(
-            previous_current_state,
-            social_contact_units,
-        )),
-        boredom_points: Some(next_boredom_points(
-            previous_current_state,
-            observation,
-            social_contact_units,
-        )),
-        ..ObservedTaskState::default()
-    }
-}
-
-fn resident_stored_observed_task_state(
-    current_state: &Value,
-    observation: &JsonObservation,
-) -> Option<ObservedTaskState> {
-    if last_snapshot_str(current_state, "viewId")? != observation.view_id.as_str() {
-        return None;
-    }
-    if last_snapshot_str(current_state, "eventSignature")?
-        != observation_event_signature(observation)
-    {
-        return None;
-    }
-    Some(ObservedTaskState {
-        hunger: last_snapshot_hunger_signal(current_state)
-            .unwrap_or_else(|| HungerSignal::from_observation(observation)),
-        progress_units: last_snapshot_i64(current_state, "progressUnits").unwrap_or_default(),
-        social_contact_units: last_snapshot_i64(current_state, "socialContactUnits"),
-        standing_units: last_snapshot_i64(current_state, "standingUnits"),
-        commitment_satisfaction_units: last_snapshot_i64(
-            current_state,
-            "commitmentSatisfactionUnits",
-        ),
-        loneliness_points: last_snapshot_i64(current_state, "lonelinessPoints"),
-        boredom_points: last_snapshot_i64(current_state, "boredomPoints"),
-        ..ObservedTaskState::default()
-    })
-}
-
-fn observation_event_signature(observation: &JsonObservation) -> String {
-    observation
-        .events
-        .iter()
-        .map(|event| match event {
-            hinemos_core::ObservationEvent::Message { text } => format!("message:{text}"),
-            hinemos_core::ObservationEvent::Move {
-                from,
-                to,
-                direction,
-            } => format!("move:{from}:{to}:{}", direction.as_str()),
-        })
-        .collect::<Vec<_>>()
-        .join("|")
-}
-
-fn visible_social_contact_units(observation: &JsonObservation) -> i64 {
-    usize_to_i64_saturating(
-        observation
-            .online_users
-            .iter()
-            .filter(|user| !user.starts_with('+'))
-            .count(),
-    )
-}
-
-fn standing_units(metrics: ResidentTaskMemoryMetrics, social_contact_units: i64) -> i64 {
-    usize_to_i64_saturating(metrics.social_memory_count)
-        .saturating_add(usize_to_i64_saturating(metrics.satisfied_commitment_count))
-        .saturating_add(social_contact_units)
-}
-
-fn next_loneliness_points(previous_current_state: &Value, social_contact_units: i64) -> i64 {
-    let previous = last_snapshot_i64(previous_current_state, "lonelinessPoints")
-        .unwrap_or(DEFAULT_LONELINESS_POINTS);
-    if social_contact_units > 0 {
-        pressure_points(previous.saturating_sub(social_contact_units))
-    } else {
-        pressure_points(previous.saturating_add(1))
-    }
-}
-
-fn next_boredom_points(
-    previous_current_state: &Value,
-    observation: &JsonObservation,
-    social_contact_units: i64,
-) -> i64 {
-    let previous = last_snapshot_i64(previous_current_state, "boredomPoints")
-        .unwrap_or(DEFAULT_BOREDOM_POINTS);
-    if observation_changes_state(previous_current_state, observation) || social_contact_units > 0 {
-        pressure_points(previous.saturating_sub(1))
-    } else {
-        pressure_points(previous.saturating_add(1))
-    }
-}
-
-fn observation_changes_state(
-    previous_current_state: &Value,
-    observation: &JsonObservation,
-) -> bool {
-    last_snapshot_str(previous_current_state, "viewId")
-        .is_none_or(|view_id| view_id != observation.view_id.as_str())
-        || !observation.events.is_empty()
-}
-
-fn last_snapshot_i64(current_state: &Value, field: &str) -> Option<i64> {
-    current_state.get("lastSnapshot")?.get(field)?.as_i64()
-}
-
-fn last_snapshot_str<'a>(current_state: &'a Value, field: &str) -> Option<&'a str> {
-    current_state.get("lastSnapshot")?.get(field)?.as_str()
-}
-
-fn last_snapshot_hunger_signal(current_state: &Value) -> Option<HungerSignal> {
-    current_state
-        .get("lastSnapshot")?
-        .get("hungerSignal")
-        .cloned()
-        .and_then(|value| serde_json::from_value(value).ok())
-}
-
-fn pressure_points(value: i64) -> i64 {
-    value.clamp(0, MAX_SUBJECTIVE_PRESSURE_POINTS)
-}
-
-fn usize_to_i64_saturating(value: usize) -> i64 {
-    i64::try_from(value).unwrap_or(i64::MAX)
-}
-
 fn default_resident_style() -> Value {
     json!({
         "autonomy": "Use only visible Hinemos commands and room replies. Do not invent a private agent protocol.",
@@ -788,6 +664,7 @@ fn render_resident_context(
         "Virtual time: one in-world day is {} real seconds; write a daily report when the day turns.",
         config.virtual_day_seconds
     ));
+    lines.push(resident_loop_status_line(model.current_state()));
     lines.push(hunger_policy_context(task.constraints.hunger, snapshot.hunger).to_owned());
     lines.push(format!(
         "Social drives: contact={}, standing={}, commitments={}, loneliness={}, boredom={}.",
@@ -802,6 +679,32 @@ fn render_resident_context(
 
 fn json_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
+}
+
+fn resident_loop_status_line(current_state: &Value) -> String {
+    let virtual_time = current_state.get("virtualTime");
+    let day = virtual_time
+        .and_then(|value| value.get("currentDay"))
+        .and_then(Value::as_i64)
+        .map_or_else(|| "unknown".to_owned(), |value| value.to_string());
+    let report_due = virtual_time
+        .and_then(|value| value.get("reportDue"))
+        .and_then(Value::as_bool);
+    let report_ready = virtual_time
+        .and_then(|value| value.get("reportReady"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let report = match (report_due, report_ready) {
+        (Some(true), true) => "daily report ready",
+        (Some(true), false) => "daily report due after searching",
+        (Some(false), _) => "daily report complete",
+        (None, _) => "daily report unknown",
+    };
+    let next_day = virtual_time
+        .and_then(|value| value.get("secondsUntilNextDay"))
+        .and_then(Value::as_u64)
+        .map_or_else(|| "unknown".to_owned(), |value| format!("{value}s"));
+    format!("Loop: day {day}; {report}; next day in {next_day}.")
 }
 
 fn metric_text(value: Option<i64>) -> String {
@@ -869,6 +772,7 @@ fn model_text(model: &impl SelfModelView) -> String {
         model.version(),
         model.created_at()
     ));
+    lines.push(resident_loop_status_line(model.current_state()));
     append_model_json_line(&mut lines, "Identity", model.identity());
     append_model_json_line(&mut lines, "Current state", model.current_state());
     append_model_json_line(&mut lines, "Style", model.style());

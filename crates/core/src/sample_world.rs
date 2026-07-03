@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::grid_map::is_grid_view_id;
+use crate::grid_map::{is_grid_view_id, is_reserved_grid_view_id};
 use crate::model::{Entity, PlayerState, View, WorldState};
 
 /// Canonical single-player id used by local CLI and tests.
@@ -66,7 +66,7 @@ fn load_views(dir: &Path) -> Result<HashMap<String, View>, WorldLoadError> {
 
 fn validate_world(world: &WorldState) -> Result<(), WorldLoadError> {
     for view in world.views.values() {
-        if is_grid_view_id(&view.id) {
+        if is_reserved_grid_view_id(&view.id) {
             return Err(WorldLoadError::ReservedViewId(format!(
                 "view `{}` uses the generated grid namespace",
                 view.id
@@ -282,6 +282,28 @@ mod tests {
         world.views.insert(view.id.clone(), view);
 
         let err = validate_world(&world).expect_err("generated parcel id should fail");
+        assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
+    }
+
+    #[test]
+    fn validation_rejects_authored_origin_road_view_id() {
+        let mut world = valid_world();
+        let mut view = world.views.remove("start").expect("start view exists");
+        view.id = "grid_road_x0_y0".to_owned();
+        world.views.insert(view.id.clone(), view);
+
+        let err = validate_world(&world).expect_err("generated origin road id should fail");
+        assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
+    }
+
+    #[test]
+    fn validation_rejects_authored_origin_parcel_view_id() {
+        let mut world = valid_world();
+        let mut view = world.views.remove("start").expect("start view exists");
+        view.id = "parcel_C0-C0-01".to_owned();
+        world.views.insert(view.id.clone(), view);
+
+        let err = validate_world(&world).expect_err("generated origin parcel id should fail");
         assert!(matches!(err, WorldLoadError::ReservedViewId(_)));
     }
 }

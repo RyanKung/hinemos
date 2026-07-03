@@ -71,10 +71,8 @@ impl GridRoad {
     /// Parses a generated road view id.
     #[must_use]
     pub fn from_view_id(view_id: &str) -> Option<Self> {
-        let rest = view_id.strip_prefix(GRID_ROAD_VIEW_PREFIX)?;
-        let (x, y) = rest.split_once("_y")?;
-        let x = x.strip_prefix('x')?;
-        Self::new(parse_signed_token(x)?, parse_signed_token(y)?)
+        let (x, y) = parse_grid_road_coordinates(view_id)?;
+        Self::new(x, y)
     }
 
     /// Returns the generated road view id.
@@ -239,16 +237,7 @@ impl GridParcelAddress {
     /// Parses a generated parcel id such as `E1-C0-01`.
     #[must_use]
     pub fn from_parcel_id(parcel_id: &str) -> Option<Self> {
-        let mut parts = parcel_id.split('-');
-        let x = parts.next()?;
-        let y = parts.next()?;
-        let door = parts.next()?;
-        if parts.next().is_some() {
-            return None;
-        }
-        let x = parse_axis_code(x, "E", "W")?;
-        let y = parse_axis_code(y, "N", "S")?;
-        let door = door.parse::<u8>().ok()?;
+        let (x, y, door) = parse_grid_parcel_parts(parcel_id)?;
         Self::new(GridRoad::new(x, y)?, door)
     }
 
@@ -363,6 +352,12 @@ pub fn is_grid_view_id(view_id: &str) -> bool {
     GridRoad::from_view_id(view_id).is_some() || GridParcelAddress::from_view_id(view_id).is_some()
 }
 
+#[must_use]
+pub(crate) fn is_reserved_grid_view_id(view_id: &str) -> bool {
+    parse_grid_road_coordinates(view_id).is_some()
+        || parse_grid_parcel_view_parts(view_id).is_some()
+}
+
 /// Builds a generated grid view when the id is in the grid namespace.
 #[must_use]
 pub fn grid_view(view_id: &str) -> Option<View> {
@@ -465,6 +460,31 @@ fn parse_signed_token(token: &str) -> Option<i32> {
         return None;
     }
     i32::try_from(-number).ok()
+}
+
+fn parse_grid_road_coordinates(view_id: &str) -> Option<(i32, i32)> {
+    let rest = view_id.strip_prefix(GRID_ROAD_VIEW_PREFIX)?;
+    let (x, y) = rest.split_once("_y")?;
+    let x = x.strip_prefix('x')?;
+    Some((parse_signed_token(x)?, parse_signed_token(y)?))
+}
+
+fn parse_grid_parcel_view_parts(view_id: &str) -> Option<(i32, i32, u8)> {
+    parse_grid_parcel_parts(view_id.strip_prefix(GRID_PARCEL_VIEW_PREFIX)?)
+}
+
+fn parse_grid_parcel_parts(parcel_id: &str) -> Option<(i32, i32, u8)> {
+    let mut parts = parcel_id.split('-');
+    let x = parts.next()?;
+    let y = parts.next()?;
+    let door = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let x = parse_axis_code(x, "E", "W")?;
+    let y = parse_axis_code(y, "N", "S")?;
+    let door = door.parse::<u8>().ok()?;
+    Some((x, y, door))
 }
 
 fn encode_signed(value: i32) -> String {
@@ -618,6 +638,15 @@ mod tests {
             None
         );
         assert_eq!(generated_grid_label("parcel_C0-C0-01"), None);
+    }
+
+    #[test]
+    fn generated_grid_reserved_view_id_includes_origin_syntax() {
+        assert!(is_reserved_grid_view_id("grid_road_x0_y0"));
+        assert!(is_reserved_grid_view_id("parcel_C0-C0-01"));
+        assert!(is_reserved_grid_view_id("parcel_c0-c0-1"));
+        assert!(is_reserved_grid_view_id("parcel_E1-C0-99"));
+        assert!(!is_reserved_grid_view_id("parcel_N1"));
     }
 
     #[test]
