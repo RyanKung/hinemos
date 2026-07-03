@@ -72,7 +72,8 @@ impl GridRoad {
     #[must_use]
     pub fn from_view_id(view_id: &str) -> Option<Self> {
         let (x, y) = parse_grid_road_coordinates(view_id)?;
-        Self::new(x, y)
+        let road = Self::new(x, y)?;
+        (road.view_id() == view_id).then_some(road)
     }
 
     /// Returns the generated road view id.
@@ -251,7 +252,8 @@ impl GridParcelAddress {
     #[must_use]
     pub fn from_view_id(view_id: &str) -> Option<Self> {
         let parcel_id = view_id.strip_prefix(GRID_PARCEL_VIEW_PREFIX)?;
-        Self::from_parcel_id(parcel_id)
+        let address = Self::from_parcel_id(parcel_id)?;
+        (address.view_id() == view_id).then_some(address)
     }
 
     /// Road this building cell faces.
@@ -754,6 +756,32 @@ mod tests {
         assert_eq!(
             GridParcelAddress::canonical_parcel_id("e2-s3-4").as_deref(),
             Some("E2-S3-04")
+        );
+    }
+
+    #[test]
+    fn generated_grid_rejects_noncanonical_view_ids() {
+        for view_id in [
+            "grid_road_xp+1_y0",
+            "grid_road_xp01_y0",
+            "grid_road_x0_yp01",
+            "parcel_e2-s3-4",
+            "parcel_E02-S3-04",
+            "parcel_E2-S3-4",
+        ] {
+            assert_eq!(GridRoad::from_view_id(view_id), None);
+            assert_eq!(GridParcelAddress::from_view_id(view_id), None);
+            assert_eq!(grid_view(view_id), None);
+            assert!(
+                !is_grid_view_id(view_id),
+                "noncanonical grid alias should not be executable: {view_id}"
+            );
+        }
+
+        assert_eq!(
+            GridParcelAddress::canonical_parcel_id("e2-s3-4").as_deref(),
+            Some("E2-S3-04"),
+            "human parcel input remains canonicalized outside the view-id parser"
         );
     }
 }

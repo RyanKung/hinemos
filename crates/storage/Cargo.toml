@@ -15,4 +15,5 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "jso
 thiserror = "2.0.18"
 
 [dev-dependencies]
+hinemos-test-support = { version = "0.1.0", path = "../test-support" }
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }

@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use hinemos_core::sample_world::{LOCAL_PLAYER_ID, load_world_from_dir};
-use hinemos_core::{Direction, Exit, SemanticCommand};
+use hinemos_core::{
+    ActionKind, Direction, Entity, EntityKind, EntityRef, Exit, SemanticCommand, View, WorldState,
+};
 
 use crate::{GameRuntime, RuntimeError};
 
@@ -133,6 +135,33 @@ fn runtime_rejects_missing_generated_grid_origin() {
 }
 
 #[test]
+fn default_grid_origin_fallback_is_lexicographic() {
+    let world = WorldState {
+        views: [
+            static_view("z_anchor", "Z Anchor"),
+            static_view("a_anchor", "A Anchor"),
+        ]
+        .into_iter()
+        .map(|view| (view.id.clone(), view))
+        .collect(),
+        entities: Default::default(),
+        players: Default::default(),
+    };
+    let runtime = GameRuntime::new(world).expect("runtime should pick a deterministic origin");
+
+    let road = runtime
+        .observe_view_json(LOCAL_PLAYER_ID, "grid_road_xp1_y0", Vec::new())
+        .expect("generated road should be observable");
+    let west = road
+        .exits
+        .iter()
+        .find(|exit| exit.direction == Direction::West)
+        .expect("west exit");
+
+    assert_eq!(west.label.as_deref(), Some("A Anchor"));
+}
+
+#[test]
 fn origin_map_is_generated_instead_of_read_from_world_ascii() {
     let mut world = sample_runtime().world().expect("world snapshot");
     let arrival = world.views.get_mut("arrival_street").expect("arrival view");
@@ -171,6 +200,56 @@ fn origin_map_is_generated_instead_of_read_from_world_ascii() {
             .iter()
             .any(|exit| exit.label.as_deref() == Some("wilderness"))
     );
+}
+
+#[test]
+fn take_on_generated_grid_returns_entity_not_visible() {
+    let mut world = sample_runtime().world().expect("world snapshot");
+    world.entities.insert(
+        "loose_coin".to_owned(),
+        Entity {
+            id: "loose_coin".to_owned(),
+            kind: EntityKind::Item,
+            name: "Loose coin".to_owned(),
+            description: "A portable test item.".to_owned(),
+            aliases: Vec::new(),
+            actions: vec![ActionKind::Take],
+            collection: None,
+            portable: true,
+        },
+    );
+    let runtime = GameRuntime::new(world).expect("runtime should build");
+    runtime
+        .execute(
+            LOCAL_PLAYER_ID,
+            &SemanticCommand::Move {
+                direction: Direction::East,
+            },
+        )
+        .expect("move to generated road");
+
+    let err = runtime
+        .execute(
+            LOCAL_PLAYER_ID,
+            &SemanticCommand::Take {
+                target: EntityRef::new("loose_coin".to_owned()),
+            },
+        )
+        .expect_err("generated roads should not expose dropped entity state");
+
+    assert_eq!(err, RuntimeError::EntityNotVisible("loose_coin".to_owned()));
+}
+
+fn static_view(id: &str, title: &str) -> View {
+    View {
+        id: id.to_owned(),
+        title: title.to_owned(),
+        description: "Static anchor.".to_owned(),
+        ascii_art: Vec::new(),
+        exits: Vec::new(),
+        entities: Vec::new(),
+        layout: None,
+    }
 }
 
 #[test]

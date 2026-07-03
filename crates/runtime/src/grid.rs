@@ -77,7 +77,7 @@ pub(super) fn default_grid_origin_view_id(world: &WorldState) -> ViewId {
                 .contains_key(DEFAULT_ADMISSION_VIEW_ID)
                 .then(|| DEFAULT_ADMISSION_VIEW_ID.to_owned())
         })
-        .or_else(|| world.views.keys().next().cloned())
+        .or_else(|| world.views.keys().min().cloned())
         .unwrap_or_default()
 }
 

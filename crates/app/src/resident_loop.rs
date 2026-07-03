@@ -80,7 +80,6 @@ pub(crate) fn default_virtual_time_state(
     json!({
         "dayLengthSeconds": clock.day_length_seconds,
         "currentDay": clock.current_day,
-        "secondsUntilNextDay": clock.seconds_until_next_day,
         "lastReportDay": last_report_day,
         "lastSearchDay": last_search_day_after_action(previous_current_state, clock, action),
         "searchesToday": searches_today,
@@ -164,16 +163,25 @@ pub(crate) fn observation_event_signature(observation: &JsonObservation) -> Stri
     observation
         .events
         .iter()
-        .map(|event| match event {
-            ObservationEvent::Message { text } => format!("message:{text}"),
-            ObservationEvent::Move {
-                from,
-                to,
-                direction,
-            } => format!("move:{from}:{to}:{}", direction.as_str()),
+        .map(|event| {
+            let encoded = match event {
+                ObservationEvent::Message { text } => {
+                    format!("message:{}", signature_field(text))
+                }
+                ObservationEvent::Move {
+                    from,
+                    to,
+                    direction,
+                } => format!(
+                    "move:{}{}{}",
+                    signature_field(from),
+                    signature_field(to),
+                    signature_field(direction.as_str())
+                ),
+            };
+            signature_field(&encoded)
         })
-        .collect::<Vec<_>>()
-        .join("|")
+        .collect::<String>()
 }
 
 pub(crate) fn observation_online_users_signature(observation: &JsonObservation) -> String {
@@ -188,6 +196,10 @@ pub(crate) fn observation_online_users_signature(observation: &JsonObservation) 
         .map(|user| format!("{}:{user}", user.len()))
         .collect::<Vec<_>>()
         .join("|")
+}
+
+fn signature_field(value: &str) -> String {
+    format!("{}:{value}", value.len())
 }
 
 pub(crate) fn report_due(current_state: &Value, clock: ResidentLoopClock) -> bool {
@@ -455,6 +467,52 @@ mod tests {
         assert_eq!(
             virtual_time.get("searchesToday").and_then(Value::as_i64),
             Some(1)
+        );
+    }
+
+    #[test]
+    fn virtual_time_state_excludes_volatile_countdown() {
+        let clock = ResidentLoopClock {
+            day_length_seconds: 300,
+            current_day: 7,
+            seconds_until_next_day: 120,
+        };
+
+        let virtual_time = default_virtual_time_state(clock, None, ResidentLoopAction::Observe);
+
+        assert_eq!(
+            virtual_time.get("currentDay").and_then(Value::as_i64),
+            Some(7)
+        );
+        assert!(
+            virtual_time.get("secondsUntilNextDay").is_none(),
+            "wall-clock countdown must be rendered live, not persisted into self-model versions"
+        );
+    }
+
+    #[test]
+    fn observation_event_signature_length_prefixes_events() {
+        let mut first = observation();
+        first.events = vec![
+            ObservationEvent::Message {
+                text: "a|4:move".to_owned(),
+            },
+            ObservationEvent::Message {
+                text: "b".to_owned(),
+            },
+        ];
+        let mut second = observation();
+        second.events = vec![ObservationEvent::Message {
+            text: "a".to_owned(),
+        }];
+
+        assert_ne!(
+            observation_event_signature(&first),
+            observation_event_signature(&second)
+        );
+        assert!(
+            observation_event_signature(&first).contains("message:8:a|4:move"),
+            "signature should preserve the message payload behind an explicit length"
         );
     }
 

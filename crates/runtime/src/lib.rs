@@ -20,7 +20,7 @@ use grid::{RuntimeGridOrigin, default_grid_origin_view_id, grid_origin_from_view
 use hinemos_core::{
     ActionKind, Direction, Entity, EntityCollection, EntityId, EntityObservation, EntityRef,
     ExitObservation, JsonObservation, ObservationEvent, PlayerId, PlayerState, SemanticCommand,
-    TextObservation, View, ViewId, WorldDefinition, WorldState,
+    TextObservation, View, ViewId, WorldDefinition, WorldState, is_grid_view_id,
 };
 use thiserror::Error;
 
@@ -516,7 +516,7 @@ impl GameRuntime {
         let player = self.player(player_id)?;
         let mut player = player.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         let current_view = player.current_view.clone();
-        let view_state = self.view_state(&current_view)?;
+        let view_state = self.view_state_for_visible_entity(&current_view, target)?;
         let mut view_state = view_state.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         if !view_state.dropped_entities.contains(&target.id) {
             return Err(RuntimeError::EntityNotVisible(target.id.clone()));
@@ -573,6 +573,20 @@ impl GameRuntime {
             .get(view_id)
             .cloned()
             .ok_or_else(|| RuntimeError::ViewNotFound(view_id.to_owned()))
+    }
+
+    fn view_state_for_visible_entity(
+        &self,
+        view_id: &str,
+        target: &EntityRef,
+    ) -> Result<Arc<Mutex<ViewState>>, RuntimeError> {
+        self.views.get(view_id).cloned().ok_or_else(|| {
+            if is_grid_view_id(view_id) {
+                RuntimeError::EntityNotVisible(target.id.clone())
+            } else {
+                RuntimeError::ViewNotFound(view_id.to_owned())
+            }
+        })
     }
 
     fn player(&self, player_id: &str) -> Result<Arc<Mutex<PlayerState>>, RuntimeError> {

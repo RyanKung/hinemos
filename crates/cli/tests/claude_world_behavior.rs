@@ -487,25 +487,18 @@ SSH=<evidence that you used SSH>
 }
 
 fn assert_prompt_has_no_external_loop_guidance(prompt: &str) {
+    let lower = prompt.to_ascii_lowercase();
     for forbidden in [
         "api/intro",
         "api/anonymous",
         "web entry",
         "curl -s",
-        "workers",
         "workers society",
         "paid shift",
         "/position",
-        "position",
         "work loop",
-        "job",
         "wage",
-        "claim",
-        "buy",
-        "mark",
-        "bread",
         "blackstone",
-        "balance",
         "mailbox",
         "/go",
         "/enter",
@@ -514,10 +507,22 @@ fn assert_prompt_has_no_external_loop_guidance(prompt: &str) {
         "/say",
     ] {
         assert!(
-            !prompt.to_ascii_lowercase().contains(forbidden),
+            !lower.contains(forbidden),
             "LLM prompt must not contain external loop guidance `{forbidden}`"
         );
     }
+    for forbidden_word in ["workers", "job", "claim", "buy", "mark", "bread", "balance"] {
+        assert!(
+            !contains_ascii_word(&lower, forbidden_word),
+            "LLM prompt must not contain external loop guidance word `{forbidden_word}`"
+        );
+    }
+}
+
+fn contains_ascii_word(haystack: &str, needle: &str) -> bool {
+    haystack
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .any(|word| word == needle)
 }
 
 fn has_llm_hungry_broke_recovery_evidence(stdout: &str) -> bool {

@@ -319,10 +319,30 @@ impl PgStorage {
         agent_id: &str,
         current_state: &Value,
     ) -> Result<StoredAgentSelfModel, StorageError> {
-        let Some(latest) = self.latest_self_model(agent_id).await? else {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("select pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(agent_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let Some(latest) = sqlx::query_as::<_, StoredAgentSelfModel>(
+            r#"
+            select agent_id, version, identity, current_state, style, derived_from_memory_ids,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from agent_self_models
+            where agent_id = $1
+            order by version desc
+            limit 1
+            "#,
+        )
+        .bind(agent_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        else {
             return Err(StorageError::Sqlx(sqlx::Error::RowNotFound));
         };
         if latest.current_state == *current_state {
+            tx.commit().await?;
             return Ok(latest);
         }
 
@@ -332,7 +352,6 @@ impl PgStorage {
                 agent_id, version, identity, current_state, style, derived_from_memory_ids
             )
             values ($1, $2, $3, $4, $5, $6)
-            on conflict (agent_id, version) do nothing
             returning agent_id, version, identity, current_state, style, derived_from_memory_ids,
                       to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             "#,
@@ -343,15 +362,10 @@ impl PgStorage {
         .bind(current_state)
         .bind(&latest.style)
         .bind(&latest.derived_from_memory_ids)
-        .fetch_optional(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
 
-        if let Some(model) = inserted {
-            Ok(model)
-        } else {
-            self.latest_self_model(agent_id)
-                .await?
-                .ok_or_else(|| StorageError::Sqlx(sqlx::Error::RowNotFound))
-        }
+        tx.commit().await?;
+        Ok(inserted)
     }
 }

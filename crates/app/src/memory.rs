@@ -7,6 +7,11 @@ use crate::resident_loop::{
 use crate::*;
 use serde_json::json;
 
+const MEMORY_CONTEXT_OPEN_COMMITMENT_LIMIT: usize = 5;
+const RESIDENT_CONTEXT_OPEN_COMMITMENT_LIMIT: usize = 3;
+const MEMORY_CONTEXT_COMMITMENT_SEARCH_LIMIT: i64 = 20;
+const STANDING_SOCIAL_MEMORY_SEARCH_LIMIT: i64 = 20;
+
 impl<S, E> AppService<S>
 where
     S: MemoryStore<Error = E>,
@@ -17,7 +22,13 @@ where
         let self_model = self
             .ensure_default_self_model(username, agent_id, &task)
             .await?;
-        let commitments = self.open_commitments(agent_id, 20, 5).await?;
+        let commitments = self
+            .open_commitments(
+                agent_id,
+                MEMORY_CONTEXT_COMMITMENT_SEARCH_LIMIT,
+                MEMORY_CONTEXT_OPEN_COMMITMENT_LIMIT,
+            )
+            .await?;
         let social = self
             .store
             .search_memory_atoms(agent_id, None, Some("social"), None, 5)
@@ -83,7 +94,14 @@ where
         Ok(MemoryResult {
             text: format!(
                 "{}\r\n",
-                render_resident_context(&task, &snapshot, &self_model, &commitments, &self.config)
+                render_resident_context(
+                    &task,
+                    &snapshot,
+                    &self_model,
+                    &commitments,
+                    &self.config,
+                    clock
+                )
             ),
         })
     }
@@ -156,11 +174,16 @@ where
             memory_help().to_owned()
         } else if rest == "self" {
             let model = self.store.latest_self_model(agent_id).await?;
+            let clock = resident_loop_clock(&self.config, current_unix_seconds());
             let memories = self
                 .store
                 .search_memory_atoms(agent_id, None, Some("self"), None, 10)
                 .await?;
-            render_memory_view("Self memory", model.as_ref().map(model_text), &memories)
+            render_memory_view(
+                "Self memory",
+                model.as_ref().map(|model| model_text(model, clock)),
+                &memories,
+            )
         } else if rest == "commitments" || rest == "commitment" {
             let memories = self
                 .store
@@ -264,13 +287,20 @@ where
         for memory in commitments {
             if commitment_status_is_paid(&memory) {
                 satisfied_commitment_count = satisfied_commitment_count.saturating_add(1);
-            } else if open_commitments.len() < 3 {
+            } else if open_commitments.len() < RESIDENT_CONTEXT_OPEN_COMMITMENT_LIMIT {
                 open_commitments.push(memory);
             }
         }
+        // The resident score uses a bounded evidence window so the prompt stays compact.
         let social_memory_count = self
             .store
-            .search_memory_atoms(agent_id, None, Some("social"), None, 20)
+            .search_memory_atoms(
+                agent_id,
+                None,
+                Some("social"),
+                None,
+                STANDING_SOCIAL_MEMORY_SEARCH_LIMIT,
+            )
             .await?
             .len();
         Ok((
@@ -646,6 +676,7 @@ fn render_resident_context(
     model: &impl SelfModelView,
     commitments: &[impl MemoryAtomView],
     config: &WorldAppConfig,
+    clock: ResidentLoopClock,
 ) -> String {
     let mut lines = Vec::new();
     lines.push("Resident context:".to_owned());
@@ -666,7 +697,7 @@ fn render_resident_context(
         "Virtual time: one in-world day is {} real seconds; write a daily report when the day turns.",
         config.virtual_day_seconds
     ));
-    lines.push(resident_loop_status_line(model.current_state()));
+    lines.push(resident_loop_status_line(model.current_state(), clock));
     lines.push(hunger_policy_context(task.constraints.hunger, snapshot.hunger).to_owned());
     lines.push(format!(
         "Social drives: contact={}, standing={}, commitments={}, loneliness={}, boredom={}.",
@@ -683,7 +714,7 @@ fn json_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-fn resident_loop_status_line(current_state: &Value) -> String {
+fn resident_loop_status_line(current_state: &Value, clock: ResidentLoopClock) -> String {
     let virtual_time = current_state.get("virtualTime");
     let day = virtual_time
         .and_then(|value| value.get("currentDay"))
@@ -702,10 +733,7 @@ fn resident_loop_status_line(current_state: &Value) -> String {
         (Some(false), _) => "daily report complete",
         (None, _) => "daily report unknown",
     };
-    let next_day = virtual_time
-        .and_then(|value| value.get("secondsUntilNextDay"))
-        .and_then(Value::as_u64)
-        .map_or_else(|| "unknown".to_owned(), |value| format!("{value}s"));
+    let next_day = format!("{}s", clock.seconds_until_next_day);
     format!("Loop: day {day}; {report}; next day in {next_day}.")
 }
 
@@ -767,14 +795,14 @@ fn append_model_json_line(lines: &mut Vec<String>, label: &str, value: &Value) {
     }
 }
 
-fn model_text(model: &impl SelfModelView) -> String {
+fn model_text(model: &impl SelfModelView, clock: ResidentLoopClock) -> String {
     let mut lines = Vec::new();
     lines.push(format!(
         "Self model v{} from {}",
         model.version(),
         model.created_at()
     ));
-    lines.push(resident_loop_status_line(model.current_state()));
+    lines.push(resident_loop_status_line(model.current_state(), clock));
     append_model_json_line(&mut lines, "Identity", model.identity());
     append_model_json_line(&mut lines, "Current state", model.current_state());
     append_model_json_line(&mut lines, "Style", model.style());
