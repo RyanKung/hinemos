@@ -900,6 +900,45 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
                '/go north', '/go south', '/go east', '/go west', '/who', '/look', '/map'
            )"
     ));
+    let who_step_count = test_database.query_value(&format!(
+        "select count(*)
+         from agent_self_models
+         where agent_id = '{player_id}'
+           and current_state->'lastStep'->>'commandLine' = '/who'"
+    ));
+    let move_step_count = test_database.query_value(&format!(
+        "select count(*)
+         from agent_self_models
+         where agent_id = '{player_id}'
+           and current_state->'lastStep'->>'commandLine' like '/go %'"
+    ));
+    let command_history_shape = test_database.query_value(&format!(
+        "select concat_ws(':',
+             case when exists (
+                 select 1
+                 from agent_self_models model,
+                      jsonb_array_elements(coalesce(model.current_state->'commandHistory', '[]'::jsonb)) entry
+                 where model.agent_id = '{player_id}'
+                   and entry->>'commandLine' = '/who'
+             ) then 'true' else 'false' end,
+             case when exists (
+                 select 1
+                 from agent_self_models model,
+                      jsonb_array_elements(coalesce(model.current_state->'commandHistory', '[]'::jsonb)) entry
+                 where model.agent_id = '{player_id}'
+                   and entry->>'commandLine' like '/go %'
+             ) then 'true' else 'false' end,
+             case when exists (
+                 select 1
+                 from agent_self_models model,
+                      jsonb_array_elements(coalesce(model.current_state->'commandHistory', '[]'::jsonb)) entry
+                 where model.agent_id = '{player_id}'
+                   and entry->>'commandLine' like '/memory report %'
+             ) then 'true' else 'false' end,
+             coalesce(max(jsonb_array_length(coalesce(current_state->'commandHistory', '[]'::jsonb))), 0))
+         from agent_self_models
+         where agent_id = '{player_id}'"
+    ));
     let generated_grid_snapshots = test_database.query_value(&format!(
         "select count(*)
          from agent_self_models
@@ -933,8 +972,44 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
            and current_state->'lastStep'->>'commandLine' like '/memory report %'
            and current_state->'virtualTime'->>'reportDue' = 'false'"
     ));
+    let old_loop_effects = test_database.query_value(&format!(
+        "select concat_ws(':',
+             (select count(*)
+              from inbox_items
+              where sender_user = '{user}'
+                and recipient_user = 'room-workers_society'),
+             (select count(*)
+              from world_ledger_entries
+              where reason = 'room_wage'
+                and credit_account_id = 'player:{player_id}'),
+             (select count(*)
+              from player_hunger
+              where player_id = '{player_id}'
+                and hunger_points > 0))"
+    ));
 
     assert_at_least(&self_loop_steps, 3, "resident search loop steps");
+    assert_at_least(&who_step_count, 1, "resident /who search steps");
+    assert_at_least(&move_step_count, 1, "resident movement search steps");
+    let history_parts = command_history_shape.split(':').collect::<Vec<_>>();
+    assert_eq!(
+        history_parts.len(),
+        4,
+        "command history query should return who, move, report, and max length: {command_history_shape}"
+    );
+    assert_eq!(
+        history_parts[0], "true",
+        "self-model commandHistory should preserve a /who resident search"
+    );
+    assert_eq!(
+        history_parts[1], "true",
+        "self-model commandHistory should preserve generated-grid movement"
+    );
+    assert_eq!(
+        history_parts[2], "true",
+        "self-model commandHistory should preserve the daily report command"
+    );
+    assert_at_least(history_parts[3], 3, "resident command history entries");
     assert_at_least(
         &generated_grid_snapshots,
         1,
@@ -964,10 +1039,18 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
         daily_report_emotion.starts_with("scored:"),
         "LLM daily report should be persisted and scored by DADOES, got {daily_report_emotion}"
     );
+    assert_ne!(
+        daily_report_emotion, "scored:missing:array",
+        "DADOES should provide a primary mood for the LLM daily report"
+    );
     assert_at_least(
         &report_step_count,
         1,
         "resident daily report completion steps",
+    );
+    assert_eq!(
+        old_loop_effects, "0:0:0",
+        "baseline LLM self-loop must not fall back to workers, room wages, or hunger recovery"
     );
 }
 
