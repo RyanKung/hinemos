@@ -198,15 +198,22 @@ async fn execute_anonymous_command(
     State(state): State<AppState>,
     Json(request): Json<AnonymousCommandRequest>,
 ) -> Result<Json<JsonObservation>, ApiError> {
-    if let SemanticCommand::Move { direction } = request.command {
-        return execute_anonymous_move(state, direction, request.view_id).await;
+    if let SemanticCommand::Move { direction } = &request.command {
+        return execute_anonymous_move(state, *direction, request.view_id).await;
     }
     if !anonymous_command_is_demo_safe(&request.command) {
         return Err(ApiError::forbidden(ANONYMOUS_SSH_GUIDANCE));
     }
-    state
-        .runtime
-        .execute(LOCAL_PLAYER_ID, &request.command)
+    let observation = if let Some(view_id) = request.view_id {
+        state.runtime.execute_read_only_at_view(
+            ANONYMOUS_DEMO_PLAYER_ID,
+            &view_id,
+            &request.command,
+        )
+    } else {
+        state.runtime.execute(LOCAL_PLAYER_ID, &request.command)
+    };
+    observation
         .map(|mut observation| {
             sanitize_anonymous_observation(&mut observation, false);
             Json(observation)
@@ -468,6 +475,38 @@ mod tests {
             .observe_json(LOCAL_PLAYER_ID, Vec::new())
             .expect("local player should remain observable");
         assert_eq!(local_observation.view_id, "arrival_street");
+    }
+
+    #[tokio::test]
+    async fn anonymous_read_only_command_uses_supplied_view_id() {
+        let state = test_state();
+        let mut player = state
+            .runtime
+            .player_state(LOCAL_PLAYER_ID)
+            .expect("local player state");
+        player.current_view = "grid_road_xp1_y0".to_owned();
+        state
+            .runtime
+            .set_player_state(player)
+            .expect("move local player away from origin");
+
+        let Json(observation) = execute_anonymous_command(
+            State(state),
+            Json(AnonymousCommandRequest {
+                command: SemanticCommand::Read {
+                    target: EntityRef::new("cyber_scroll_board"),
+                },
+                view_id: Some("arrival_street".to_owned()),
+            }),
+        )
+        .await
+        .expect("read-only command should use supplied view");
+
+        assert_eq!(observation.view_id, "arrival_street");
+        assert!(observation.events.iter().any(|event| matches!(
+            event,
+            ObservationEvent::Message { text } if text.contains("Admission Agreement")
+        )));
     }
 
     #[test]

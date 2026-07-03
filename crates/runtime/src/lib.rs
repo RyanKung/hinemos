@@ -350,6 +350,32 @@ impl GameRuntime {
         self.observe_json(player_id, events)
     }
 
+    /// Executes a read-only command against a supplied view without moving or mutating a player.
+    pub fn execute_read_only_at_view(
+        &self,
+        player_id: &str,
+        view_id: &str,
+        command: &SemanticCommand,
+    ) -> Result<JsonObservation, RuntimeError> {
+        let events = match command {
+            SemanticCommand::Look | SemanticCommand::Map | SemanticCommand::Inventory => Vec::new(),
+            SemanticCommand::Help => vec![message(Chrome::HELP_SUMMARY.to_owned())],
+            SemanticCommand::Inspect { target } => {
+                let entity = self.visible_entity_in_view(view_id, target)?;
+                vec![message(inspect_entity_message(entity))]
+            }
+            SemanticCommand::Read { target } => {
+                let entity = self.visible_entity_in_view(view_id, target)?;
+                vec![message(read_entity_message(entity))]
+            }
+            _ => vec![message(
+                "That command is not available in stateless view mode.".to_owned(),
+            )],
+        };
+
+        self.observe_view_json(player_id, view_id, events)
+    }
+
     /// Builds a structured observation for the player.
     pub fn observe_json(
         &self,
@@ -529,6 +555,21 @@ impl GameRuntime {
             .entities
             .get(&target.id)
             .ok_or_else(|| RuntimeError::EntityNotFound(target.id.clone()))
+    }
+
+    fn visible_entity_in_view(
+        &self,
+        view_id: &str,
+        target: &EntityRef,
+    ) -> Result<&Entity, RuntimeError> {
+        if self.visible_entities(view_id)?.contains(&target.id) {
+            self.world
+                .entities
+                .get(&target.id)
+                .ok_or_else(|| RuntimeError::EntityNotFound(target.id.clone()))
+        } else {
+            Err(RuntimeError::EntityNotVisible(target.id.clone()))
+        }
     }
 
     fn visible_entities(&self, view_id: &str) -> Result<Vec<EntityId>, RuntimeError> {
@@ -1000,7 +1041,7 @@ mod tests {
         assert!(!rendered.contains("STALE DATA MAP"));
         assert!(rendered.contains("+----+----+----+----+"));
         assert!(rendered.contains("North 1 Rd."));
-        assert!(rendered.contains("[C0-N1-01]"));
+        assert!(!rendered.contains("[C0-N1-01]"));
         assert!(rendered.contains("objects: bulletin board"));
         assert_eq!(
             exit_labels,

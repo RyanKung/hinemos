@@ -140,19 +140,21 @@ async fn storage_with_built_shop() -> (TestDatabase, PgStorage) {
         .add_ssh_identity("late", "test:late", "player:late")
         .await
         .expect("late identity");
+    storage
+        .claim_commercial_parcel("E1-C0-01", "owner", "player:owner")
+        .await
+        .expect("claim grid shop parcel");
     db.query_value(
         "update commercial_parcels
          set owner_user = 'owner',
              owner_player_id = 'player:owner',
-             room_user = 'room-N1',
-             room_player_id = 'room:parcel:N1',
              status = 'built',
              title = 'Offline Tool Broker',
              description = 'Tools',
              style = 'quiet',
              operator_prompt = 'help',
              custom_commands = '/hello'
-         where parcel_id = 'N1'",
+         where parcel_id = 'E1-C0-01'",
     );
     (db, storage)
 }
@@ -258,6 +260,46 @@ async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
 }
 
 #[tokio::test]
+async fn legacy_static_vacant_parcels_are_removed_without_deleting_built_history() {
+    if skip_without_database() {
+        return;
+    }
+    let db = TestDatabase::create();
+    let storage = PgStorage::connect(&db.url).await.expect("connect");
+    storage.migrate().await.expect("migrate");
+
+    db.query_value(
+        "insert into commercial_parcels
+            (parcel_id, view_id, front_view_id, district, position, status)
+         values
+            ('N1', 'parcel_N1', 'street_north_01', 'north', 1, 'vacant'),
+            ('N3', 'parcel_N3', 'street_north_02', 'north', 3, 'built')",
+    );
+    storage.migrate().await.expect("rerun migration cleanup");
+
+    let legacy_count = db.query_value(
+        "select count(*)
+         from commercial_parcels
+         where district in ('north', 'south')
+           and owner_player_id is null
+           and status = 'vacant'",
+    );
+    let built_count = db.query_value(
+        "select count(*)
+         from commercial_parcels
+         where parcel_id = 'N3'
+           and status = 'built'",
+    );
+
+    assert_eq!(legacy_count, "0");
+    assert_eq!(built_count, "1");
+    assert!(matches!(
+        storage.commercial_parcel("N1").await,
+        Err(StorageError::ParcelNotFound(parcel_id)) if parcel_id == "N1"
+    ));
+}
+
+#[tokio::test]
 async fn generated_grid_origin_parcel_is_not_virtual_or_claimable() {
     if skip_without_database() {
         return;
@@ -299,24 +341,24 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
     let (db, storage) = storage_with_built_shop().await;
 
     let list = storage
-        .create_shop_mailing_list("N1", "player:owner", "updates", "Shop Updates")
+        .create_shop_mailing_list("E1-C0-01", "player:owner", "updates", "Shop Updates")
         .await
         .expect("create list");
     assert_eq!(list.slug, "updates");
     assert!(matches!(
         storage
-            .create_shop_mailing_list("N1", "player:owner", "updates", "Duplicate")
+            .create_shop_mailing_list("E1-C0-01", "player:owner", "updates", "Duplicate")
             .await,
         Err(StorageError::MailingListAlreadyExists { .. })
     ));
 
     storage
-        .subscribe_shop_mailing_list("N1", "updates", "customer", "player:customer")
+        .subscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("subscribe");
     assert!(matches!(
         storage
-            .subscribe_shop_mailing_list("N1", "updates", "customer", "player:customer")
+            .subscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
             .await,
         Err(StorageError::MailingListAlreadySubscribed { .. })
     ));
@@ -331,7 +373,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
 
     let sent = storage
         .send_shop_mailing_list_post(
-            "N1",
+            "E1-C0-01",
             "updates",
             "owner",
             "player:owner",
@@ -356,7 +398,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
     assert!(matches!(
         storage
             .send_shop_mailing_list_post(
-                "N1",
+                "E1-C0-01",
                 "updates",
                 "late",
                 "player:late",
@@ -386,7 +428,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
                and source_kind = 'shop_mailing_list_post'
                and sender_user = 'customer'
                and subject = 'Shop chat: updates'
-               and body like '%Reply: /chat N1 updates -- <message>%'"
+               and body like '%Reply: /chat E1-C0-01 updates -- <message>%'"
         ),
         "1",
         "member chat delivery should include a reply command"
@@ -409,32 +451,39 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
     );
 
     storage
-        .unsubscribe_shop_mailing_list("N1", "updates", "customer", "player:customer")
+        .unsubscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("unsubscribe");
     assert!(matches!(
         storage
-            .send_shop_mailing_list_post("N1", "updates", "owner", "player:owner", "No One", "Body")
+            .send_shop_mailing_list_post(
+                "E1-C0-01",
+                "updates",
+                "owner",
+                "player:owner",
+                "No One",
+                "Body"
+            )
             .await,
         Err(StorageError::MailingListNoSubscribers { .. })
     ));
 
     storage
-        .subscribe_shop_mailing_list("N1", "updates", "customer", "player:customer")
+        .subscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("resubscribe");
     storage
-        .close_shop_mailing_list("N1", "updates", "player:owner")
+        .close_shop_mailing_list("E1-C0-01", "updates", "player:owner")
         .await
         .expect("close list");
     assert!(matches!(
         storage
-            .subscribe_shop_mailing_list("N1", "updates", "late", "player:late")
+            .subscribe_shop_mailing_list("E1-C0-01", "updates", "late", "player:late")
             .await,
         Err(StorageError::MailingListClosed { .. })
     ));
     storage
-        .unsubscribe_shop_mailing_list("N1", "updates", "customer", "player:customer")
+        .unsubscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("unsubscribe after close");
 }
@@ -449,7 +498,7 @@ async fn mailing_list_count_is_limited_per_parcel() {
     for index in 0..SHOP_MAILING_LISTS_PER_PARCEL_MAX {
         storage
             .create_shop_mailing_list(
-                "N1",
+                "E1-C0-01",
                 "player:owner",
                 &format!("list-{index}"),
                 &format!("List {index}"),
@@ -460,7 +509,7 @@ async fn mailing_list_count_is_limited_per_parcel() {
 
     assert!(matches!(
         storage
-            .create_shop_mailing_list("N1", "player:owner", "overflow", "Overflow")
+            .create_shop_mailing_list("E1-C0-01", "player:owner", "overflow", "Overflow")
             .await,
         Err(StorageError::InvalidMailingList(message))
             if message.contains("mailing-list limit reached")
@@ -474,24 +523,24 @@ async fn mailing_list_owner_permission_follows_current_parcel_owner() {
     }
     let (db, storage) = storage_with_built_shop().await;
     storage
-        .create_shop_mailing_list("N1", "player:owner", "updates", "Shop Updates")
+        .create_shop_mailing_list("E1-C0-01", "player:owner", "updates", "Shop Updates")
         .await
         .expect("create list");
     storage
-        .subscribe_shop_mailing_list("N1", "updates", "customer", "player:customer")
+        .subscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("subscribe");
     db.query_value(
         "update commercial_parcels
          set owner_user = 'newowner',
              owner_player_id = 'player:newowner'
-         where parcel_id = 'N1'",
+         where parcel_id = 'E1-C0-01'",
     );
 
     assert!(matches!(
         storage
             .send_shop_mailing_list_post(
-                "N1",
+                "E1-C0-01",
                 "updates",
                 "owner",
                 "player:owner",
@@ -503,7 +552,7 @@ async fn mailing_list_owner_permission_follows_current_parcel_owner() {
     ));
     let sent = storage
         .send_shop_mailing_list_post(
-            "N1",
+            "E1-C0-01",
             "updates",
             "newowner",
             "player:newowner",

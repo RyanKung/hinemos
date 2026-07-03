@@ -1,7 +1,8 @@
 use crate::resident_loop::{
     RESIDENT_LOOP_STATE_KEYS, ResidentLoopAction, ResidentLoopClock, ResidentTaskMemoryMetrics,
     current_unix_seconds, default_virtual_time_state, observation_event_signature,
-    resident_loop_clock, resident_observed_task_state, resident_stored_observed_task_state,
+    observation_online_users_signature, resident_loop_clock, resident_observed_task_state,
+    resident_stored_observed_task_state,
 };
 use crate::*;
 use serde_json::json;
@@ -528,6 +529,7 @@ fn resident_current_state(
                 "title": observation.title.as_str(),
                 "virtualDay": clock.current_day,
                 "eventSignature": observation_event_signature(observation),
+                "onlineUsersSignature": observation_online_users_signature(observation),
                 "hunger": hunger_context(snapshot.hunger),
                 "hungerSignal": snapshot.hunger,
                 "progressUnits": snapshot.progress_units,

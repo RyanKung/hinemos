@@ -417,11 +417,11 @@ fn origin_ascii_art(origin: GridOrigin<'_>) -> Vec<String> {
     vec![
         "             North 1 Rd.".to_owned(),
         "                  |".to_owned(),
-        "      [C0-N1-01]  |  [C0-N1-02]".to_owned(),
+        "                  |".to_owned(),
         "        +----+----+----+----+".to_owned(),
         format!("West 1 Rd. + {label:^18} + East 1 Rd."),
         "        +----+----+----+----+".to_owned(),
-        "      [C0-S1-03]  |  [C0-S1-04]".to_owned(),
+        "                  |".to_owned(),
         "                  |".to_owned(),
         "             South 1 Rd.".to_owned(),
     ]
@@ -661,7 +661,7 @@ mod tests {
         assert!(rendered.contains("+----+----+----+----+"));
         assert!(rendered.contains("Custom Arrival"));
         assert!(rendered.contains("North 1 Rd."));
-        assert!(rendered.contains("[C0-N1-01]"));
+        assert!(!rendered.contains("[C0-N1-01]"));
     }
 
     #[test]

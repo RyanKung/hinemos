@@ -139,6 +139,11 @@ pub(crate) fn resident_stored_observed_task_state(
     if last_snapshot_i64(current_state, "virtualDay")? != clock.current_day {
         return None;
     }
+    if last_snapshot_str(current_state, "onlineUsersSignature")?
+        != observation_online_users_signature(observation)
+    {
+        return None;
+    }
     Some(ObservedTaskState {
         hunger: last_snapshot_hunger_signal(current_state)
             .unwrap_or_else(|| HungerSignal::from_observation(observation)),
@@ -167,6 +172,20 @@ pub(crate) fn observation_event_signature(observation: &JsonObservation) -> Stri
                 direction,
             } => format!("move:{from}:{to}:{}", direction.as_str()),
         })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+pub(crate) fn observation_online_users_signature(observation: &JsonObservation) -> String {
+    let mut users = observation
+        .online_users
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    users.sort_unstable();
+    users
+        .into_iter()
+        .map(|user| format!("{}:{user}", user.len()))
         .collect::<Vec<_>>()
         .join("|")
 }
@@ -391,6 +410,7 @@ mod tests {
             "lastSnapshot": {
                 "viewId": "grid_road_xp1_y0",
                 "eventSignature": "",
+                "onlineUsersSignature": "",
                 "virtualDay": clock.current_day,
                 "hungerSignal": HungerSignal::Unknown,
                 "progressUnits": 0,
@@ -527,6 +547,22 @@ mod tests {
         let previous = previous_state(old_clock, Some(7), 1);
 
         let stored = resident_stored_observed_task_state(&previous, &observation(), new_clock);
+
+        assert_eq!(stored, None);
+    }
+
+    #[test]
+    fn stored_loop_snapshot_expires_when_online_users_change() {
+        let clock = ResidentLoopClock {
+            day_length_seconds: 300,
+            current_day: 7,
+            seconds_until_next_day: 120,
+        };
+        let previous = previous_state(clock, Some(7), 1);
+        let mut observation = observation();
+        observation.online_users = vec!["bob".to_owned()];
+
+        let stored = resident_stored_observed_task_state(&previous, &observation, clock);
 
         assert_eq!(stored, None);
     }
