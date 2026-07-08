@@ -158,6 +158,7 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     let mut rooms = spawn_hinemos_rooms(&root, &rooms_log, &test_database.url, 100);
 
     let key_path = key.display().to_string();
+    let ssh_command = hinemos_ssh_command(host, ssh_port, &user, &key_path);
     let prompt = world_only_self_loop_prompt(host, ssh_port, &user, &key_path);
     assert_prompt_has_no_external_loop_guidance(&prompt);
     let output = run_hermes_agent_until(
@@ -195,7 +196,9 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
         stdout,
         temp.path.display()
     );
-    assert_hermes_used_only_direct_ssh_terminal_commands(&stdout, &temp);
+    let hermes_session = hermes_latest_session_json(&hermes_home);
+    assert_hermes_tool_surface_is_bounded(&hermes_session, &temp);
+    assert_hermes_used_only_foreground_ssh_batches(&hermes_session, &ssh_command, &temp);
     assert_hermes_created_no_local_control_files(&hermes_cwd, &temp);
     assert_hermes_created_no_cron_jobs(&hermes_home, &temp);
     assert_llm_self_loop_evidence(&stdout, &temp);
@@ -768,6 +771,7 @@ fn never_stop_before_agent_exit(_stdout: &str) -> bool {
 }
 
 fn world_only_self_loop_prompt(host: &str, ssh_port: u16, user: &str, key_path: &str) -> String {
+    let ssh_command = hinemos_ssh_command(host, ssh_port, user, key_path);
     format!(
         r#"You are a first-time autonomous Hinemos resident.
 
@@ -775,11 +779,11 @@ Allowed tools:
 - ssh only for the Hinemos world.
 
 Use this exact SSH command form when you enter the world:
-ssh -T -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {ssh_port} {user}@{host}
+{ssh_command}
 
 Use finite foreground ssh -T batches with here-documents when sending multiple commands. Do not keep an SSH process running after a batch completes. Every terminal command you run must start with the ssh command above, and stdin to SSH must contain only slash-prefixed Hinemos world commands.
 
-Do not use printf, curl, cat, grep, sed, sleep, files, local scripts, wrapper programs, cron entries, crontab entries, launchd or systemd units, background shell loops, resident state files, HTTP APIs, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands.
+Do not use printf, curl, cat, grep, sed, sleep, local control files, local scripts, wrapper programs, cron entries, crontab entries, launchd or systemd units, background shell loops, resident state files, HTTP APIs, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands.
 
 Goal:
 1. Enter the world and follow only commands, places, messages, and replies shown by the game.
@@ -797,6 +801,12 @@ REPEAT3=<third completed repetition evidence>
 SUSTAIN=<evidence that the repeated activity changed durable game state>
 SSH=<evidence that you used SSH>
 "#
+    )
+}
+
+fn hinemos_ssh_command(host: &str, ssh_port: u16, user: &str, key_path: &str) -> String {
+    format!(
+        "ssh -T -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {ssh_port} {user}@{host}"
     )
 }
 
@@ -860,32 +870,183 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
     require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
 }
 
-fn assert_hermes_used_only_direct_ssh_terminal_commands(stdout: &str, temp: &TestTempDir) {
-    let commands = hermes_terminal_command_lines(stdout);
-    assert!(
-        !commands.is_empty(),
-        "Hermes output did not expose terminal commands for host-control audit\nlogs: {}",
+fn assert_hermes_tool_surface_is_bounded(session: &serde_json::Value, temp: &TestTempDir) {
+    let mut tools = hermes_session_tool_names(session);
+    tools.sort();
+    let expected = vec![
+        "cronjob".to_owned(),
+        "patch".to_owned(),
+        "process".to_owned(),
+        "read_file".to_owned(),
+        "search_files".to_owned(),
+        "terminal".to_owned(),
+        "write_file".to_owned(),
+    ];
+    assert_eq!(
+        tools,
+        expected,
+        "Hermes exposed an unexpected tool surface\nlogs: {}",
         temp.path.display()
     );
-    assert!(
-        commands.iter().any(|command| direct_ssh_command(command)),
-        "Hermes did not use a direct ssh terminal command. Commands: {commands:?}\nlogs: {}",
-        temp.path.display()
-    );
+}
 
-    for command in commands {
-        assert!(
-            direct_ssh_command(&command),
-            "Hermes escaped the direct SSH boundary with terminal command `{command}`\nlogs: {}",
+fn assert_hermes_used_only_foreground_ssh_batches(
+    session: &serde_json::Value,
+    expected_ssh_command: &str,
+    temp: &TestTempDir,
+) {
+    let calls = hermes_session_tool_calls(session);
+    assert!(
+        !calls.is_empty(),
+        "Hermes session did not record tool calls for host-control audit\nlogs: {}",
+        temp.path.display()
+    );
+    let mut ssh_batch_count = 0_usize;
+    for call in calls {
+        assert_eq!(
+            call.name,
+            "terminal",
+            "Hermes escaped the SSH-only resident loop with tool call `{}` and args {}\nlogs: {}",
+            call.name,
+            call.arguments,
             temp.path.display()
         );
-        assert_no_host_control_command(&command, temp);
+        let command = call
+            .arguments
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        assert_terminal_call_is_foreground(&call.arguments, command, temp);
+        assert_ssh_batch_command(command, expected_ssh_command, temp);
+        ssh_batch_count = ssh_batch_count.saturating_add(1);
+    }
+    assert!(
+        ssh_batch_count > 0,
+        "Hermes did not use any SSH batch commands\nlogs: {}",
+        temp.path.display()
+    );
+}
+
+fn assert_terminal_call_is_foreground(
+    arguments: &serde_json::Value,
+    command: &str,
+    temp: &TestTempDir,
+) {
+    for forbidden in ["background", "pty"] {
+        assert!(
+            arguments
+                .get(forbidden)
+                .and_then(serde_json::Value::as_bool)
+                != Some(true),
+            "Hermes terminal call used `{forbidden}=true` for `{command}`\nlogs: {}",
+            temp.path.display()
+        );
     }
 }
 
-fn direct_ssh_command(command: &str) -> bool {
-    let first = command.split_whitespace().next().unwrap_or_default();
-    first == "ssh" || first.ends_with("/ssh")
+fn assert_ssh_batch_command(command: &str, expected_ssh_command: &str, temp: &TestTempDir) {
+    assert!(
+        command.starts_with(expected_ssh_command),
+        "Hermes SSH command did not match expected target.\nexpected prefix: `{expected_ssh_command}`\nactual: `{command}`\nlogs: {}",
+        temp.path.display()
+    );
+    let remainder = command[expected_ssh_command.len()..].trim_start();
+    assert!(
+        remainder.starts_with("<<"),
+        "Hermes SSH command must use a here-document batch, got `{command}`\nlogs: {}",
+        temp.path.display()
+    );
+    let host_line = remainder.lines().next().unwrap_or_default();
+    assert_no_host_control_command(host_line, temp);
+    assert_world_command_heredoc(remainder, command, temp);
+}
+
+fn assert_world_command_heredoc(remainder: &str, command: &str, temp: &TestTempDir) {
+    let mut lines = remainder.lines();
+    let Some(first) = lines.next() else {
+        panic!(
+            "Hermes SSH here-document is missing delimiter in `{command}`\nlogs: {}",
+            temp.path.display()
+        );
+    };
+    let delimiter = parse_heredoc_delimiter(first, command, temp);
+    let mut saw_world_command = false;
+    let mut closed = false;
+    for line in lines {
+        let trimmed = line.trim();
+        if closed {
+            assert!(
+                trimmed.is_empty(),
+                "Hermes SSH here-document had trailing shell command `{trimmed}` after delimiter in `{command}`\nlogs: {}",
+                temp.path.display()
+            );
+            continue;
+        }
+        if trimmed == delimiter {
+            closed = true;
+            continue;
+        }
+        if trimmed.is_empty() {
+            continue;
+        }
+        assert!(
+            trimmed.starts_with('/'),
+            "Hermes SSH stdin included non-world command `{trimmed}` in `{command}`\nlogs: {}",
+            temp.path.display()
+        );
+        saw_world_command = true;
+    }
+    assert!(
+        saw_world_command,
+        "Hermes SSH here-document did not contain any world commands in `{command}`\nlogs: {}",
+        temp.path.display()
+    );
+    assert!(
+        closed,
+        "Hermes SSH here-document was not closed in `{command}`\nlogs: {}",
+        temp.path.display()
+    );
+}
+
+fn parse_heredoc_delimiter(first: &str, command: &str, temp: &TestTempDir) -> String {
+    let first = first.trim();
+    let Some(raw_delimiter) = first
+        .strip_prefix("<<-")
+        .or_else(|| first.strip_prefix("<<"))
+        .map(str::trim)
+    else {
+        panic!(
+            "Hermes SSH here-document has malformed delimiter line `{first}` in `{command}`\nlogs: {}",
+            temp.path.display()
+        );
+    };
+    assert!(
+        !raw_delimiter.is_empty(),
+        "Hermes SSH here-document has empty delimiter in `{command}`\nlogs: {}",
+        temp.path.display()
+    );
+    assert!(
+        !raw_delimiter.chars().any(char::is_whitespace),
+        "Hermes SSH here-document delimiter line contains extra shell tokens `{first}` in `{command}`\nlogs: {}",
+        temp.path.display()
+    );
+    let delimiter = raw_delimiter
+        .strip_prefix('\'')
+        .and_then(|value| value.strip_suffix('\''))
+        .or_else(|| {
+            raw_delimiter
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+        })
+        .unwrap_or(raw_delimiter);
+    assert!(
+        delimiter
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'),
+        "Hermes SSH here-document delimiter `{raw_delimiter}` is not a plain delimiter in `{command}`\nlogs: {}",
+        temp.path.display()
+    );
+    delimiter.to_owned()
 }
 
 fn assert_no_host_control_command(command: &str, temp: &TestTempDir) {
