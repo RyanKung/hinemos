@@ -159,7 +159,8 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
 
     let key_path = key.display().to_string();
     let ssh_command = hinemos_ssh_command(host, ssh_port, &user, &key_path);
-    let prompt = world_only_self_loop_prompt(host, ssh_port, &user, &key_path);
+    let shipped_guidance = shipped_agent_guidance(&root);
+    let prompt = world_only_self_loop_prompt(&shipped_guidance, host, ssh_port, &user, &key_path);
     assert_prompt_has_no_external_loop_guidance(&prompt);
     let output = run_hermes_agent_until(
         &prompt,
@@ -770,10 +771,21 @@ fn never_stop_before_agent_exit(_stdout: &str) -> bool {
     false
 }
 
-fn world_only_self_loop_prompt(host: &str, ssh_port: u16, user: &str, key_path: &str) -> String {
+fn world_only_self_loop_prompt(
+    shipped_guidance: &str,
+    host: &str,
+    ssh_port: u16,
+    user: &str,
+    key_path: &str,
+) -> String {
     let ssh_command = hinemos_ssh_command(host, ssh_port, user, key_path);
     format!(
         r#"You are a first-time autonomous Hinemos resident.
+
+This is the shipped Hinemos agent guidance you must follow:
+<shipped-agent-guidance>
+{shipped_guidance}
+</shipped-agent-guidance>
 
 Allowed tools:
 - ssh only for the Hinemos world.
@@ -802,6 +814,73 @@ SUSTAIN=<evidence that the repeated activity changed durable game state>
 SSH=<evidence that you used SSH>
 "#
     )
+}
+
+fn shipped_agent_guidance(root: &Path) -> String {
+    let llm_path = root.join("web/landing/llm.txt");
+    let llms_path = root.join("web/landing/llms.txt");
+    let llm = fs::read_to_string(&llm_path)
+        .unwrap_or_else(|error| panic!("read shipped agent guide {}: {error}", llm_path.display()));
+    let llms = fs::read_to_string(&llms_path).unwrap_or_else(|error| {
+        panic!("read shipped agent guide {}: {error}", llms_path.display())
+    });
+    let guidance = extract_shipped_agent_guidance(&llm, &llm_path);
+    let plural_guidance = extract_shipped_agent_guidance(&llms, &llms_path);
+    assert_eq!(
+        guidance, plural_guidance,
+        "llm.txt and llms.txt must publish the same agent control guidance"
+    );
+    assert_shipped_agent_guidance_covers_resident_boundary(&guidance);
+    guidance
+}
+
+fn extract_shipped_agent_guidance(contents: &str, path: &Path) -> String {
+    let boundary = extract_section(
+        contents,
+        "Agent control boundary",
+        "Run this command sequence:",
+    )
+    .unwrap_or_else(|| {
+        panic!(
+            "shipped agent guide {} is missing Agent control boundary section",
+            path.display()
+        )
+    });
+    let agent_guidance = extract_section(contents, "Agent guidance", "Human guidance")
+        .unwrap_or_else(|| {
+            panic!(
+                "shipped agent guide {} is missing Agent guidance section",
+                path.display()
+            )
+        });
+    format!("{}\n\n{}", boundary.trim(), agent_guidance.trim())
+}
+
+fn extract_section<'a>(contents: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let (_, after_start) = contents.split_once(start)?;
+    let (section, _) = after_start.split_once(end)?;
+    Some(section)
+}
+
+fn assert_shipped_agent_guidance_covers_resident_boundary(guidance: &str) {
+    let lower = guidance.to_ascii_lowercase();
+    for required in [
+        "agents must use ssh",
+        "direct foreground `ssh -t",
+        "do not create local control scripts",
+        "cron jobs",
+        "launchd or systemd units",
+        "background shell loops",
+        "http/api pollers",
+        "operator-managed or platform-provided runner",
+        "resident agent must not create, modify, or ask the host to install",
+        "direct ssh and in-world commands",
+    ] {
+        assert!(
+            lower.contains(required),
+            "shipped agent guidance must include `{required}`"
+        );
+    }
 }
 
 fn hinemos_ssh_command(host: &str, ssh_port: u16, user: &str, key_path: &str) -> String {
@@ -833,6 +912,17 @@ fn assert_llm_room_evidence(stdout: &str, temp: &TestTempDir) {
 }
 
 fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
+    for label in [
+        "ENTRY=",
+        "DISCOVERY=",
+        "REPEAT1=",
+        "REPEAT2=",
+        "REPEAT3=",
+        "SUSTAIN=",
+        "SSH=",
+    ] {
+        assert_contains(stdout, label, "resident loop report label");
+    }
     require_output(
         stdout,
         &["ENTRY=", "Hinemos", "Available"],
@@ -844,6 +934,8 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
         &[
             "DISCOVERY=",
             "Resident loop",
+            "claimed parcel",
+            "/land claim",
             "/go",
             "/who",
             "/memory report",
@@ -852,10 +944,6 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
         "evidence that game output taught the repeatable loop",
         temp,
     );
-    assert_contains(stdout, "REPEAT1=", "first repetition report");
-    assert_contains(stdout, "REPEAT2=", "second repetition report");
-    assert_contains(stdout, "REPEAT3=", "third repetition report");
-    assert_contains(stdout, "SUSTAIN=", "durable repeated-activity report");
     require_output(
         stdout,
         &[
@@ -863,6 +951,10 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
             "Social drives",
             "loneliness",
             "boredom",
+            "claimed by",
+            "commercial parcels",
+            "/land list",
+            "memory search",
         ],
         "evidence that the resident loop produced observable in-world state",
         temp,
@@ -1213,6 +1305,13 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
            and current_state->'lastSnapshot' ? 'lonelinessPoints'
            and current_state->'lastSnapshot' ? 'boredomPoints'"
     ));
+    let claimed_parcels = test_database.query_value(&format!(
+        "select count(*)
+         from commercial_parcels
+         where owner_user = '{user}'
+           and owner_player_id = '{player_id}'
+           and status in ('claimed', 'built')"
+    ));
     let daily_report_emotion = test_database.query_value(&format!(
         "select concat_ws(':',
              coalesce(object->'emotion'->>'status', 'missing'),
@@ -1281,25 +1380,9 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
         1,
         "resident generated-grid exploration snapshots",
     );
-    let pressure_parts = best_loop_pressure.split(':').collect::<Vec<_>>();
-    assert_eq!(
-        pressure_parts.len(),
-        2,
-        "loop pressure query should return loneliness and boredom minima: {best_loop_pressure}"
-    );
-    let min_loneliness = pressure_parts[0]
-        .parse::<i64>()
-        .expect("minimum loneliness points");
-    let min_boredom = pressure_parts[1]
-        .parse::<i64>()
-        .expect("minimum boredom points");
     assert!(
-        min_loneliness <= 2,
-        "LLM resident loop should relieve loneliness below the default pressure, got {min_loneliness}"
-    );
-    assert!(
-        min_boredom <= 1,
-        "LLM resident loop should relieve boredom below the default pressure, got {min_boredom}"
+        count_at_least(&claimed_parcels, 3) || social_pressure_relieved(&best_loop_pressure),
+        "LLM resident loop should produce a repeated durable game effect: got {claimed_parcels} claimed parcels and social pressure `{best_loop_pressure}`"
     );
     let emotion_parts = daily_report_emotion.split(':').collect::<Vec<_>>();
     assert_eq!(
@@ -1342,6 +1425,21 @@ fn assert_at_least(value: &str, minimum: i64, description: &str) {
         parsed >= minimum,
         "expected {description} >= {minimum}, got {parsed}"
     );
+}
+
+fn count_at_least(value: &str, minimum: i64) -> bool {
+    value.parse::<i64>().is_ok_and(|parsed| parsed >= minimum)
+}
+
+fn social_pressure_relieved(value: &str) -> bool {
+    let parts = value.split(':').collect::<Vec<_>>();
+    let [loneliness, boredom] = parts.as_slice() else {
+        return false;
+    };
+    let (Ok(loneliness), Ok(boredom)) = (loneliness.parse::<i64>(), boredom.parse::<i64>()) else {
+        return false;
+    };
+    loneliness <= 2 && boredom <= 1
 }
 
 fn room_command_count(

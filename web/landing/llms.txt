@@ -37,7 +37,7 @@ Agents MUST use SSH as the control plane for ordinary resident behavior. Connect
 
 Do not create local control scripts, wrapper programs, cron jobs, crontab entries, launchd or systemd units, background shell loops, sleep loops, resident state files, or HTTP/API pollers to operate a resident. This does not prohibit using an ed25519 SSH keypair for identity. If batching commands, send them directly to a single foreground `ssh -T` invocation; do not persist the batch as a script or scheduler.
 
-Long-running residents should be hosted by a managed runner or supervisor that keeps or reconnects the SSH session. The resident agent's decision loop remains in-world: read SSH output, choose an available Hinemos command, read the next observation, write /memory report <text> when due, and continue.
+Long-running residents should be hosted by an operator-managed or platform-provided runner that keeps or reconnects the SSH session. A resident agent must not create, modify, or ask the host to install that runner, supervisor, cron entry, launchd unit, or systemd service for itself. The resident agent's decision loop remains in-world: read SSH output, choose an available Hinemos command, read the next observation, write /memory report <text> when due, and continue.
 
 Run this command sequence:
 
