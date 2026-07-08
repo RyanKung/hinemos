@@ -1,7 +1,7 @@
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -124,22 +124,24 @@ fn scripted_llm_protocol_check_for_built_in_rooms_over_ssh() {
 }
 
 #[test]
-fn llm_can_discover_and_repeat_self_loop_from_game_only() {
+fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     let _serial = serial_claude_world_behavior();
     let root = workspace_root();
     let env = load_local_env(&root);
-    assert_provider_env(&env);
     let test_database = TestDatabase::create(&env);
-    assert_command_exists("claude");
+    assert_command_exists("hermes");
     assert_command_exists("ssh");
 
-    let temp = TestTempDir::new("hinemos-llm-task-loop");
+    let temp = TestTempDir::new("hinemos-hermes-task-loop");
     let host = "127.0.0.1";
     let ssh_port = free_local_port();
-    let user = format!("task_loop_{}_{}", std::process::id(), epoch_seconds());
+    let user = format!("hermes_loop_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
     let rooms_log = temp.path.join("hinemos-rooms.log");
     let world = prepare_fast_resident_world(&root, &temp);
+    let hermes_home = prepare_hermes_test_home(&temp);
+    let hermes_cwd = temp.path.join("hermes-cwd");
+    fs::create_dir_all(&hermes_cwd).expect("create isolated Hermes cwd");
 
     let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
         root: &root,
@@ -158,11 +160,13 @@ fn llm_can_discover_and_repeat_self_loop_from_game_only() {
     let key_path = key.display().to_string();
     let prompt = world_only_self_loop_prompt(host, ssh_port, &user, &key_path);
     assert_prompt_has_no_external_loop_guidance(&prompt);
-    let output = run_claude_agent_until_with_tools(
+    let output = run_hermes_agent_until(
         &prompt,
         &env,
-        Duration::from_secs(360),
-        &["Bash(ssh *)"],
+        Duration::from_secs(600),
+        &hermes_home,
+        &hermes_cwd,
+        &["terminal", "file", "cronjob"],
         never_stop_before_agent_exit,
     );
 
@@ -173,24 +177,27 @@ fn llm_can_discover_and_repeat_self_loop_from_game_only() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     fs::write(
-        temp.path.join("llm-task-loop-stdout.log"),
+        temp.path.join("hermes-task-loop-stdout.log"),
         stdout.as_bytes(),
     )
     .ok();
     fs::write(
-        temp.path.join("llm-task-loop-stderr.log"),
+        temp.path.join("hermes-task-loop-stderr.log"),
         stderr.as_bytes(),
     )
     .ok();
 
     assert!(
         output.success,
-        "LLM task-loop verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
+        "Hermes task-loop verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
         if output.timed_out { " by timeout" } else { "" },
         stderr,
         stdout,
         temp.path.display()
     );
+    assert_hermes_used_only_direct_ssh_terminal_commands(&stdout, &temp);
+    assert_hermes_created_no_local_control_files(&hermes_cwd, &temp);
+    assert_hermes_created_no_cron_jobs(&hermes_home, &temp);
     assert_llm_self_loop_evidence(&stdout, &temp);
     assert_llm_self_loop_database_effects(&test_database, &user);
 
@@ -770,7 +777,9 @@ Allowed tools:
 Use this exact SSH command form when you enter the world:
 ssh -T -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {ssh_port} {user}@{host}
 
-Do not use printf, curl, cat, grep, sed, sleep, files, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands.
+Use finite foreground ssh -T batches with here-documents when sending multiple commands. Do not keep an SSH process running after a batch completes. Every terminal command you run must start with the ssh command above, and stdin to SSH must contain only slash-prefixed Hinemos world commands.
+
+Do not use printf, curl, cat, grep, sed, sleep, files, local scripts, wrapper programs, cron entries, crontab entries, launchd or systemd units, background shell loops, resident state files, HTTP APIs, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands.
 
 Goal:
 1. Enter the world and follow only commands, places, messages, and replies shown by the game.
@@ -849,6 +858,90 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
         temp,
     );
     require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
+}
+
+fn assert_hermes_used_only_direct_ssh_terminal_commands(stdout: &str, temp: &TestTempDir) {
+    let commands = hermes_terminal_command_lines(stdout);
+    assert!(
+        !commands.is_empty(),
+        "Hermes output did not expose terminal commands for host-control audit\nlogs: {}",
+        temp.path.display()
+    );
+    assert!(
+        commands.iter().any(|command| direct_ssh_command(command)),
+        "Hermes did not use a direct ssh terminal command. Commands: {commands:?}\nlogs: {}",
+        temp.path.display()
+    );
+
+    for command in commands {
+        assert!(
+            direct_ssh_command(&command),
+            "Hermes escaped the direct SSH boundary with terminal command `{command}`\nlogs: {}",
+            temp.path.display()
+        );
+        assert_no_host_control_command(&command, temp);
+    }
+}
+
+fn direct_ssh_command(command: &str) -> bool {
+    let first = command.split_whitespace().next().unwrap_or_default();
+    first == "ssh" || first.ends_with("/ssh")
+}
+
+fn assert_no_host_control_command(command: &str, temp: &TestTempDir) {
+    let lower = command.to_ascii_lowercase();
+    for forbidden in [
+        "cron",
+        "crontab",
+        "launchctl",
+        "systemctl",
+        "nohup",
+        "while true",
+        "sleep ",
+        "cat >",
+        "chmod +x",
+        ".sh",
+        "python ",
+        "node ",
+        "curl ",
+        "grep ",
+        "sed ",
+        "printf ",
+    ] {
+        assert!(
+            !lower.contains(forbidden),
+            "Hermes terminal command used forbidden host-control pattern `{forbidden}` in `{command}`\nlogs: {}",
+            temp.path.display()
+        );
+    }
+}
+
+fn assert_hermes_created_no_cron_jobs(hermes_home: &Path, temp: &TestTempDir) {
+    let cron_list = hermes_cron_list(hermes_home);
+    assert_contains(
+        &cron_list,
+        "No scheduled jobs.",
+        "Hermes must not persist cron jobs during the resident loop",
+    );
+    fs::write(temp.path.join("hermes-cron-list.log"), cron_list.as_bytes()).ok();
+}
+
+fn assert_hermes_created_no_local_control_files(hermes_cwd: &Path, temp: &TestTempDir) {
+    let entries = fs::read_dir(hermes_cwd)
+        .expect("read isolated Hermes cwd")
+        .map(|entry| {
+            entry
+                .expect("read isolated Hermes cwd entry")
+                .path()
+                .display()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        entries.is_empty(),
+        "Hermes created local files while operating the resident loop: {entries:?}\nlogs: {}",
+        temp.path.display()
+    );
 }
 
 fn assert_llm_room_database_effects(test_database: &TestDatabase, user: &str) {
