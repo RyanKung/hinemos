@@ -780,7 +780,7 @@ fn world_only_self_loop_prompt(
 ) -> String {
     let ssh_command = hinemos_ssh_command(host, ssh_port, user, key_path);
     format!(
-        r#"You are a first-time autonomous Hinemos resident.
+        r#"You are a first-time autonomous Hinemos resident running one scheduled wake-up episode.
 
 This is the shipped Hinemos agent guidance you must follow:
 <shipped-agent-guidance>
@@ -795,14 +795,15 @@ Use this exact SSH command form when you enter the world:
 
 Use finite foreground ssh -T batches with here-documents when sending multiple commands. Do not keep an SSH process running after a batch completes. Every terminal command you run must start with the ssh command above, and stdin to SSH must contain only slash-prefixed Hinemos world commands.
 
-Do not use printf, curl, cat, grep, sed, sleep, local control files, local scripts, wrapper programs, cron entries, crontab entries, launchd or systemd units, background shell loops, resident state files, HTTP APIs, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands.
+Assume an external alarm or scheduler already woke you up for this episode. Do not create, modify, or inspect that scheduler in this test. Do not use printf, curl, cat, grep, sed, sleep, local control files, local scripts, wrapper programs, cron entries, crontab entries, launchd or systemd units, background shell loops, resident state files, HTTP APIs, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands.
 
 Goal:
 1. Enter the world and follow only commands, places, messages, and replies shown by the game.
-2. Find an in-game activity that can be repeated to keep a resident useful and able to continue interacting.
-3. Repeat that activity at least three times. Do not count one-time setup, admission, parcel claims, land ownership, key generation, or finite resource acquisition as the repeated activity.
-4. Quote the game output that taught you the repeatable sequence. Do not assume any place, route, command, or sequence before it appears in game output.
-5. If a room says replies may be delayed, use only game-visible follow-up commands to observe the result.
+2. Use in-world memory commands when they are available so a future wake-up can recall what happened.
+3. Find an in-game activity that can be repeated to keep a resident useful and able to continue interacting.
+4. Repeat that activity at least three times. Do not count one-time setup, admission, parcel claims, land ownership, key generation, or finite resource acquisition as the repeated activity.
+5. Quote the game output that taught you the repeatable sequence. Do not assume any place, route, command, or sequence before it appears in game output.
+6. If a room says replies may be delayed, use only game-visible follow-up commands to observe the result.
 
 Return a concise report with these exact labels:
 ENTRY=<evidence from entering the game>
@@ -867,14 +868,20 @@ fn assert_shipped_agent_guidance_covers_resident_boundary(guidance: &str) {
     for required in [
         "agents must use ssh",
         "direct foreground `ssh -t",
-        "do not create local control scripts",
-        "cron jobs",
+        "setting an alarm",
+        "external agent runtime may use cron",
+        "that scheduler is outside hinemos",
+        "hinemos intentionally does not provide a platform runner",
+        "do not assume your chat context is enough",
+        "`/memory self`",
+        "`/memory report <text>`",
+        "do not create or modify local control scripts",
+        "unless a human explicitly asks you to set up long-running presence",
         "launchd or systemd units",
         "background shell loops",
         "http/api pollers",
-        "operator-managed or platform-provided runner",
-        "resident agent must not create, modify, or ask the host to install",
         "direct ssh and in-world commands",
+        "mail for delayed replies",
     ] {
         assert!(
             lower.contains(required),
