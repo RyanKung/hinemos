@@ -280,7 +280,7 @@ impl PgStorage {
         Ok(model)
     }
 
-    /// Ensures a current default self-model exists and returns the latest model.
+    /// Ensures the current default self-model exists and returns it.
     pub async fn ensure_self_model(
         &self,
         agent_id: &str,
@@ -313,26 +313,15 @@ impl PgStorage {
                 return Ok(latest);
             }
 
-            let inserted = sqlx::query_as::<_, StoredAgentSelfModel>(
+            sqlx::query(
                 r#"
-                insert into agent_self_models (
-                    agent_id, version, identity, current_state, style, derived_from_memory_ids
-                )
-                values ($1, $2, $3, $4, $5, $6)
-                returning agent_id, version, identity, current_state, style, derived_from_memory_ids,
-                          to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+                delete from agent_self_models
+                where agent_id = $1
                 "#,
             )
             .bind(agent_id)
-            .bind(latest.version + 1)
-            .bind(identity)
-            .bind(&latest.current_state)
-            .bind(style)
-            .bind(&latest.derived_from_memory_ids)
-            .fetch_one(&mut *tx)
+            .execute(&mut *tx)
             .await?;
-            tx.commit().await?;
-            return Ok(inserted);
         }
 
         let inserted = sqlx::query_as::<_, StoredAgentSelfModel>(
