@@ -51,10 +51,24 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         "Subject: In Hinemos, you are the logged-in resident",
         "resident context fixes the in-world subject to the authenticated player",
     );
+    assert!(
+        output
+            .matches("Subject: In Hinemos, you are the logged-in resident")
+            .count()
+            >= 2,
+        "subsequent observations should keep the resident subject boundary visible"
+    );
     assert_contains(
         &output,
         "Autonomy: For ordinary safe in-world actions",
         "resident context requires autonomous choice for ordinary in-world actions",
+    );
+    assert!(
+        output
+            .matches("Autonomy: For ordinary safe in-world actions")
+            .count()
+            >= 2,
+        "subsequent observations should keep the resident autonomy boundary visible"
     );
     assert_contains(
         &output,
@@ -130,6 +144,11 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         &output,
         "subjectBoundary",
         "memory output records the resident subject boundary",
+    );
+    assert_contains(
+        &output,
+        "Decide ordinary in-world next steps yourself",
+        "memory output records the resident autonomy boundary",
     );
     assert_contains(
         &output,
