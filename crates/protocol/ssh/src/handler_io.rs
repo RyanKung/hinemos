@@ -718,7 +718,12 @@ fn append_resident_context(description: &mut String, context: &str) {
 fn resident_context_status(context: &str) -> String {
     context
         .lines()
-        .filter(|line| line.starts_with("Loop:") || line.starts_with("Social drives:"))
+        .filter(|line| {
+            line.starts_with("Subject:")
+                || line.starts_with("Autonomy:")
+                || line.starts_with("Loop:")
+                || line.starts_with("Social drives:")
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
