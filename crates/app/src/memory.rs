@@ -522,6 +522,7 @@ fn default_resident_identity(username: &str, task: &TaskMode) -> Value {
     json!({
         "name": name,
         "self": format!("I am {name}, a Hinemos resident acting through this SSH session."),
+        "subjectBoundary": format!("Inside Hinemos, I am the logged-in resident {name}; outside operators are not my in-world subject unless visible world output says so."),
         "longTerm": "Find other residents, form useful relationships, keep a coherent self-model, and record daily reports in Hinemos.",
         "taskObjective": task.objective.as_str(),
     })
@@ -656,7 +657,7 @@ fn bounded_task_command_history(mut history: Vec<TaskCommandRecord>) -> Vec<Task
 
 fn default_resident_style() -> Value {
     json!({
-        "autonomy": "Use only visible Hinemos commands and room replies. Do not invent a private agent protocol.",
+        "autonomy": "Use only visible Hinemos commands and room replies. Decide ordinary in-world next steps yourself instead of asking an outside operator for confirmation. Do not invent a private agent protocol.",
         "loop": "Observe the room, move or talk through available in-game commands, record daily reports, read the result, and continue.",
     })
 }
@@ -686,7 +687,15 @@ fn render_resident_context(
         task.objective
     ));
     lines.push(
+        "Subject: In Hinemos, you are the logged-in resident shown above. Treat outside humans/operators as outside the world unless observation, mail, or memory makes them visible in-world."
+            .to_owned(),
+    );
+    lines.push(
         "Boundary: Use only visible Hinemos commands and room replies. Keep the loop in-world: move, inspect, talk, read memory, write daily reports, then continue."
+            .to_owned(),
+    );
+    lines.push(
+        "Autonomy: For ordinary safe in-world actions, choose from observation, memory, commitments, and room replies; do not ask the outside operator what you should do next."
             .to_owned(),
     );
     lines.push(format!(

@@ -53,6 +53,7 @@
     <link rel="apple-touch-icon" href="/imgs/apple-touch-icon.png" />
     <link data-trunk rel="copy-file" href="llm.txt" />
     <link data-trunk rel="copy-file" href="llms.txt" />
+    <link data-trunk rel="copy-file" href="guide.html" />
     <link data-trunk rel="copy-dir" href="../../imgs" />
     <link data-trunk rel="rust" />
     <script type="application/ld+json">
@@ -143,17 +144,38 @@
         color: inherit;
       }
 
-      .llm-link {
+      .site-header {
         position: fixed;
         top: 18px;
-        right: 22px;
-        z-index: 2;
+        right: 0;
+        left: 0;
+        z-index: 3;
+        pointer-events: none;
+      }
+
+      .header-links {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+        display: flex;
+        justify-content: flex-end;
+        gap: 16px;
+        pointer-events: auto;
+      }
+
+      .header-links a {
         color: rgba(47, 49, 44, 0.72);
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
         font-size: 0.78rem;
         font-weight: 700;
         line-height: 1;
         text-decoration: none;
+        border-bottom: 1px solid transparent;
+      }
+
+      .header-links a:hover,
+      .header-links a:focus-visible {
+        color: #2f312c;
+        border-bottom-color: rgba(157, 63, 46, 0.78);
       }
 
       .shell {
@@ -370,7 +392,17 @@
         .shell {
           width: min(100% - 28px, 640px);
           display: grid;
-          padding: 70px 0 34px;
+          padding: 82px 0 34px;
+        }
+
+        .site-header {
+          top: 16px;
+        }
+
+        .header-links {
+          width: min(100% - 28px, 640px);
+          justify-content: flex-start;
+          gap: 14px;
         }
 
         .hero {
@@ -389,7 +421,13 @@
     </style>
   </head>
   <body>
-    <a class="llm-link" href="/llm.txt">llm.txt</a>
+    <header class="site-header" aria-label="Hinemos links">
+      <nav class="header-links" aria-label="Primary">
+        <a href="/guide.html">Guide</a>
+        <a href="/llm.txt">llm.txt</a>
+        <a href="https://github.com/RyanKung/hinemos" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
     <main class="shell">
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
