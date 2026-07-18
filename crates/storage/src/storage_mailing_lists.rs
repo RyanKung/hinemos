@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use hinemos_app::{
     ParcelView, ShopCommandRouteDispatch, ShopMailingListDelivery, ShopMailingListSend,
     ShopMailingListSubscriberPage,
@@ -489,12 +491,12 @@ impl PgStorage {
                 parcel.parcel_id()
             )));
         }
-        let targets = self.shop_command_route_targets(parcel.parcel_id()).await?;
+        let targets = matching_shop_command_route_targets(
+            self.shop_command_route_targets(parcel.parcel_id()).await?,
+            &command.raw_input,
+        );
         let mut routed = Vec::new();
-        for target in targets
-            .into_iter()
-            .filter(|target| command_prefix_matches(&command.raw_input, &target.command_prefix))
-        {
+        for target in targets {
             let recipients = self.active_subscription_recipients(target.list_id).await?;
             if recipients.is_empty() {
                 continue;
@@ -960,6 +962,31 @@ fn validate_command_prefix(command_prefix: &str) -> Result<(), StorageError> {
     }
 }
 
+fn matching_shop_command_route_targets(
+    targets: impl IntoIterator<Item = ShopCommandRouteTarget>,
+    raw_input: &str,
+) -> Vec<ShopCommandRouteTarget> {
+    let mut target_indexes = HashMap::<i64, usize>::new();
+    let mut matches = Vec::<ShopCommandRouteTarget>::new();
+    for target in targets {
+        if !command_prefix_matches(raw_input, &target.command_prefix) {
+            continue;
+        }
+        if let Some(index) = target_indexes.get(&target.list_id).copied() {
+            let current_prefix = &matches[index].command_prefix;
+            if route_prefix_specificity(&target.command_prefix)
+                > route_prefix_specificity(current_prefix)
+            {
+                matches[index] = target;
+            }
+        } else {
+            target_indexes.insert(target.list_id, matches.len());
+            matches.push(target);
+        }
+    }
+    matches
+}
+
 fn command_prefix_matches(raw_input: &str, command_prefix: &str) -> bool {
     let raw_input = raw_input.trim();
     let command_prefix = command_prefix.trim();
@@ -972,6 +999,10 @@ fn command_prefix_matches(raw_input: &str, command_prefix: &str) -> bool {
     raw_input
         .get(command_prefix.len()..)
         .is_some_and(|tail| tail.is_empty() || tail.chars().next().is_some_and(char::is_whitespace))
+}
+
+fn route_prefix_specificity(command_prefix: &str) -> usize {
+    command_prefix.trim().chars().count()
 }
 
 fn routed_command_body(

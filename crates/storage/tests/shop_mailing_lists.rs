@@ -570,6 +570,94 @@ async fn shop_command_routes_dispatch_operator_commands_to_stream_subscribers() 
 }
 
 #[tokio::test]
+async fn shop_command_routes_use_one_longest_match_per_stream() {
+    if skip_without_database() {
+        return;
+    }
+    let (db, storage) = storage_with_built_shop().await;
+    storage
+        .create_shop_mailing_list("E1-C0-01", "player:owner", "submissions", "Submissions")
+        .await
+        .expect("create submissions list");
+    storage
+        .create_shop_mailing_list("E1-C0-01", "player:owner", "alerts", "Alerts")
+        .await
+        .expect("create alerts list");
+    storage
+        .subscribe_shop_mailing_list("E1-C0-01", "submissions", "customer", "player:customer")
+        .await
+        .expect("subscribe to submissions");
+    storage
+        .subscribe_shop_mailing_list("E1-C0-01", "alerts", "customer", "player:customer")
+        .await
+        .expect("subscribe to alerts");
+    storage
+        .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/paper")
+        .await
+        .expect("add broad route");
+    storage
+        .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/paper submit")
+        .await
+        .expect("add specific route");
+    storage
+        .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/PAPER SUBMIT")
+        .await
+        .expect("add same-length route");
+    storage
+        .add_shop_command_route("E1-C0-01", "player:owner", "alerts", "/paper")
+        .await
+        .expect("add second stream route");
+
+    let parcel = storage
+        .commercial_parcel("E1-C0-01")
+        .await
+        .expect("load shop parcel");
+    let command = storage
+        .save_operator_command(
+            &parcel,
+            "customer",
+            "player:customer",
+            "/paper submit scoop",
+            true,
+        )
+        .await
+        .expect("operator command");
+    let routed = storage
+        .dispatch_shop_command_routes(&parcel, command.id)
+        .await
+        .expect("dispatch routes");
+
+    assert_eq!(routed.len(), 2);
+    let submissions = routed
+        .iter()
+        .find(|dispatch| dispatch.post.slug == "submissions")
+        .expect("submissions dispatch");
+    let alerts = routed
+        .iter()
+        .find(|dispatch| dispatch.post.slug == "alerts")
+        .expect("alerts dispatch");
+    assert_eq!(submissions.post.subject, "/paper submit");
+    assert_eq!(alerts.post.subject, "/paper");
+    assert_eq!(
+        db.query_value(
+            "select count(*)
+             from shop_mailing_list_posts
+             where subject = '/paper submit'
+               and body like '%Matched route: /paper submit%'"
+        ),
+        "1"
+    );
+    assert_eq!(
+        db.query_value(
+            "select count(*)
+             from shop_mailing_list_posts
+             where subject = '/PAPER SUBMIT'"
+        ),
+        "0"
+    );
+}
+
+#[tokio::test]
 async fn mailing_list_count_is_limited_per_parcel() {
     if skip_without_database() {
         return;
