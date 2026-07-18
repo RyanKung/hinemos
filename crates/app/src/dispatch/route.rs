@@ -162,15 +162,71 @@ pub(super) enum ShopAppRequest<'a> {
         slug: &'a str,
     },
     MailingListSubscriptions,
+    DeskCreate {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: &'a str,
+        title: &'a str,
+    },
+    DeskList {
+        current_view: &'a str,
+        parcel_id: &'a str,
+    },
+    StaffAdd {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: &'a str,
+        username: &'a str,
+    },
+    StaffList {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: &'a str,
+    },
+    StaffRemove {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: &'a str,
+        username: &'a str,
+    },
+    ShiftStart {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: &'a str,
+    },
+    ShiftEnd {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: &'a str,
+    },
+    WorkList {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: Option<&'a str>,
+    },
+    WorkClaim {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        work_id: i64,
+    },
+    WorkDone {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        work_id: i64,
+        result: &'a str,
+    },
     RouteAdd {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
         command_prefix: &'a str,
     },
     RouteList {
+        current_view: &'a str,
         parcel_id: &'a str,
     },
     RouteRemove {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
         command_prefix: &'a str,
@@ -279,6 +335,16 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             | AppRequest::ShopMailingListSubscribe { .. }
             | AppRequest::ShopMailingListUnsubscribe { .. }
             | AppRequest::ShopMailingListSubscriptions
+            | AppRequest::ShopDeskCreate { .. }
+            | AppRequest::ShopDeskList { .. }
+            | AppRequest::ShopStaffAdd { .. }
+            | AppRequest::ShopStaffList { .. }
+            | AppRequest::ShopStaffRemove { .. }
+            | AppRequest::ShopShiftStart { .. }
+            | AppRequest::ShopShiftEnd { .. }
+            | AppRequest::ShopWorkList { .. }
+            | AppRequest::ShopWorkClaim { .. }
+            | AppRequest::ShopWorkDone { .. }
             | AppRequest::ShopRouteAdd { .. }
             | AppRequest::ShopRouteList { .. }
             | AppRequest::ShopRouteRemove { .. }
@@ -504,23 +570,127 @@ fn route_shop(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
         AppRequest::ShopMailingListSubscriptions => {
             RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscriptions)
         }
+        AppRequest::ShopDeskCreate {
+            current_view,
+            parcel_id,
+            slug,
+            title,
+        } => RoutedAppRequest::Shop(ShopAppRequest::DeskCreate {
+            current_view,
+            parcel_id,
+            slug,
+            title,
+        }),
+        AppRequest::ShopDeskList {
+            current_view,
+            parcel_id,
+        } => RoutedAppRequest::Shop(ShopAppRequest::DeskList {
+            current_view,
+            parcel_id,
+        }),
+        AppRequest::ShopStaffAdd {
+            current_view,
+            parcel_id,
+            slug,
+            username,
+        } => RoutedAppRequest::Shop(ShopAppRequest::StaffAdd {
+            current_view,
+            parcel_id,
+            slug,
+            username,
+        }),
+        AppRequest::ShopStaffList {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::Shop(ShopAppRequest::StaffList {
+            current_view,
+            parcel_id,
+            slug,
+        }),
+        AppRequest::ShopStaffRemove {
+            current_view,
+            parcel_id,
+            slug,
+            username,
+        } => RoutedAppRequest::Shop(ShopAppRequest::StaffRemove {
+            current_view,
+            parcel_id,
+            slug,
+            username,
+        }),
+        AppRequest::ShopShiftStart {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::Shop(ShopAppRequest::ShiftStart {
+            current_view,
+            parcel_id,
+            slug,
+        }),
+        AppRequest::ShopShiftEnd {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::Shop(ShopAppRequest::ShiftEnd {
+            current_view,
+            parcel_id,
+            slug,
+        }),
+        AppRequest::ShopWorkList {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::Shop(ShopAppRequest::WorkList {
+            current_view,
+            parcel_id,
+            slug,
+        }),
+        AppRequest::ShopWorkClaim {
+            current_view,
+            parcel_id,
+            work_id,
+        } => RoutedAppRequest::Shop(ShopAppRequest::WorkClaim {
+            current_view,
+            parcel_id,
+            work_id,
+        }),
+        AppRequest::ShopWorkDone {
+            current_view,
+            parcel_id,
+            work_id,
+            result,
+        } => RoutedAppRequest::Shop(ShopAppRequest::WorkDone {
+            current_view,
+            parcel_id,
+            work_id,
+            result,
+        }),
         AppRequest::ShopRouteAdd {
+            current_view,
             parcel_id,
             slug,
             command_prefix,
         } => RoutedAppRequest::Shop(ShopAppRequest::RouteAdd {
+            current_view,
             parcel_id,
             slug,
             command_prefix,
         }),
-        AppRequest::ShopRouteList { parcel_id } => {
-            RoutedAppRequest::Shop(ShopAppRequest::RouteList { parcel_id })
-        }
+        AppRequest::ShopRouteList {
+            current_view,
+            parcel_id,
+        } => RoutedAppRequest::Shop(ShopAppRequest::RouteList {
+            current_view,
+            parcel_id,
+        }),
         AppRequest::ShopRouteRemove {
+            current_view,
             parcel_id,
             slug,
             command_prefix,
         } => RoutedAppRequest::Shop(ShopAppRequest::RouteRemove {
+            current_view,
             parcel_id,
             slug,
             command_prefix,

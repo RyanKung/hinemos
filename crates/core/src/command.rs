@@ -590,10 +590,30 @@ pub enum ShopAction {
         /// Mailing-list owner action.
         action: ShopMailingListAction,
     },
-    /// Manage shop command routing into mailing-list streams.
+    /// Manage a shop-local work desk.
+    Desk {
+        /// Work-desk owner action.
+        action: ShopDeskAction,
+    },
+    /// Manage shop command routing into shop-local work desks.
     Route {
         /// Command-route owner action.
         action: ShopRouteAction,
+    },
+    /// Manage shop staff assignments.
+    Staff {
+        /// Staff owner action.
+        action: ShopStaffAction,
+    },
+    /// Manage an in-shop work shift.
+    Shift {
+        /// Shift worker action.
+        action: ShopShiftAction,
+    },
+    /// Consume shop work while inside the shop.
+    Work {
+        /// Work queue action.
+        action: ShopWorkAction,
     },
     /// Manage shop-issued badges.
     Badge {
@@ -647,15 +667,35 @@ pub enum ShopMailingListAction {
     },
 }
 
+/// Shop-local work desk actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ShopDeskAction {
+    /// Create a desk for an owned shop parcel.
+    Create {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable desk slug.
+        slug: String,
+        /// Player-facing desk title.
+        title: String,
+    },
+    /// List desks for an owned shop parcel.
+    List {
+        /// Parcel id.
+        parcel_id: String,
+    },
+}
+
 /// Shop command routing actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ShopRouteAction {
-    /// Route matching shop commands into a mailing-list stream.
+    /// Route matching shop commands into a shop-local work desk.
     Add {
         /// Parcel id.
         parcel_id: String,
-        /// Stable mailing-list slug.
+        /// Stable work-desk slug.
         slug: String,
         /// Slash command prefix that should be routed.
         command_prefix: String,
@@ -665,14 +705,94 @@ pub enum ShopRouteAction {
         /// Parcel id.
         parcel_id: String,
     },
-    /// Remove a command route from a mailing-list stream.
+    /// Remove a command route from a shop-local work desk.
     Remove {
         /// Parcel id.
         parcel_id: String,
-        /// Stable mailing-list slug.
+        /// Stable work-desk slug.
         slug: String,
         /// Slash command prefix that should no longer be routed.
         command_prefix: String,
+    },
+}
+
+/// Shop staff assignment actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ShopStaffAction {
+    /// Add or update a worker for one work desk.
+    Add {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+        /// Worker username.
+        username: String,
+    },
+    /// List workers for one work desk.
+    List {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Remove a worker from one work desk.
+    Remove {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+        /// Worker username.
+        username: String,
+    },
+}
+
+/// Shop shift actions. A shift can only be started or ended inside the shop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ShopShiftAction {
+    /// Start working at a desk in the current shop view.
+    Start {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// End the active shift at a desk.
+    End {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+}
+
+/// Shop-local work queue actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ShopWorkAction {
+    /// List queued or claimed work for a desk.
+    List {
+        /// Parcel id.
+        parcel_id: String,
+        /// Optional stable work-desk slug.
+        slug: Option<String>,
+    },
+    /// Claim one work item for processing.
+    Claim {
+        /// Parcel id.
+        parcel_id: String,
+        /// Work item id.
+        work_id: i64,
+    },
+    /// Finish one claimed work item.
+    Done {
+        /// Parcel id.
+        parcel_id: String,
+        /// Work item id.
+        work_id: i64,
+        /// Result or note recorded by the worker.
+        result: String,
     },
 }
 
@@ -777,6 +897,18 @@ pub const SHOP_MAILING_LIST_BODY_MAX_CHARS: usize = 2_000;
 /// Maximum number of mailing lists a single shop parcel can own.
 pub const SHOP_MAILING_LISTS_PER_PARCEL_MAX: usize = 10;
 
+/// Maximum work-desk slug length, counted in Unicode scalar values.
+pub const SHOP_WORK_DESK_SLUG_MAX_CHARS: usize = SHOP_MAILING_LIST_SLUG_MAX_CHARS;
+
+/// Maximum work-desk title length, counted in Unicode scalar values.
+pub const SHOP_WORK_DESK_TITLE_MAX_CHARS: usize = SHOP_MAILING_LIST_TITLE_MAX_CHARS;
+
+/// Maximum number of work desks a single shop parcel can own.
+pub const SHOP_WORK_DESKS_PER_PARCEL_MAX: usize = 20;
+
+/// Maximum work result length, counted in Unicode scalar values.
+pub const SHOP_WORK_RESULT_MAX_CHARS: usize = 2_000;
+
 /// Maximum shop route command-prefix length, counted in Unicode scalar values.
 pub const SHOP_COMMAND_ROUTE_PREFIX_MAX_CHARS: usize = 120;
 
@@ -813,6 +945,25 @@ pub fn shop_mailing_list_title_is_valid(title: &str) -> bool {
     !title.is_empty()
         && title.chars().count() <= SHOP_MAILING_LIST_TITLE_MAX_CHARS
         && !contains_line_break(title)
+}
+
+/// Returns true when a shop work-desk slug is admissible.
+#[must_use]
+pub fn shop_work_desk_slug_is_valid(slug: &str) -> bool {
+    shop_mailing_list_slug_is_valid(slug)
+}
+
+/// Returns true when a shop work-desk title is admissible.
+#[must_use]
+pub fn shop_work_desk_title_is_valid(title: &str) -> bool {
+    shop_mailing_list_title_is_valid(title)
+}
+
+/// Returns true when a shop work result is admissible.
+#[must_use]
+pub fn shop_work_result_is_valid(result: &str) -> bool {
+    let result = result.trim();
+    !result.is_empty() && result.chars().count() <= SHOP_WORK_RESULT_MAX_CHARS
 }
 
 /// Returns true when a mailing-list subject is admissible.

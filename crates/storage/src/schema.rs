@@ -19,6 +19,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_shop_mailing_lists(pool).await?;
     migrate_shop_badges(pool).await?;
     migrate_shop_payments(pool).await?;
+    migrate_shop_work(pool).await?;
     migrate_memory_events(pool).await?;
     migrate_memory_atoms(pool).await?;
     migrate_social_memory(pool).await?;
@@ -858,6 +859,148 @@ async fn migrate_shop_payments(pool: &PgPool) -> Result<(), StorageError> {
     Ok(())
 }
 
+async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists shop_work_desks (
+                id bigserial primary key,
+                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                owner_player_id text not null,
+                slug text not null,
+                title text not null,
+                status text not null default 'open'
+                    check (status in ('open', 'closed')),
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (parcel_id, slug)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_work_desks_owner_idx
+            on shop_work_desks (owner_player_id, parcel_id, created_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_work_staff (
+                id bigserial primary key,
+                desk_id bigint not null references shop_work_desks(id) on delete cascade,
+                staff_user text not null,
+                status text not null default 'active'
+                    check (status in ('active', 'removed')),
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (desk_id, staff_user)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_work_staff_user_idx
+            on shop_work_staff (staff_user, status, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_work_shifts (
+                id bigserial primary key,
+                desk_id bigint not null references shop_work_desks(id) on delete cascade,
+                worker_user text not null,
+                worker_player_id text not null,
+                status text not null default 'active'
+                    check (status in ('active', 'ended')),
+                started_at timestamptz not null default now(),
+                ended_at timestamptz,
+                updated_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create unique index if not exists shop_work_shifts_one_active_per_worker_idx
+            on shop_work_shifts (desk_id, worker_player_id)
+            where status = 'active'
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_work_routes (
+                id bigserial primary key,
+                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                desk_id bigint not null references shop_work_desks(id) on delete cascade,
+                owner_player_id text not null,
+                command_prefix text not null,
+                created_at timestamptz not null default now(),
+                unique (parcel_id, desk_id, command_prefix)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_work_routes_parcel_idx
+            on shop_work_routes (parcel_id, created_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_work_items (
+                id bigserial primary key,
+                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                desk_id bigint not null references shop_work_desks(id) on delete cascade,
+                operator_command_id bigint not null references operator_commands(id) on delete cascade,
+                command_prefix text not null,
+                status text not null default 'queued'
+                    check (status in ('queued', 'claimed', 'done', 'cancelled')),
+                assignee_user text,
+                assignee_player_id text,
+                result text,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (desk_id, operator_command_id)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_work_items_desk_status_idx
+            on shop_work_items (desk_id, status, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
@@ -948,30 +1091,9 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
-    sqlx::query(
-        r#"
-            create table if not exists shop_command_routes (
-                id bigserial primary key,
-                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
-                list_id bigint not null references shop_mailing_lists(id) on delete cascade,
-                owner_player_id text not null,
-                command_prefix text not null,
-                created_at timestamptz not null default now(),
-                unique (parcel_id, list_id, command_prefix)
-            )
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            create index if not exists shop_command_routes_parcel_idx
-            on shop_command_routes (parcel_id, created_at desc)
-            "#,
-    )
-    .execute(pool)
-    .await?;
+    sqlx::query("drop table if exists shop_command_routes")
+        .execute(pool)
+        .await?;
 
     Ok(())
 }

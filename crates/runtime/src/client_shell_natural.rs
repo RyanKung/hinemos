@@ -1,8 +1,9 @@
 use hinemos_core::{
     BadgeAction, BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction,
     JsonObservation, LandAction, MbtiType, PayAction, SemanticCommand, SettingsAction, ShopAction,
-    ShopBadgeAction, ShopMailingListAction, ShopRouteAction, SubscriptionAction,
-    role_card_intro_is_valid, role_card_name_is_valid,
+    ShopBadgeAction, ShopDeskAction, ShopMailingListAction, ShopRouteAction, ShopShiftAction,
+    ShopStaffAction, ShopWorkAction, SubscriptionAction, role_card_intro_is_valid,
+    role_card_name_is_valid,
 };
 
 use super::{ENTER_VERBS, INSPECT_VERBS, READ_VERBS, SlashParseError, TAKE_VERBS, TALK_VERBS};
@@ -532,9 +533,29 @@ pub(super) fn parse_shop_command<'a>(
                 action: parse_shop_mailing_list_action(trimmed, tokens)?,
             },
         }),
+        "desk" | "desks" => Ok(SemanticCommand::Shop {
+            action: ShopAction::Desk {
+                action: parse_shop_desk_action(trimmed, tokens)?,
+            },
+        }),
         "route" | "routes" => Ok(SemanticCommand::Shop {
             action: ShopAction::Route {
                 action: parse_shop_route_action(trimmed, tokens)?,
+            },
+        }),
+        "staff" => Ok(SemanticCommand::Shop {
+            action: ShopAction::Staff {
+                action: parse_shop_staff_action(tokens)?,
+            },
+        }),
+        "shift" => Ok(SemanticCommand::Shop {
+            action: ShopAction::Shift {
+                action: parse_shop_shift_action(tokens)?,
+            },
+        }),
+        "work" => Ok(SemanticCommand::Shop {
+            action: ShopAction::Work {
+                action: parse_shop_work_action(trimmed, tokens)?,
             },
         }),
         "badge" | "badges" => Ok(SemanticCommand::Shop {
@@ -609,6 +630,35 @@ fn parse_shop_mailing_list_action<'a>(
     }
 }
 
+fn parse_shop_desk_action<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<ShopDeskAction, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "create" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let title = rest_after_tokens(trimmed, 5)?;
+            Ok(ShopDeskAction::Create {
+                parcel_id: parcel_id.to_owned(),
+                slug: slug.to_owned(),
+                title,
+            })
+        }
+        "list" => Ok(ShopDeskAction::List {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        _ => Err(SlashParseError::UnknownCommand),
+    }
+}
+
 fn parse_shop_route_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
@@ -642,6 +692,138 @@ fn parse_shop_route_action<'a>(
                 parcel_id: parcel_id.to_owned(),
                 slug: slug.to_owned(),
                 command_prefix,
+            })
+        }
+        _ => Err(SlashParseError::UnknownCommand),
+    }
+}
+
+fn parse_shop_staff_action<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<ShopStaffAction, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "add" => Ok(ShopStaffAction::Add {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            username: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        "list" => Ok(ShopStaffAction::List {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        "remove" => Ok(ShopStaffAction::Remove {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            username: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        _ => Err(SlashParseError::UnknownCommand),
+    }
+}
+
+fn parse_shop_shift_action<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<ShopShiftAction, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "start" => Ok(ShopShiftAction::Start {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        "end" => Ok(ShopShiftAction::End {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        _ => Err(SlashParseError::UnknownCommand),
+    }
+}
+
+fn parse_shop_work_action<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<ShopWorkAction, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "list" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            Ok(ShopWorkAction::List {
+                parcel_id: parcel_id.to_owned(),
+                slug: tokens.next().map(str::to_owned),
+            })
+        }
+        "claim" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let work_id = tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .parse::<i64>()
+                .map_err(|_| SlashParseError::InvalidAmount)?;
+            Ok(ShopWorkAction::Claim {
+                parcel_id: parcel_id.to_owned(),
+                work_id,
+            })
+        }
+        "done" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let work_id_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let work_id = work_id_text
+                .parse::<i64>()
+                .map_err(|_| SlashParseError::InvalidAmount)?;
+            let result_text = rest_after_tokens(trimmed, 5)?;
+            let result = result_text
+                .strip_prefix("--")
+                .unwrap_or(result_text.as_str())
+                .trim()
+                .to_owned();
+            Ok(ShopWorkAction::Done {
+                parcel_id: parcel_id.to_owned(),
+                work_id,
+                result,
             })
         }
         _ => Err(SlashParseError::UnknownCommand),

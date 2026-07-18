@@ -489,23 +489,19 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
 }
 
 #[tokio::test]
-async fn shop_command_routes_dispatch_operator_commands_to_stream_subscribers() {
+async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
     if skip_without_database() {
         return;
     }
     let (db, storage) = storage_with_built_shop().await;
     storage
-        .create_shop_mailing_list("E1-C0-01", "player:owner", "submissions", "Submissions")
+        .create_shop_work_desk("E1-C0-01", "player:owner", "submissions", "Submissions")
         .await
-        .expect("create routed list");
+        .expect("create routed desk");
     storage
-        .subscribe_shop_mailing_list("E1-C0-01", "submissions", "customer", "player:customer")
+        .add_shop_staff("E1-C0-01", "submissions", "player:owner", "customer")
         .await
-        .expect("subscribe customer");
-    storage
-        .subscribe_shop_mailing_list("E1-C0-01", "submissions", "late", "player:late")
-        .await
-        .expect("subscribe late");
+        .expect("assign worker");
     let route = storage
         .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/hello")
         .await
@@ -525,13 +521,7 @@ async fn shop_command_routes_dispatch_operator_commands_to_stream_subscribers() 
         .await
         .expect("load shop parcel");
     let command = storage
-        .save_operator_command(
-            &parcel,
-            "customer",
-            "player:customer",
-            "/hello newsroom",
-            true,
-        )
+        .save_operator_command(&parcel, "late", "player:late", "/hello newsroom", true)
         .await
         .expect("operator command");
     let routed = storage
@@ -539,20 +529,74 @@ async fn shop_command_routes_dispatch_operator_commands_to_stream_subscribers() 
         .await
         .expect("dispatch route");
     assert_eq!(routed.len(), 1);
-    assert_eq!(routed[0].post.slug, "submissions");
-    assert_eq!(routed[0].post.recipient_count, 2);
-    assert_eq!(routed[0].deliveries.len(), 2);
+    assert_eq!(routed[0].slug, "submissions");
+    assert_eq!(routed[0].desk_title, "Submissions");
+    assert_eq!(routed[0].command_prefix, "/hello");
+    assert_eq!(routed[0].status, "queued");
+    assert_eq!(routed[0].sender_user, "late");
+    assert_eq!(
+        db.query_value(
+            "select count(*)
+             from shop_work_items
+             where command_prefix = '/hello'
+               and status = 'queued'"
+        ),
+        "1"
+    );
     assert_eq!(
         db.query_value(
             "select count(*)
              from inbox_items
-             where kind = 'mail'
-               and source_kind = 'shop_mailing_list_post'
-               and subject = '/hello'
-               and body like '%Matched route: /hello%'"
+             where source_kind = 'shop_mailing_list_post'"
         ),
-        "2"
+        "0"
     );
+    let listed_without_shift = storage
+        .shop_work_items(
+            "E1-C0-01",
+            "customer",
+            "player:customer",
+            Some("submissions"),
+            20,
+        )
+        .await
+        .expect_err("worker must start shift before listing work");
+    assert!(matches!(
+        listed_without_shift,
+        StorageError::ShopShiftNotActive { .. }
+    ));
+    storage
+        .start_shop_shift("E1-C0-01", "submissions", "customer", "player:customer")
+        .await
+        .expect("start shift");
+    let visible = storage
+        .shop_work_items(
+            "E1-C0-01",
+            "customer",
+            "player:customer",
+            Some("submissions"),
+            20,
+        )
+        .await
+        .expect("list work during shift");
+    assert_eq!(visible.len(), 1);
+    let claimed = storage
+        .claim_shop_work("E1-C0-01", "customer", "player:customer", routed[0].id)
+        .await
+        .expect("claim work");
+    assert_eq!(claimed.status, "claimed");
+    let done = storage
+        .finish_shop_work(
+            "E1-C0-01",
+            "customer",
+            "player:customer",
+            routed[0].id,
+            "accepted for daily",
+        )
+        .await
+        .expect("finish work");
+    assert_eq!(done.status, "done");
+    assert_eq!(done.result.as_deref(), Some("accepted for daily"));
 
     storage
         .remove_shop_command_route("E1-C0-01", "player:owner", "submissions", "/hello")
@@ -570,27 +614,19 @@ async fn shop_command_routes_dispatch_operator_commands_to_stream_subscribers() 
 }
 
 #[tokio::test]
-async fn shop_command_routes_use_one_longest_match_per_stream() {
+async fn shop_command_routes_use_one_longest_match_per_work_desk() {
     if skip_without_database() {
         return;
     }
     let (db, storage) = storage_with_built_shop().await;
     storage
-        .create_shop_mailing_list("E1-C0-01", "player:owner", "submissions", "Submissions")
+        .create_shop_work_desk("E1-C0-01", "player:owner", "submissions", "Submissions")
         .await
-        .expect("create submissions list");
+        .expect("create submissions desk");
     storage
-        .create_shop_mailing_list("E1-C0-01", "player:owner", "alerts", "Alerts")
+        .create_shop_work_desk("E1-C0-01", "player:owner", "alerts", "Alerts")
         .await
-        .expect("create alerts list");
-    storage
-        .subscribe_shop_mailing_list("E1-C0-01", "submissions", "customer", "player:customer")
-        .await
-        .expect("subscribe to submissions");
-    storage
-        .subscribe_shop_mailing_list("E1-C0-01", "alerts", "customer", "player:customer")
-        .await
-        .expect("subscribe to alerts");
+        .expect("create alerts desk");
     storage
         .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/paper")
         .await
@@ -630,28 +666,27 @@ async fn shop_command_routes_use_one_longest_match_per_stream() {
     assert_eq!(routed.len(), 2);
     let submissions = routed
         .iter()
-        .find(|dispatch| dispatch.post.slug == "submissions")
+        .find(|item| item.slug == "submissions")
         .expect("submissions dispatch");
     let alerts = routed
         .iter()
-        .find(|dispatch| dispatch.post.slug == "alerts")
+        .find(|item| item.slug == "alerts")
         .expect("alerts dispatch");
-    assert_eq!(submissions.post.subject, "/paper submit");
-    assert_eq!(alerts.post.subject, "/paper");
+    assert_eq!(submissions.command_prefix, "/paper submit");
+    assert_eq!(alerts.command_prefix, "/paper");
     assert_eq!(
         db.query_value(
             "select count(*)
-             from shop_mailing_list_posts
-             where subject = '/paper submit'
-               and body like '%Matched route: /paper submit%'"
+             from shop_work_items
+             where command_prefix = '/paper submit'"
         ),
         "1"
     );
     assert_eq!(
         db.query_value(
             "select count(*)
-             from shop_mailing_list_posts
-             where subject = '/PAPER SUBMIT'"
+             from shop_work_items
+             where command_prefix = '/PAPER SUBMIT'"
         ),
         "0"
     );

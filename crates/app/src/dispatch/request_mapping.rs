@@ -68,7 +68,7 @@ pub(super) fn build_request<'a>(action: &'a BuildAction, current_view: &'a str) 
     }
 }
 
-pub(super) fn shop_request(action: &ShopAction) -> AppRequest<'_> {
+pub(super) fn shop_request<'a>(action: &'a ShopAction, current_view: &'a str) -> AppRequest<'a> {
     match action {
         ShopAction::Inbox => AppRequest::ShopInbox,
         ShopAction::RequestPayment {
@@ -111,25 +111,107 @@ pub(super) fn shop_request(action: &ShopAction) -> AppRequest<'_> {
                 AppRequest::ShopMailingListClose { parcel_id, slug }
             }
         },
+        ShopAction::Desk { action } => match action {
+            ShopDeskAction::Create {
+                parcel_id,
+                slug,
+                title,
+            } => AppRequest::ShopDeskCreate {
+                current_view,
+                parcel_id,
+                slug,
+                title,
+            },
+            ShopDeskAction::List { parcel_id } => AppRequest::ShopDeskList {
+                current_view,
+                parcel_id,
+            },
+        },
         ShopAction::Route { action } => match action {
             ShopRouteAction::Add {
                 parcel_id,
                 slug,
                 command_prefix,
             } => AppRequest::ShopRouteAdd {
+                current_view,
                 parcel_id,
                 slug,
                 command_prefix,
             },
-            ShopRouteAction::List { parcel_id } => AppRequest::ShopRouteList { parcel_id },
+            ShopRouteAction::List { parcel_id } => AppRequest::ShopRouteList {
+                current_view,
+                parcel_id,
+            },
             ShopRouteAction::Remove {
                 parcel_id,
                 slug,
                 command_prefix,
             } => AppRequest::ShopRouteRemove {
+                current_view,
                 parcel_id,
                 slug,
                 command_prefix,
+            },
+        },
+        ShopAction::Staff { action } => match action {
+            ShopStaffAction::Add {
+                parcel_id,
+                slug,
+                username,
+            } => AppRequest::ShopStaffAdd {
+                current_view,
+                parcel_id,
+                slug,
+                username,
+            },
+            ShopStaffAction::List { parcel_id, slug } => AppRequest::ShopStaffList {
+                current_view,
+                parcel_id,
+                slug,
+            },
+            ShopStaffAction::Remove {
+                parcel_id,
+                slug,
+                username,
+            } => AppRequest::ShopStaffRemove {
+                current_view,
+                parcel_id,
+                slug,
+                username,
+            },
+        },
+        ShopAction::Shift { action } => match action {
+            ShopShiftAction::Start { parcel_id, slug } => AppRequest::ShopShiftStart {
+                current_view,
+                parcel_id,
+                slug,
+            },
+            ShopShiftAction::End { parcel_id, slug } => AppRequest::ShopShiftEnd {
+                current_view,
+                parcel_id,
+                slug,
+            },
+        },
+        ShopAction::Work { action } => match action {
+            ShopWorkAction::List { parcel_id, slug } => AppRequest::ShopWorkList {
+                current_view,
+                parcel_id,
+                slug: slug.as_deref(),
+            },
+            ShopWorkAction::Claim { parcel_id, work_id } => AppRequest::ShopWorkClaim {
+                current_view,
+                parcel_id,
+                work_id: *work_id,
+            },
+            ShopWorkAction::Done {
+                parcel_id,
+                work_id,
+                result,
+            } => AppRequest::ShopWorkDone {
+                current_view,
+                parcel_id,
+                work_id: *work_id,
+                result,
             },
         },
         ShopAction::Badge { action } => match action {

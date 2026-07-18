@@ -56,6 +56,13 @@ pub(super) struct TestCommercialStore {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum TestCommerceError {
+    InvalidMailingList(String),
+    InvalidShopWork(String),
+    InvalidShopBadge(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TestPaymentRequest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +100,30 @@ pub(super) struct TestMailingListPost;
 pub(super) struct TestCommandRoute {
     pub(super) slug: String,
     pub(super) command_prefix: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestWorkDesk {
+    pub(super) slug: String,
+    pub(super) title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestShopStaff {
+    pub(super) staff_user: String,
+    pub(super) status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestShopShift {
+    pub(super) slug: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestShopWorkItem {
+    pub(super) id: i64,
+    pub(super) slug: String,
+    pub(super) status: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -667,8 +698,8 @@ impl ShopCommandRouteView for TestCommandRoute {
         &self.slug
     }
 
-    fn list_title(&self) -> &str {
-        "Shop Updates"
+    fn desk_title(&self) -> &str {
+        "Desk"
     }
 
     fn command_prefix(&self) -> &str {
@@ -677,6 +708,138 @@ impl ShopCommandRouteView for TestCommandRoute {
 
     fn created_at(&self) -> &str {
         "created"
+    }
+}
+
+impl ShopWorkDeskView for TestWorkDesk {
+    fn id(&self) -> i64 {
+        19
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn status(&self) -> &str {
+        "open"
+    }
+
+    fn queued_count(&self) -> i64 {
+        1
+    }
+
+    fn active_worker_count(&self) -> i64 {
+        1
+    }
+
+    fn created_at(&self) -> &str {
+        "created"
+    }
+}
+
+impl ShopStaffView for TestShopStaff {
+    fn staff_user(&self) -> &str {
+        &self.staff_user
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn updated_at(&self) -> &str {
+        "updated"
+    }
+}
+
+impl ShopShiftView for TestShopShift {
+    fn id(&self) -> i64 {
+        23
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn worker_user(&self) -> &str {
+        "worker"
+    }
+
+    fn status(&self) -> &str {
+        "active"
+    }
+
+    fn started_at(&self) -> &str {
+        "started"
+    }
+
+    fn ended_at(&self) -> Option<&str> {
+        None
+    }
+}
+
+impl ShopWorkItemView for TestShopWorkItem {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn desk_title(&self) -> &str {
+        "Desk"
+    }
+
+    fn operator_command_id(&self) -> i64 {
+        1
+    }
+
+    fn command_prefix(&self) -> &str {
+        "/hello"
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn sender_user(&self) -> &str {
+        "visitor"
+    }
+
+    fn raw_input(&self) -> &str {
+        "/hello"
+    }
+
+    fn assignee_user(&self) -> Option<&str> {
+        Some("worker")
+    }
+
+    fn result(&self) -> Option<&str> {
+        None
+    }
+
+    fn created_at(&self) -> &str {
+        "created"
+    }
+
+    fn updated_at(&self) -> &str {
+        "updated"
     }
 }
 
@@ -787,8 +950,26 @@ impl TestCommercialStore {
     }
 }
 
+impl FromMailingListValidation for TestCommerceError {
+    fn invalid_mailing_list(message: &str) -> Self {
+        Self::InvalidMailingList(message.to_owned())
+    }
+}
+
+impl FromShopWorkValidation for TestCommerceError {
+    fn invalid_shop_work(message: &str) -> Self {
+        Self::InvalidShopWork(message.to_owned())
+    }
+}
+
+impl FromShopBadgeValidation for TestCommerceError {
+    fn invalid_shop_badge(message: &str) -> Self {
+        Self::InvalidShopBadge(message.to_owned())
+    }
+}
+
 impl LandStore for TestCommercialStore {
-    type Error = std::convert::Infallible;
+    type Error = TestCommerceError;
     type Parcel = TestCommercialParcel;
     type MailAuthToken = TestMailToken;
 
@@ -852,7 +1033,7 @@ impl LandStore for TestCommercialStore {
 }
 
 impl BuildStore for TestCommercialStore {
-    type Error = std::convert::Infallible;
+    type Error = TestCommerceError;
     type Parcel = TestCommercialParcel;
 
     async fn update_parcel_build_field(
@@ -892,7 +1073,7 @@ impl BuildStore for TestCommercialStore {
 }
 
 impl ShopStore for TestCommercialStore {
-    type Error = std::convert::Infallible;
+    type Error = TestCommerceError;
     type Parcel = TestCommercialParcel;
     type PaymentRequest = TestPaymentRequest;
     type InboxItem = TestInboxItem;
@@ -902,6 +1083,10 @@ impl ShopStore for TestCommercialStore {
     type MailingListSubscription = TestMailingListSubscription;
     type MailingListPost = TestMailingListPost;
     type CommandRoute = TestCommandRoute;
+    type WorkDesk = TestWorkDesk;
+    type Staff = TestShopStaff;
+    type Shift = TestShopShift;
+    type WorkItem = TestShopWorkItem;
     type BadgeDefinition = TestShopBadge;
     type BadgeAward = TestShopBadgeAward;
 
@@ -1110,6 +1295,170 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
+    async fn create_shop_work_desk(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<Self::WorkDesk, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "desk-create:{parcel_id}:{owner_player_id}:{slug}:{title}"
+        ));
+        Ok(TestWorkDesk {
+            slug: slug.to_owned(),
+            title: title.to_owned(),
+        })
+    }
+
+    async fn shop_work_desks(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::WorkDesk>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("desk-list:{parcel_id}:{owner_player_id}"));
+        Ok(vec![TestWorkDesk {
+            slug: "desk".to_owned(),
+            title: "Desk".to_owned(),
+        }])
+    }
+
+    async fn add_shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<Self::Staff, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "staff-add:{parcel_id}:{slug}:{owner_player_id}:{username}"
+        ));
+        Ok(TestShopStaff {
+            staff_user: username.to_owned(),
+            status: "active".to_owned(),
+        })
+    }
+
+    async fn shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        _limit: i64,
+    ) -> Result<Vec<Self::Staff>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("staff-list:{parcel_id}:{slug}:{owner_player_id}"));
+        Ok(vec![TestShopStaff {
+            staff_user: "worker".to_owned(),
+            status: "active".to_owned(),
+        }])
+    }
+
+    async fn remove_shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<Self::Staff, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "staff-remove:{parcel_id}:{slug}:{owner_player_id}:{username}"
+        ));
+        Ok(TestShopStaff {
+            staff_user: username.to_owned(),
+            status: "removed".to_owned(),
+        })
+    }
+
+    async fn start_shop_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<Self::Shift, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "shift-start:{parcel_id}:{slug}:{worker_user}:{worker_player_id}"
+        ));
+        Ok(TestShopShift {
+            slug: slug.to_owned(),
+        })
+    }
+
+    async fn end_shop_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<Self::Shift, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "shift-end:{parcel_id}:{slug}:{worker_user}:{worker_player_id}"
+        ));
+        Ok(TestShopShift {
+            slug: slug.to_owned(),
+        })
+    }
+
+    async fn shop_work_items(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        slug: Option<&str>,
+        _limit: i64,
+    ) -> Result<Vec<Self::WorkItem>, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "work-list:{parcel_id}:{worker_user}:{worker_player_id}:{}",
+            slug.unwrap_or("*")
+        ));
+        Ok(vec![TestShopWorkItem {
+            id: 3,
+            slug: slug.unwrap_or("desk").to_owned(),
+            status: "queued".to_owned(),
+        }])
+    }
+
+    async fn claim_shop_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+    ) -> Result<Self::WorkItem, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "work-claim:{parcel_id}:{worker_user}:{worker_player_id}:{work_id}"
+        ));
+        Ok(TestShopWorkItem {
+            id: work_id,
+            slug: "desk".to_owned(),
+            status: "claimed".to_owned(),
+        })
+    }
+
+    async fn finish_shop_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+        result: &str,
+    ) -> Result<Self::WorkItem, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "work-done:{parcel_id}:{worker_user}:{worker_player_id}:{work_id}:{result}"
+        ));
+        Ok(TestShopWorkItem {
+            id: work_id,
+            slug: "desk".to_owned(),
+            status: "done".to_owned(),
+        })
+    }
+
     async fn shop_command_routes(
         &self,
         parcel_id: &str,
@@ -1145,11 +1494,19 @@ impl ShopStore for TestCommercialStore {
         &self,
         _parcel: &P,
         _command_id: i64,
-    ) -> Result<Vec<ShopCommandRouteDispatch<Self::MailingListPost, Self::InboxItem>>, Self::Error>
+    ) -> Result<Vec<Self::WorkItem>, Self::Error>
     where
         P: ParcelView + Sync,
     {
-        Ok(Vec::new())
+        self.calls
+            .lock()
+            .unwrap()
+            .push("dispatch-work:1".to_owned());
+        Ok(vec![TestShopWorkItem {
+            id: 1,
+            slug: "desk".to_owned(),
+            status: "queued".to_owned(),
+        }])
     }
 
     async fn create_shop_badge(

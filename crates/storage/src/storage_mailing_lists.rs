@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 
 use hinemos_app::{
-    ParcelView, ShopCommandRouteDispatch, ShopMailingListDelivery, ShopMailingListSend,
-    ShopMailingListSubscriberPage,
+    ParcelView, ShopMailingListDelivery, ShopMailingListSend, ShopMailingListSubscriberPage,
 };
 use hinemos_core::{
-    PARCEL_STATUS_BUILT, SHOP_MAILING_LIST_BODY_MAX_CHARS, SHOP_MAILING_LIST_STATUS_CLOSED,
-    SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE, SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED,
-    SHOP_MAILING_LISTS_PER_PARCEL_MAX, shop_command_route_prefix_is_valid,
-    shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
-    shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
+    PARCEL_STATUS_BUILT, SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE,
+    SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED, SHOP_MAILING_LISTS_PER_PARCEL_MAX,
+    SHOP_WORK_DESKS_PER_PARCEL_MAX, SHOP_WORK_ITEM_CLAIMED, SHOP_WORK_ITEM_DONE,
+    SHOP_WORK_ITEM_QUEUED, SHOP_WORK_SHIFT_ACTIVE, SHOP_WORK_SHIFT_ENDED, SHOP_WORK_STAFF_ACTIVE,
+    SHOP_WORK_STAFF_REMOVED, shop_command_route_prefix_is_valid, shop_mailing_list_body_is_valid,
+    shop_mailing_list_slug_is_valid, shop_mailing_list_subject_is_valid,
+    shop_mailing_list_title_is_valid, shop_work_desk_slug_is_valid, shop_work_desk_title_is_valid,
+    shop_work_result_is_valid,
 };
 use serde_json::json;
 
@@ -17,7 +19,8 @@ use crate::parcels::{canonical_parcel_id, fetch_parcel_by_id};
 use crate::{
     NewInboxItem, PgStorage, StorageError, StoredInboxItem, StoredOperatorCommand, StoredParcel,
     StoredShopCommandRoute, StoredShopMailingList, StoredShopMailingListPost,
-    StoredShopMailingListSubscriber, StoredShopMailingListSubscription,
+    StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredShopShift,
+    StoredShopStaff, StoredShopWorkDesk, StoredShopWorkItem,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
@@ -30,10 +33,10 @@ struct MailingListDeliveryRecipient {
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 struct ShopCommandRouteTarget {
     id: i64,
-    list_id: i64,
+    desk_id: i64,
     parcel_id: String,
     slug: String,
-    list_title: String,
+    desk_title: String,
     command_prefix: String,
 }
 
@@ -362,7 +365,368 @@ impl PgStorage {
         Ok(ShopMailingListSend { post, deliveries })
     }
 
-    /// Adds or returns a command route from an owned shop into one mailing list.
+    /// Creates a shop-local work desk for an owned built shop parcel.
+    pub async fn create_shop_work_desk(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<StoredShopWorkDesk, StorageError> {
+        validate_work_slug(slug)?;
+        validate_work_title(title)?;
+        let parcel = self.owned_built_parcel(parcel_id, owner_player_id).await?;
+        if self
+            .shop_work_desk_by_parcel_slug(&parcel.parcel_id, slug)
+            .await?
+            .is_some()
+        {
+            return Err(StorageError::ShopWorkDeskAlreadyExists {
+                parcel_id: parcel.parcel_id,
+                slug: slug.to_owned(),
+            });
+        }
+        let desk_count = self.shop_work_desk_count(&parcel.parcel_id).await?;
+        if desk_count >= SHOP_WORK_DESKS_PER_PARCEL_MAX {
+            return Err(StorageError::InvalidShopWork(format!(
+                "work-desk limit reached for parcel {}; maximum is {}",
+                parcel.parcel_id, SHOP_WORK_DESKS_PER_PARCEL_MAX
+            )));
+        }
+        let row = sqlx::query_as::<_, StoredShopWorkDesk>(
+            r#"
+            insert into shop_work_desks (parcel_id, owner_player_id, slug, title)
+            values ($1, $2, $3, $4)
+            returning id, parcel_id, owner_player_id, slug, title, status,
+                      0::bigint as queued_count,
+                      0::bigint as active_worker_count,
+                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            "#,
+        )
+        .bind(&parcel.parcel_id)
+        .bind(owner_player_id)
+        .bind(slug)
+        .bind(title.trim())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Lists shop-local work desks for an owned shop parcel.
+    pub async fn shop_work_desks(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<StoredShopWorkDesk>, StorageError> {
+        let parcel = self.owned_built_parcel(parcel_id, owner_player_id).await?;
+        self.shop_work_desks_for_parcel(&parcel.parcel_id).await
+    }
+
+    /// Adds or reactivates a worker assignment for one work desk.
+    pub async fn add_shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<StoredShopStaff, StorageError> {
+        validate_work_slug(slug)?;
+        let username = username.trim();
+        if username.is_empty() || username.contains(char::is_whitespace) {
+            return Err(StorageError::InvalidShopWork(
+                "invalid shop staff username".to_owned(),
+            ));
+        }
+        let desk = self
+            .owned_shop_work_desk(parcel_id, slug, owner_player_id)
+            .await?;
+        let staff = sqlx::query_as::<_, StoredShopStaff>(
+            r#"
+            insert into shop_work_staff (desk_id, staff_user, status)
+            values ($1, $2, $3)
+            on conflict (desk_id, staff_user) do update
+            set status = excluded.status,
+                updated_at = now()
+            returning staff_user, status,
+                      to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
+            "#,
+        )
+        .bind(desk.id)
+        .bind(username)
+        .bind(SHOP_WORK_STAFF_ACTIVE)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(staff)
+    }
+
+    /// Lists staff assignments for one owned work desk.
+    pub async fn shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        limit: i64,
+    ) -> Result<Vec<StoredShopStaff>, StorageError> {
+        validate_work_slug(slug)?;
+        let desk = self
+            .owned_shop_work_desk(parcel_id, slug, owner_player_id)
+            .await?;
+        let rows = sqlx::query_as::<_, StoredShopStaff>(
+            r#"
+            select staff_user, status,
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
+            from shop_work_staff
+            where desk_id = $1
+            order by updated_at desc, staff_user
+            limit $2
+            "#,
+        )
+        .bind(desk.id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Removes a worker assignment from one work desk.
+    pub async fn remove_shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<StoredShopStaff, StorageError> {
+        validate_work_slug(slug)?;
+        let desk = self
+            .owned_shop_work_desk(parcel_id, slug, owner_player_id)
+            .await?;
+        let staff = sqlx::query_as::<_, StoredShopStaff>(
+            r#"
+            update shop_work_staff
+            set status = $3, updated_at = now()
+            where desk_id = $1
+              and staff_user = $2
+            returning staff_user, status,
+                      to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
+            "#,
+        )
+        .bind(desk.id)
+        .bind(username.trim())
+        .bind(SHOP_WORK_STAFF_REMOVED)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| StorageError::ShopWorkerNotAssigned {
+            parcel_id: desk.parcel_id,
+            slug: desk.slug,
+        })?;
+        Ok(staff)
+    }
+
+    /// Starts an active shift for an assigned worker.
+    pub async fn start_shop_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<StoredShopShift, StorageError> {
+        validate_work_slug(slug)?;
+        let desk = self.shop_work_desk(parcel_id, slug).await?;
+        self.ensure_worker_assigned(&desk, worker_user, worker_player_id)
+            .await?;
+        if let Some(shift) = self.active_shop_shift(desk.id, worker_player_id).await? {
+            return Ok(shift);
+        }
+        let shift = sqlx::query_as::<_, StoredShopShift>(
+            r#"
+            insert into shop_work_shifts (desk_id, worker_user, worker_player_id, status)
+            values ($1, $2, $3, $4)
+            returning id,
+                      $5::text as parcel_id,
+                      $6::text as slug,
+                      worker_user, worker_player_id, status,
+                      to_char(started_at, 'YYYY-MM-DD HH24:MI:SS TZ') as started_at,
+                      to_char(ended_at, 'YYYY-MM-DD HH24:MI:SS TZ') as ended_at
+            "#,
+        )
+        .bind(desk.id)
+        .bind(worker_user)
+        .bind(worker_player_id)
+        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .bind(&desk.parcel_id)
+        .bind(&desk.slug)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(shift)
+    }
+
+    /// Ends the worker's active shift for one desk.
+    pub async fn end_shop_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<StoredShopShift, StorageError> {
+        validate_work_slug(slug)?;
+        let desk = self.shop_work_desk(parcel_id, slug).await?;
+        let shift = sqlx::query_as::<_, StoredShopShift>(
+            r#"
+            update shop_work_shifts
+            set status = $4, ended_at = now(), updated_at = now()
+            where desk_id = $1
+              and worker_player_id = $2
+              and status = $3
+            returning id,
+                      $5::text as parcel_id,
+                      $6::text as slug,
+                      $7::text as worker_user,
+                      worker_player_id, status,
+                      to_char(started_at, 'YYYY-MM-DD HH24:MI:SS TZ') as started_at,
+                      to_char(ended_at, 'YYYY-MM-DD HH24:MI:SS TZ') as ended_at
+            "#,
+        )
+        .bind(desk.id)
+        .bind(worker_player_id)
+        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .bind(SHOP_WORK_SHIFT_ENDED)
+        .bind(&desk.parcel_id)
+        .bind(&desk.slug)
+        .bind(worker_user)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| StorageError::ShopShiftNotActive {
+            parcel_id: desk.parcel_id,
+            slug: desk.slug,
+        })?;
+        Ok(shift)
+    }
+
+    /// Lists work items visible to an active in-shop worker.
+    pub async fn shop_work_items(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        slug: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<StoredShopWorkItem>, StorageError> {
+        if let Some(slug) = slug {
+            validate_work_slug(slug)?;
+        }
+        let desk_ids = self
+            .active_worker_desk_ids(parcel_id, worker_user, worker_player_id, slug)
+            .await?;
+        if desk_ids.is_empty() {
+            let slug = slug.unwrap_or("*").to_owned();
+            return Err(StorageError::ShopShiftNotActive {
+                parcel_id: canonical_parcel_id(parcel_id).into_owned(),
+                slug,
+            });
+        }
+        self.shop_work_items_for_desks(&desk_ids, worker_player_id, limit)
+            .await
+    }
+
+    /// Claims one queued work item for an active in-shop worker.
+    pub async fn claim_shop_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+    ) -> Result<StoredShopWorkItem, StorageError> {
+        let item = self.shop_work_item(work_id).await?;
+        if item.parcel_id != canonical_parcel_id(parcel_id).as_ref() {
+            return Err(StorageError::ShopWorkItemNotFound(work_id));
+        }
+        self.ensure_active_shift_for_work(&item, worker_user, worker_player_id)
+            .await?;
+        if item.status != SHOP_WORK_ITEM_QUEUED {
+            return Err(StorageError::ShopWorkItemInvalidState(work_id));
+        }
+        let claim_query = format!(
+            r#"
+            update shop_work_items item
+            set status = $3,
+                assignee_user = $4,
+                assignee_player_id = $5,
+                updated_at = now()
+            from shop_work_desks d, operator_commands cmd
+            where item.id = $1
+              and item.status = $2
+              and d.id = item.desk_id
+              and cmd.id = item.operator_command_id
+            returning {}
+            "#,
+            shop_work_item_projection()
+        );
+        let claimed = sqlx::query_as::<_, StoredShopWorkItem>(&claim_query)
+            .bind(work_id)
+            .bind(SHOP_WORK_ITEM_QUEUED)
+            .bind(SHOP_WORK_ITEM_CLAIMED)
+            .bind(worker_user)
+            .bind(worker_player_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(StorageError::ShopWorkItemInvalidState(work_id))?;
+        Ok(claimed)
+    }
+
+    /// Completes one claimed work item for an active in-shop worker.
+    pub async fn finish_shop_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+        result: &str,
+    ) -> Result<StoredShopWorkItem, StorageError> {
+        if !shop_work_result_is_valid(result) {
+            return Err(StorageError::InvalidShopWork(
+                "invalid shop work result".to_owned(),
+            ));
+        }
+        let item = self.shop_work_item(work_id).await?;
+        if item.parcel_id != canonical_parcel_id(parcel_id).as_ref() {
+            return Err(StorageError::ShopWorkItemNotFound(work_id));
+        }
+        self.ensure_active_shift_for_work(&item, worker_user, worker_player_id)
+            .await?;
+        if item.status != SHOP_WORK_ITEM_CLAIMED
+            || item.assignee_player_id.as_deref() != Some(worker_player_id)
+        {
+            return Err(StorageError::ShopWorkItemInvalidState(work_id));
+        }
+        let done_query = format!(
+            r#"
+            update shop_work_items item
+            set status = $3,
+                result = $4,
+                updated_at = now()
+            from shop_work_desks d, operator_commands cmd
+            where item.id = $1
+              and item.status = $2
+              and item.assignee_player_id = $5
+              and d.id = item.desk_id
+              and cmd.id = item.operator_command_id
+            returning {}
+            "#,
+            shop_work_item_projection()
+        );
+        let done = sqlx::query_as::<_, StoredShopWorkItem>(&done_query)
+            .bind(work_id)
+            .bind(SHOP_WORK_ITEM_CLAIMED)
+            .bind(SHOP_WORK_ITEM_DONE)
+            .bind(result.trim())
+            .bind(worker_player_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(StorageError::ShopWorkItemInvalidState(work_id))?;
+        Ok(done)
+    }
+
+    /// Adds or returns a command route from an owned shop into one work desk.
     pub async fn add_shop_command_route(
         &self,
         parcel_id: &str,
@@ -370,32 +734,32 @@ impl PgStorage {
         slug: &str,
         command_prefix: &str,
     ) -> Result<StoredShopCommandRoute, StorageError> {
-        validate_slug(slug)?;
+        validate_work_slug(slug)?;
         validate_command_prefix(command_prefix)?;
-        let list = self
-            .owned_shop_mailing_list(parcel_id, slug, owner_player_id)
+        let desk = self
+            .owned_shop_work_desk(parcel_id, slug, owner_player_id)
             .await?;
         let route = sqlx::query_as::<_, StoredShopCommandRoute>(
             r#"
-            insert into shop_command_routes (
-                parcel_id, list_id, owner_player_id, command_prefix
+            insert into shop_work_routes (
+                parcel_id, desk_id, owner_player_id, command_prefix
             )
             values ($1, $2, $3, $4)
-            on conflict (parcel_id, list_id, command_prefix) do update
+            on conflict (parcel_id, desk_id, command_prefix) do update
             set owner_player_id = excluded.owner_player_id
             returning id, parcel_id,
                       $5::text as slug,
-                      $6::text as list_title,
+                      $6::text as desk_title,
                       command_prefix,
                       to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             "#,
         )
-        .bind(&list.parcel_id)
-        .bind(list.id)
+        .bind(&desk.parcel_id)
+        .bind(desk.id)
         .bind(owner_player_id)
         .bind(command_prefix.trim())
-        .bind(&list.slug)
-        .bind(&list.title)
+        .bind(&desk.slug)
+        .bind(&desk.title)
         .fetch_one(&self.pool)
         .await?;
         Ok(route)
@@ -410,13 +774,13 @@ impl PgStorage {
         let parcel = self.owned_built_parcel(parcel_id, owner_player_id).await?;
         let routes = sqlx::query_as::<_, StoredShopCommandRoute>(
             r#"
-            select r.id, r.parcel_id, l.slug, l.title as list_title,
+            select r.id, r.parcel_id, d.slug, d.title as desk_title,
                    r.command_prefix,
                    to_char(r.created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            from shop_command_routes r
-            join shop_mailing_lists l on l.id = r.list_id
+            from shop_work_routes r
+            join shop_work_desks d on d.id = r.desk_id
             where r.parcel_id = $1
-            order by r.created_at desc, l.slug, r.command_prefix
+            order by r.created_at desc, d.slug, r.command_prefix
             "#,
         )
         .bind(&parcel.parcel_id)
@@ -425,7 +789,7 @@ impl PgStorage {
         Ok(routes)
     }
 
-    /// Removes a command route from an owned shop mailing list.
+    /// Removes a command route from an owned shop work desk.
     pub async fn remove_shop_command_route(
         &self,
         parcel_id: &str,
@@ -433,58 +797,55 @@ impl PgStorage {
         slug: &str,
         command_prefix: &str,
     ) -> Result<StoredShopCommandRoute, StorageError> {
-        validate_slug(slug)?;
+        validate_work_slug(slug)?;
         validate_command_prefix(command_prefix)?;
-        let list = self
-            .owned_shop_mailing_list(parcel_id, slug, owner_player_id)
+        let desk = self
+            .owned_shop_work_desk(parcel_id, slug, owner_player_id)
             .await?;
         let route = sqlx::query_as::<_, StoredShopCommandRoute>(
             r#"
-            select r.id, r.parcel_id, l.slug, l.title as list_title,
+            select r.id, r.parcel_id, d.slug, d.title as desk_title,
                    r.command_prefix,
                    to_char(r.created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            from shop_command_routes r
-            join shop_mailing_lists l on l.id = r.list_id
+            from shop_work_routes r
+            join shop_work_desks d on d.id = r.desk_id
             where r.parcel_id = $1
-              and r.list_id = $2
+              and r.desk_id = $2
               and r.command_prefix = $3
             "#,
         )
-        .bind(&list.parcel_id)
-        .bind(list.id)
+        .bind(&desk.parcel_id)
+        .bind(desk.id)
         .bind(command_prefix.trim())
         .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| {
-            StorageError::InvalidMailingList(format!(
+            StorageError::InvalidShopWork(format!(
                 "shop command route not found: {}/{} {}",
-                list.parcel_id,
-                list.slug,
+                desk.parcel_id,
+                desk.slug,
                 command_prefix.trim()
             ))
         })?;
-        sqlx::query("delete from shop_command_routes where id = $1")
+        sqlx::query("delete from shop_work_routes where id = $1")
             .bind(route.id)
             .execute(&self.pool)
             .await?;
         Ok(route)
     }
 
-    /// Dispatches one saved operator command into matching route streams.
+    /// Dispatches one saved operator command into matching work queues.
     pub async fn dispatch_shop_command_routes<P>(
         &self,
         parcel: &P,
         command_id: i64,
-    ) -> Result<
-        Vec<ShopCommandRouteDispatch<StoredShopMailingListPost, StoredInboxItem>>,
-        StorageError,
-    >
+    ) -> Result<Vec<StoredShopWorkItem>, StorageError>
     where
         P: ParcelView,
     {
         let command = self.operator_command(command_id).await?;
         if command.parcel_id != parcel.parcel_id() {
-            return Err(StorageError::InvalidMailingList(format!(
+            return Err(StorageError::InvalidShopWork(format!(
                 "shop command {} belongs to {}, not {}",
                 command.id,
                 command.parcel_id,
@@ -495,37 +856,12 @@ impl PgStorage {
             self.shop_command_route_targets(parcel.parcel_id()).await?,
             &command.raw_input,
         );
-        let mut routed = Vec::new();
+        let mut items = Vec::new();
         for target in targets {
-            let recipients = self.active_subscription_recipients(target.list_id).await?;
-            if recipients.is_empty() {
-                continue;
-            }
-            let body = routed_command_body(
-                command.id,
-                &target.parcel_id,
-                &command.sender_user,
-                &command.raw_input,
-                &target.command_prefix,
-                &target.slug,
-            );
-            let post = self
-                .insert_shop_mailing_list_post_for_recipients(MailingListPostInsert {
-                    list_id: target.list_id,
-                    parcel_id: &target.parcel_id,
-                    slug: &target.slug,
-                    list_title: &target.list_title,
-                    recipients: &recipients,
-                    sender_user: &command.sender_user,
-                    sender_player_id: &command.sender_player_id,
-                    subject: &target.command_prefix,
-                    body: &body,
-                })
-                .await?;
-            let deliveries = self.deliver_shop_mailing_list_post(post.id).await?;
-            routed.push(ShopCommandRouteDispatch { post, deliveries });
+            let item = self.insert_shop_work_item(&target, command.id).await?;
+            items.push(item);
         }
-        Ok(routed)
+        Ok(items)
     }
 
     /// Delivers an existing mailing-list post into subscriber inboxes idempotently.
@@ -610,6 +946,319 @@ impl PgStorage {
             return Err(StorageError::ParcelNotBuilt(parcel.parcel_id));
         }
         Ok(parcel)
+    }
+
+    async fn owned_shop_work_desk(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+    ) -> Result<StoredShopWorkDesk, StorageError> {
+        validate_work_slug(slug)?;
+        let parcel = self.owned_built_parcel(parcel_id, owner_player_id).await?;
+        self.shop_work_desk_by_parcel_slug(&parcel.parcel_id, slug)
+            .await?
+            .ok_or_else(|| StorageError::ShopWorkDeskNotFound {
+                parcel_id: parcel.parcel_id,
+                slug: slug.to_owned(),
+            })
+    }
+
+    async fn shop_work_desk(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<StoredShopWorkDesk, StorageError> {
+        validate_work_slug(slug)?;
+        let parcel_id = canonical_parcel_id(parcel_id);
+        self.shop_work_desk_by_parcel_slug(parcel_id.as_ref(), slug)
+            .await?
+            .ok_or_else(|| StorageError::ShopWorkDeskNotFound {
+                parcel_id: parcel_id.into_owned(),
+                slug: slug.to_owned(),
+            })
+    }
+
+    async fn shop_work_desk_by_parcel_slug(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<Option<StoredShopWorkDesk>, StorageError> {
+        let row = sqlx::query_as::<_, StoredShopWorkDesk>(
+            r#"
+            select d.id, d.parcel_id, d.owner_player_id, d.slug, d.title, d.status,
+                   coalesce(queued_items.count, 0)::bigint as queued_count,
+                   coalesce(active_workers.count, 0)::bigint as active_worker_count,
+                   to_char(d.created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from shop_work_desks d
+            left join lateral (
+                select count(*) as count
+                from shop_work_items item
+                where item.desk_id = d.id
+                  and item.status = $3
+            ) queued_items on true
+            left join lateral (
+                select count(*) as count
+                from shop_work_shifts shift
+                where shift.desk_id = d.id
+                  and shift.status = $4
+            ) active_workers on true
+            where d.parcel_id = $1
+              and d.slug = $2
+            "#,
+        )
+        .bind(parcel_id)
+        .bind(slug)
+        .bind(SHOP_WORK_ITEM_QUEUED)
+        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn shop_work_desks_for_parcel(
+        &self,
+        parcel_id: &str,
+    ) -> Result<Vec<StoredShopWorkDesk>, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
+        let rows = sqlx::query_as::<_, StoredShopWorkDesk>(
+            r#"
+            select d.id, d.parcel_id, d.owner_player_id, d.slug, d.title, d.status,
+                   coalesce(queued_items.count, 0)::bigint as queued_count,
+                   coalesce(active_workers.count, 0)::bigint as active_worker_count,
+                   to_char(d.created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from shop_work_desks d
+            left join lateral (
+                select count(*) as count
+                from shop_work_items item
+                where item.desk_id = d.id
+                  and item.status = $2
+            ) queued_items on true
+            left join lateral (
+                select count(*) as count
+                from shop_work_shifts shift
+                where shift.desk_id = d.id
+                  and shift.status = $3
+            ) active_workers on true
+            where d.parcel_id = $1
+            order by d.created_at desc, d.slug
+            "#,
+        )
+        .bind(parcel_id.as_ref())
+        .bind(SHOP_WORK_ITEM_QUEUED)
+        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    async fn shop_work_desk_count(&self, parcel_id: &str) -> Result<usize, StorageError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)::bigint
+            from shop_work_desks
+            where parcel_id = $1
+            "#,
+        )
+        .bind(parcel_id)
+        .fetch_one(&self.pool)
+        .await?;
+        usize::try_from(count).map_err(|_| {
+            StorageError::InvalidShopWork("work-desk count exceeds supported range".to_owned())
+        })
+    }
+
+    async fn ensure_worker_assigned(
+        &self,
+        desk: &StoredShopWorkDesk,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<(), StorageError> {
+        if desk.owner_player_id == worker_player_id {
+            return Ok(());
+        }
+        let assigned = sqlx::query_scalar::<_, bool>(
+            r#"
+            select exists (
+                select 1
+                from shop_work_staff
+                where desk_id = $1
+                  and staff_user = $2
+                  and status = $3
+            )
+            "#,
+        )
+        .bind(desk.id)
+        .bind(worker_user)
+        .bind(SHOP_WORK_STAFF_ACTIVE)
+        .fetch_one(&self.pool)
+        .await?;
+        if assigned {
+            Ok(())
+        } else {
+            Err(StorageError::ShopWorkerNotAssigned {
+                parcel_id: desk.parcel_id.clone(),
+                slug: desk.slug.clone(),
+            })
+        }
+    }
+
+    async fn active_shop_shift(
+        &self,
+        desk_id: i64,
+        worker_player_id: &str,
+    ) -> Result<Option<StoredShopShift>, StorageError> {
+        let row = sqlx::query_as::<_, StoredShopShift>(
+            r#"
+            select shift.id, d.parcel_id, d.slug,
+                   shift.worker_user, shift.worker_player_id, shift.status,
+                   to_char(shift.started_at, 'YYYY-MM-DD HH24:MI:SS TZ') as started_at,
+                   to_char(shift.ended_at, 'YYYY-MM-DD HH24:MI:SS TZ') as ended_at
+            from shop_work_shifts shift
+            join shop_work_desks d on d.id = shift.desk_id
+            where shift.desk_id = $1
+              and shift.worker_player_id = $2
+              and shift.status = $3
+            "#,
+        )
+        .bind(desk_id)
+        .bind(worker_player_id)
+        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn active_worker_desk_ids(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        slug: Option<&str>,
+    ) -> Result<Vec<i64>, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
+        let rows = sqlx::query_scalar::<_, i64>(
+            r#"
+            select distinct d.id
+            from shop_work_desks d
+            join shop_work_shifts shift on shift.desk_id = d.id
+            where d.parcel_id = $1
+              and ($2::text is null or d.slug = $2)
+              and shift.worker_user = $3
+              and shift.worker_player_id = $4
+              and shift.status = $5
+            order by d.id
+            "#,
+        )
+        .bind(parcel_id.as_ref())
+        .bind(slug)
+        .bind(worker_user)
+        .bind(worker_player_id)
+        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    async fn shop_work_items_for_desks(
+        &self,
+        desk_ids: &[i64],
+        worker_player_id: &str,
+        limit: i64,
+    ) -> Result<Vec<StoredShopWorkItem>, StorageError> {
+        let query = format!(
+            r#"
+            select {}
+            from shop_work_items item
+            join shop_work_desks d on d.id = item.desk_id
+            join operator_commands cmd on cmd.id = item.operator_command_id
+            where item.desk_id = any($1)
+              and (
+                    item.status = $2
+                 or (item.status = $3 and item.assignee_player_id = $4)
+              )
+            order by item.updated_at asc, item.id
+            limit $5
+            "#,
+            shop_work_item_projection()
+        );
+        let rows = sqlx::query_as::<_, StoredShopWorkItem>(&query)
+            .bind(desk_ids)
+            .bind(SHOP_WORK_ITEM_QUEUED)
+            .bind(SHOP_WORK_ITEM_CLAIMED)
+            .bind(worker_player_id)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows)
+    }
+
+    async fn shop_work_item(&self, work_id: i64) -> Result<StoredShopWorkItem, StorageError> {
+        let query = format!(
+            r#"
+            select {}
+            from shop_work_items item
+            join shop_work_desks d on d.id = item.desk_id
+            join operator_commands cmd on cmd.id = item.operator_command_id
+            where item.id = $1
+            "#,
+            shop_work_item_projection()
+        );
+        sqlx::query_as::<_, StoredShopWorkItem>(&query)
+            .bind(work_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(StorageError::ShopWorkItemNotFound(work_id))
+    }
+
+    async fn ensure_active_shift_for_work(
+        &self,
+        item: &StoredShopWorkItem,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<(), StorageError> {
+        let desk = self.shop_work_desk(&item.parcel_id, &item.slug).await?;
+        self.ensure_worker_assigned(&desk, worker_user, worker_player_id)
+            .await?;
+        if self
+            .active_shop_shift(desk.id, worker_player_id)
+            .await?
+            .is_some()
+        {
+            Ok(())
+        } else {
+            Err(StorageError::ShopShiftNotActive {
+                parcel_id: item.parcel_id.clone(),
+                slug: item.slug.clone(),
+            })
+        }
+    }
+
+    async fn insert_shop_work_item(
+        &self,
+        target: &ShopCommandRouteTarget,
+        command_id: i64,
+    ) -> Result<StoredShopWorkItem, StorageError> {
+        let query = format!(
+            r#"
+            insert into shop_work_items as item (
+                parcel_id, desk_id, operator_command_id, command_prefix
+            )
+            values ($1, $2, $3, $4)
+            on conflict (desk_id, operator_command_id) do update
+            set command_prefix = excluded.command_prefix
+            returning {}
+            "#,
+            shop_work_item_projection_with_subqueries()
+        );
+        sqlx::query_as::<_, StoredShopWorkItem>(&query)
+            .bind(&target.parcel_id)
+            .bind(target.desk_id)
+            .bind(command_id)
+            .bind(&target.command_prefix)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(StorageError::from)
     }
 
     async fn owned_shop_mailing_list(
@@ -822,10 +1471,10 @@ impl PgStorage {
         let parcel_id = canonical_parcel_id(parcel_id);
         let targets = sqlx::query_as::<_, ShopCommandRouteTarget>(
             r#"
-            select r.id, r.list_id, r.parcel_id, l.slug, l.title as list_title,
+            select r.id, r.desk_id, r.parcel_id, d.slug, d.title as desk_title,
                    r.command_prefix
-            from shop_command_routes r
-            join shop_mailing_lists l on l.id = r.list_id
+            from shop_work_routes r
+            join shop_work_desks d on d.id = r.desk_id
             where r.parcel_id = $1
             order by r.created_at, r.id
             "#,
@@ -952,14 +1601,59 @@ fn validate_body(body: &str) -> Result<(), StorageError> {
     }
 }
 
+fn validate_work_slug(slug: &str) -> Result<(), StorageError> {
+    if shop_work_desk_slug_is_valid(slug) {
+        Ok(())
+    } else {
+        Err(StorageError::InvalidShopWork(
+            "invalid shop work desk slug".to_owned(),
+        ))
+    }
+}
+
+fn validate_work_title(title: &str) -> Result<(), StorageError> {
+    if shop_work_desk_title_is_valid(title) {
+        Ok(())
+    } else {
+        Err(StorageError::InvalidShopWork(
+            "invalid shop work desk title".to_owned(),
+        ))
+    }
+}
+
 fn validate_command_prefix(command_prefix: &str) -> Result<(), StorageError> {
     if shop_command_route_prefix_is_valid(command_prefix) {
         Ok(())
     } else {
-        Err(StorageError::InvalidMailingList(
+        Err(StorageError::InvalidShopWork(
             "invalid shop command route prefix".to_owned(),
         ))
     }
+}
+
+fn shop_work_item_projection() -> &'static str {
+    r#"
+    item.id, item.parcel_id, d.slug, d.title as desk_title,
+    item.operator_command_id, item.command_prefix, item.status,
+    cmd.sender_user, cmd.raw_input,
+    item.assignee_user, item.assignee_player_id, item.result,
+    to_char(item.created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at,
+    to_char(item.updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
+    "#
+}
+
+fn shop_work_item_projection_with_subqueries() -> &'static str {
+    r#"
+    item.id, item.parcel_id,
+    (select d.slug from shop_work_desks d where d.id = item.desk_id) as slug,
+    (select d.title from shop_work_desks d where d.id = item.desk_id) as desk_title,
+    item.operator_command_id, item.command_prefix, item.status,
+    (select cmd.sender_user from operator_commands cmd where cmd.id = item.operator_command_id) as sender_user,
+    (select cmd.raw_input from operator_commands cmd where cmd.id = item.operator_command_id) as raw_input,
+    item.assignee_user, item.assignee_player_id, item.result,
+    to_char(item.created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at,
+    to_char(item.updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
+    "#
 }
 
 fn matching_shop_command_route_targets(
@@ -972,7 +1666,7 @@ fn matching_shop_command_route_targets(
         if !command_prefix_matches(raw_input, &target.command_prefix) {
             continue;
         }
-        if let Some(index) = target_indexes.get(&target.list_id).copied() {
+        if let Some(index) = target_indexes.get(&target.desk_id).copied() {
             let current_prefix = &matches[index].command_prefix;
             if route_prefix_specificity(&target.command_prefix)
                 > route_prefix_specificity(current_prefix)
@@ -980,7 +1674,7 @@ fn matching_shop_command_route_targets(
                 matches[index] = target;
             }
         } else {
-            target_indexes.insert(target.list_id, matches.len());
+            target_indexes.insert(target.desk_id, matches.len());
             matches.push(target);
         }
     }
@@ -1003,31 +1697,6 @@ fn command_prefix_matches(raw_input: &str, command_prefix: &str) -> bool {
 
 fn route_prefix_specificity(command_prefix: &str) -> usize {
     command_prefix.trim().chars().count()
-}
-
-fn routed_command_body(
-    command_id: i64,
-    parcel_id: &str,
-    sender_user: &str,
-    raw_input: &str,
-    command_prefix: &str,
-    slug: &str,
-) -> String {
-    let body = format!(
-        "Shop command #{command_id} from {sender_user} in {parcel_id}:\n{raw_input}\n\nMatched route: {command_prefix}\nReply in stream: /chat {parcel_id} {slug} -- <message>"
-    );
-    truncate_mailing_list_body(&body)
-}
-
-fn truncate_mailing_list_body(body: &str) -> String {
-    let body = body.trim();
-    if body.chars().count() <= SHOP_MAILING_LIST_BODY_MAX_CHARS {
-        body.to_owned()
-    } else {
-        body.chars()
-            .take(SHOP_MAILING_LIST_BODY_MAX_CHARS)
-            .collect()
-    }
 }
 
 fn sender_can_post_to_shop_chat(

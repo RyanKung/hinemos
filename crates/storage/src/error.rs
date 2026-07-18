@@ -117,6 +117,47 @@ pub enum StorageError {
         /// Stable list slug.
         slug: String,
     },
+    /// Shop work input is invalid.
+    #[error("invalid shop work: {0}")]
+    InvalidShopWork(String),
+    /// Shop work desk was not found.
+    #[error("shop work desk not found: {parcel_id}/{slug}")]
+    ShopWorkDeskNotFound {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Shop work desk already exists.
+    #[error("shop work desk already exists: {parcel_id}/{slug}")]
+    ShopWorkDeskAlreadyExists {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Worker is not assigned to the shop work desk.
+    #[error("shop worker is not assigned to this desk: {parcel_id}/{slug}")]
+    ShopWorkerNotAssigned {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Worker has no active in-shop shift for this desk.
+    #[error("no active shop shift for this desk: {parcel_id}/{slug}")]
+    ShopShiftNotActive {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Shop work item was not found.
+    #[error("shop work item not found: {0}")]
+    ShopWorkItemNotFound(i64),
+    /// Shop work item is not in a valid state for this operation.
+    #[error("shop work item has invalid state: {0}")]
+    ShopWorkItemInvalidState(i64),
     /// Shop badge input is invalid.
     #[error("invalid shop badge: {0}")]
     InvalidShopBadge(String),

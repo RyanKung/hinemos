@@ -1,8 +1,11 @@
 use super::*;
-use crate::{StoredShopBadgeAward, StoredShopBadgeDefinition, StoredShopCommandRoute};
+use crate::{
+    StoredShopBadgeAward, StoredShopBadgeDefinition, StoredShopCommandRoute, StoredShopShift,
+    StoredShopStaff, StoredShopWorkDesk, StoredShopWorkItem,
+};
 use hinemos_app::{
-    FromShopBadgeValidation, ShopBadgeAwardView, ShopBadgeDefinitionView, ShopCommandRouteDispatch,
-    ShopCommandRouteView,
+    FromShopBadgeValidation, FromShopWorkValidation, ShopBadgeAwardView, ShopBadgeDefinitionView,
+    ShopCommandRouteView, ShopShiftView, ShopStaffView, ShopWorkDeskView, ShopWorkItemView,
 };
 
 impl ParcelStore for PgStorage {
@@ -227,6 +230,12 @@ impl FromShopBadgeValidation for StorageError {
     }
 }
 
+impl FromShopWorkValidation for StorageError {
+    fn invalid_shop_work(message: &str) -> Self {
+        Self::InvalidShopWork(message.to_owned())
+    }
+}
+
 impl ShopMailingListView for StoredShopMailingList {
     fn id(&self) -> i64 {
         self.id
@@ -336,8 +345,8 @@ impl ShopCommandRouteView for StoredShopCommandRoute {
         &self.slug
     }
 
-    fn list_title(&self) -> &str {
-        &self.list_title
+    fn desk_title(&self) -> &str {
+        &self.desk_title
     }
 
     fn command_prefix(&self) -> &str {
@@ -346,6 +355,138 @@ impl ShopCommandRouteView for StoredShopCommandRoute {
 
     fn created_at(&self) -> &str {
         &self.created_at
+    }
+}
+
+impl ShopWorkDeskView for StoredShopWorkDesk {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn queued_count(&self) -> i64 {
+        self.queued_count
+    }
+
+    fn active_worker_count(&self) -> i64 {
+        self.active_worker_count
+    }
+
+    fn created_at(&self) -> &str {
+        &self.created_at
+    }
+}
+
+impl ShopStaffView for StoredShopStaff {
+    fn staff_user(&self) -> &str {
+        &self.staff_user
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+}
+
+impl ShopShiftView for StoredShopShift {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn worker_user(&self) -> &str {
+        &self.worker_user
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn started_at(&self) -> &str {
+        &self.started_at
+    }
+
+    fn ended_at(&self) -> Option<&str> {
+        self.ended_at.as_deref()
+    }
+}
+
+impl ShopWorkItemView for StoredShopWorkItem {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn desk_title(&self) -> &str {
+        &self.desk_title
+    }
+
+    fn operator_command_id(&self) -> i64 {
+        self.operator_command_id
+    }
+
+    fn command_prefix(&self) -> &str {
+        &self.command_prefix
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn sender_user(&self) -> &str {
+        &self.sender_user
+    }
+
+    fn raw_input(&self) -> &str {
+        &self.raw_input
+    }
+
+    fn assignee_user(&self) -> Option<&str> {
+        self.assignee_user.as_deref()
+    }
+
+    fn result(&self) -> Option<&str> {
+        self.result.as_deref()
+    }
+
+    fn created_at(&self) -> &str {
+        &self.created_at
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
     }
 }
 
@@ -512,6 +653,10 @@ impl ShopStore for PgStorage {
     type MailingListSubscription = StoredShopMailingListSubscription;
     type MailingListPost = StoredShopMailingListPost;
     type CommandRoute = StoredShopCommandRoute;
+    type WorkDesk = StoredShopWorkDesk;
+    type Staff = StoredShopStaff;
+    type Shift = StoredShopShift;
+    type WorkItem = StoredShopWorkItem;
     type BadgeDefinition = StoredShopBadgeDefinition;
     type BadgeAward = StoredShopBadgeAward;
 
@@ -682,6 +827,115 @@ impl ShopStore for PgStorage {
             .await
     }
 
+    async fn create_shop_work_desk(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<Self::WorkDesk, Self::Error> {
+        PgStorage::create_shop_work_desk(self, parcel_id, owner_player_id, slug, title).await
+    }
+
+    async fn shop_work_desks(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::WorkDesk>, Self::Error> {
+        PgStorage::shop_work_desks(self, parcel_id, owner_player_id).await
+    }
+
+    async fn add_shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<Self::Staff, Self::Error> {
+        PgStorage::add_shop_staff(self, parcel_id, slug, owner_player_id, username).await
+    }
+
+    async fn shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Self::Staff>, Self::Error> {
+        PgStorage::shop_staff(self, parcel_id, slug, owner_player_id, limit).await
+    }
+
+    async fn remove_shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<Self::Staff, Self::Error> {
+        PgStorage::remove_shop_staff(self, parcel_id, slug, owner_player_id, username).await
+    }
+
+    async fn start_shop_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<Self::Shift, Self::Error> {
+        PgStorage::start_shop_shift(self, parcel_id, slug, worker_user, worker_player_id).await
+    }
+
+    async fn end_shop_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<Self::Shift, Self::Error> {
+        PgStorage::end_shop_shift(self, parcel_id, slug, worker_user, worker_player_id).await
+    }
+
+    async fn shop_work_items(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        slug: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<Self::WorkItem>, Self::Error> {
+        PgStorage::shop_work_items(self, parcel_id, worker_user, worker_player_id, slug, limit)
+            .await
+    }
+
+    async fn claim_shop_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+    ) -> Result<Self::WorkItem, Self::Error> {
+        PgStorage::claim_shop_work(self, parcel_id, worker_user, worker_player_id, work_id).await
+    }
+
+    async fn finish_shop_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+        result: &str,
+    ) -> Result<Self::WorkItem, Self::Error> {
+        PgStorage::finish_shop_work(
+            self,
+            parcel_id,
+            worker_user,
+            worker_player_id,
+            work_id,
+            result,
+        )
+        .await
+    }
+
     async fn shop_command_routes(
         &self,
         parcel_id: &str,
@@ -705,7 +959,7 @@ impl ShopStore for PgStorage {
         &self,
         parcel: &P,
         command_id: i64,
-    ) -> Result<Vec<ShopCommandRouteDispatch<Self::MailingListPost, Self::InboxItem>>, Self::Error>
+    ) -> Result<Vec<Self::WorkItem>, Self::Error>
     where
         P: ParcelView + Sync,
     {

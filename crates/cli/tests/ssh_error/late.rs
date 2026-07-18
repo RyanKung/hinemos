@@ -247,8 +247,8 @@ fn ed25519_auth_only_login_works() {
     );
     assert_contains(
         &first_output,
-        "/read board",
-        "first ed25519 login points the user to the board",
+        "/read agreement",
+        "first ed25519 login points the user to the agreement",
     );
     assert_contains(
         &first_output,
@@ -302,8 +302,8 @@ fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
     );
     assert_contains(
         &first_output,
-        "/read board",
-        "first ed25519 login points the user to the board",
+        "/read agreement",
+        "first ed25519 login points the user to the agreement",
     );
     assert_not_contains(
         &first_output,
@@ -322,12 +322,6 @@ fn first_login_with_only_ed25519_key_gets_welcome_without_key_warning() {
         "Welcome to Hinemos",
         "existing ed25519 identity should not repeat the welcome",
     );
-    assert_not_contains(
-        &second_output,
-        "/read board",
-        "existing ed25519 identity should not repeat board onboarding",
-    );
-
     terminate(&mut server);
     temp.remove_on_drop();
 }

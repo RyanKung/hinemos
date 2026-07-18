@@ -65,6 +65,26 @@ pub const SHOP_MAILING_LIST_STATUS_CLOSED: &str = "closed";
 pub const SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE: &str = "active";
 /// Shop mailing list subscription status indicating the player opted out.
 pub const SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED: &str = "unsubscribed";
+/// Shop work desk status indicating the desk accepts routed work.
+pub const SHOP_WORK_DESK_STATUS_OPEN: &str = "open";
+/// Shop work desk status indicating the desk is closed.
+pub const SHOP_WORK_DESK_STATUS_CLOSED: &str = "closed";
+/// Shop staff status indicating the worker may start shifts.
+pub const SHOP_WORK_STAFF_ACTIVE: &str = "active";
+/// Shop staff status indicating the worker was removed.
+pub const SHOP_WORK_STAFF_REMOVED: &str = "removed";
+/// Shop shift status indicating the worker is currently on site.
+pub const SHOP_WORK_SHIFT_ACTIVE: &str = "active";
+/// Shop shift status indicating the worker ended the shift.
+pub const SHOP_WORK_SHIFT_ENDED: &str = "ended";
+/// Shop work item status indicating the item is waiting for a worker.
+pub const SHOP_WORK_ITEM_QUEUED: &str = "queued";
+/// Shop work item status indicating the item is claimed by a worker.
+pub const SHOP_WORK_ITEM_CLAIMED: &str = "claimed";
+/// Shop work item status indicating the item is complete.
+pub const SHOP_WORK_ITEM_DONE: &str = "done";
+/// Shop work item status indicating the item was cancelled.
+pub const SHOP_WORK_ITEM_CANCELLED: &str = "cancelled";
 /// Shop badge award status indicating the badge is currently held.
 pub const SHOP_BADGE_AWARD_ACTIVE: &str = "active";
 /// Shop badge award status indicating the badge has been revoked.

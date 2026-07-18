@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use hinemos_core::{
     ActionKind, BadgeAction, BuildAction, Direction, EntityKind, EntityObservation, EntityRef,
     Gender, GridRoad, InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand,
-    SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, ShopRouteAction,
-    SubscriptionAction,
+    SettingsAction, ShopAction, ShopBadgeAction, ShopDeskAction, ShopMailingListAction,
+    ShopRouteAction, ShopShiftAction, ShopStaffAction, ShopWorkAction, SubscriptionAction,
 };
 
 use super::{Chrome, SlashParseError, render_text_observation};
@@ -368,6 +368,74 @@ fn slash_parser_accepts_shop_mailing_list_actions() {
                     parcel_id: "N1".to_owned(),
                     slug: "submissions".to_owned(),
                     command_prefix: "/paper submit".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop desk create N1 submissions Submissions Desk")
+            .expect("shop desk create parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Desk {
+                action: ShopDeskAction::Create {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned(),
+                    title: "Submissions Desk".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop staff add N1 submissions hermes-reporter")
+            .expect("shop staff add parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Staff {
+                action: ShopStaffAction::Add {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned(),
+                    username: "hermes-reporter".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop shift start N1 submissions")
+            .expect("shop shift start parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Shift {
+                action: ShopShiftAction::Start {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop work list N1 submissions")
+            .expect("shop work list parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Work {
+                action: ShopWorkAction::List {
+                    parcel_id: "N1".to_owned(),
+                    slug: Some("submissions".to_owned())
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop work done N1 42 -- accepted for daily issue")
+            .expect("shop work done parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Work {
+                action: ShopWorkAction::Done {
+                    parcel_id: "N1".to_owned(),
+                    work_id: 42,
+                    result: "accepted for daily issue".to_owned()
                 }
             }
         }

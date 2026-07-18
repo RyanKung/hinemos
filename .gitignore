@@ -5,6 +5,8 @@
 docs/**
 !docs/**/
 !docs/**/README.md
+!docs/shop-blueprints/*.json
+!docs/shop-blueprints/*.md
 scripts/**
 scripts/local/
 scripts/*.local.sh

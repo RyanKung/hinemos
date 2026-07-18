@@ -210,25 +210,127 @@ pub enum AppRequest<'a> {
     },
     /// List the current player's shop mailing-list subscriptions.
     ShopMailingListSubscriptions,
-    /// Add a command route from an owned shop into one mailing list.
-    ShopRouteAdd {
+    /// Create a shop-local work desk.
+    ShopDeskCreate {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
-        /// Stable mailing-list slug.
+        /// Stable work-desk slug.
+        slug: &'a str,
+        /// Player-facing work-desk title.
+        title: &'a str,
+    },
+    /// List shop-local work desks.
+    ShopDeskList {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+    },
+    /// Add a worker to a shop-local work desk.
+    ShopStaffAdd {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable work-desk slug.
+        slug: &'a str,
+        /// Worker username.
+        username: &'a str,
+    },
+    /// List workers assigned to a shop-local work desk.
+    ShopStaffList {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable work-desk slug.
+        slug: &'a str,
+    },
+    /// Remove a worker from a shop-local work desk.
+    ShopStaffRemove {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable work-desk slug.
+        slug: &'a str,
+        /// Worker username.
+        username: &'a str,
+    },
+    /// Start an in-shop work shift.
+    ShopShiftStart {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable work-desk slug.
+        slug: &'a str,
+    },
+    /// End an in-shop work shift.
+    ShopShiftEnd {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable work-desk slug.
+        slug: &'a str,
+    },
+    /// List shop work while inside the shop.
+    ShopWorkList {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Optional stable work-desk slug.
+        slug: Option<&'a str>,
+    },
+    /// Claim shop work while inside the shop.
+    ShopWorkClaim {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Work item id.
+        work_id: i64,
+    },
+    /// Complete claimed shop work while inside the shop.
+    ShopWorkDone {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Work item id.
+        work_id: i64,
+        /// Worker result note.
+        result: &'a str,
+    },
+    /// Add a command route from an owned shop into one work desk.
+    ShopRouteAdd {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable work-desk slug.
         slug: &'a str,
         /// Slash command prefix to route.
         command_prefix: &'a str,
     },
     /// List command routes for an owned shop.
     ShopRouteList {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
     },
-    /// Remove a command route from an owned shop mailing list.
+    /// Remove a command route from an owned shop work desk.
     ShopRouteRemove {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
-        /// Stable mailing-list slug.
+        /// Stable work-desk slug.
         slug: &'a str,
         /// Slash command prefix to remove.
         command_prefix: &'a str,

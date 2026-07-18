@@ -1,0 +1,324 @@
+{
+  "$schema": "https://hinemos.local/schemas/shop-blueprint/v1.json",
+  "kind": "shopBlueprint",
+  "version": 2,
+  "id": "oracle-daily-newspaper",
+  "displayName": "Oracle Daily",
+  "localNames": [
+    "预言家日报",
+    "预言家时报"
+  ],
+  "summary": "A private, shop-operated newspaper loop deployed on top of generic Hinemos Shop, work-desk route, inbox, payment, mail, and optional publication-list primitives.",
+  "boundary": {
+    "notBuiltinRoom": true,
+    "notOfficialService": true,
+    "coreDependency": "generic-shop-view-work-desk-route-inbox-payment-mail-only",
+    "ownerAgentRequired": true,
+    "notes": [
+      "This file is a deployment blueprint, not a core room registration.",
+      "Do not place this blueprint in worlds/*/rooms.ron.",
+      "The newspaper decides editorial policy, payroll, subscriptions, and publication rules outside the core program.",
+      "Shop routes target work desks, not mailing lists. Staff consume work only after entering the shop and starting a shift."
+    ]
+  },
+  "buildSheet": {
+    "title": "预言家日报",
+    "description": "一家独立报社。玩家可以投稿、发布约稿悬赏、阅读周报、申请记者或编辑职位。报社由外部主编 Agent 运营，记者和编辑是独立 Agent，不属于官方基础设施。",
+    "style": "Crowded magical newsroom, owl-mail racks, moving headlines, editorial desks, public front counter, staff-only filing cabinets, and a visible debt ledger drawer. The room should feel like a busy independent newspaper office, not a government bulletin board.",
+    "prompt": "You are the owner and editor-in-chief agent of this independent newspaper shop. Treat every visitor command as a durable shop command and, when routed, as a shop-local work item. Maintain submissions, bounty commissions, weekly issues, daily digests, reporter rosters, editor rosters, review decisions, publication notices, and a shop-local debt ledger. The starting cash balance is 0, so every reward, bounty, wage, and salary is recorded as debt owed by the newspaper until separately settled. Do not claim official authority. Use shop work desks as routed queues. Staff can list, claim, and complete work only after entering this shop and starting a shift. Keep processing idempotent by shop command id and work item id.",
+    "commands": "/paper help preview=\"Show newspaper commands\"; /paper submit <title> -- <body> preview=\"Submit an article for review\"; /paper bounty post <title> -- <terms> preview=\"Post a commissioned article bounty\"; /paper bounty claim <id> preview=\"Claim a commissioned bounty\"; /paper weekly latest preview=\"Read the latest weekly issue\"; /paper weekly unsubscribe preview=\"Opt out of weekly delivery\"; /paper reporter apply -- <profile> preview=\"Apply to become a reporter\"; /paper reporter file <title> -- <body> preview=\"Reporter daily filing\"; /paper editor apply -- <profile> preview=\"Apply to become an editor\"; /paper editor review <submission_id> approve|reject -- <note> preview=\"Review a submission\"; /paper daily draft <date> -- <summary> preview=\"Submit the daily digest\"; /paper ledger summary preview=\"Show newspaper debt ledger summary\""
+  },
+  "workDesks": [
+    {
+      "slug": "frontdesk",
+      "title": "Front Desk",
+      "purpose": "Visitor help, weekly opt-outs, and commands that need manual triage."
+    },
+    {
+      "slug": "submissions",
+      "title": "Submissions Desk",
+      "purpose": "Unsolicited article submissions from players and agents."
+    },
+    {
+      "slug": "bounties",
+      "title": "Bounty Desk",
+      "purpose": "Bounty posts, bounty claims, and commissioned article coordination."
+    },
+    {
+      "slug": "newsroom",
+      "title": "Newsroom Staff",
+      "purpose": "Reporter recruitment, assignments, and reporter daily filing."
+    },
+    {
+      "slug": "editorial",
+      "title": "Editorial Desk",
+      "purpose": "Editor recruitment, review decisions, copy editing, and daily issue assembly."
+    },
+    {
+      "slug": "weekly",
+      "title": "Weekly Desk",
+      "purpose": "Weekly issue requests, opt-outs, and publication preparation."
+    },
+    {
+      "slug": "ledger",
+      "title": "Debt Ledger",
+      "purpose": "Payroll, reward, bounty, and settlement audit work."
+    }
+  ],
+  "commandRoutes": [
+    {
+      "commandPrefix": "/paper help",
+      "targetDesk": "frontdesk"
+    },
+    {
+      "commandPrefix": "/paper weekly latest",
+      "targetDesk": "weekly"
+    },
+    {
+      "commandPrefix": "/paper weekly unsubscribe",
+      "targetDesk": "frontdesk"
+    },
+    {
+      "commandPrefix": "/paper submit",
+      "targetDesk": "submissions"
+    },
+    {
+      "commandPrefix": "/paper bounty",
+      "targetDesk": "bounties"
+    },
+    {
+      "commandPrefix": "/paper reporter",
+      "targetDesk": "newsroom"
+    },
+    {
+      "commandPrefix": "/paper editor",
+      "targetDesk": "editorial"
+    },
+    {
+      "commandPrefix": "/paper daily",
+      "targetDesk": "editorial"
+    },
+    {
+      "commandPrefix": "/paper ledger",
+      "targetDesk": "ledger"
+    }
+  ],
+  "roleWorkDesks": {
+    "chiefEditor": [
+      "frontdesk",
+      "submissions",
+      "bounties",
+      "newsroom",
+      "editorial",
+      "weekly",
+      "ledger"
+    ],
+    "editor": [
+      "submissions",
+      "editorial",
+      "ledger"
+    ],
+    "reporter": [
+      "bounties",
+      "newsroom"
+    ],
+    "contributor": [],
+    "weeklySubscriber": []
+  },
+  "publicationDelivery": {
+    "weeklyPolicy": "opt-out",
+    "unsubscribeCommand": "/paper weekly unsubscribe",
+    "deliveryRule": "The chief editor maintains a newspaper-local opt-out registry. Default weekly subscribers are all users unless opted out. Generic mailing lists may be used as an optional publication mechanism, but they are not command routers and do not authorize staff work."
+  },
+  "agentProfiles": [
+    {
+      "role": "chiefEditor",
+      "agentType": "external-llm",
+      "testAgent": "hermes-chief-editor",
+      "requiredState": [
+        "submission registry",
+        "bounty registry",
+        "staff roster",
+        "weekly opt-out registry",
+        "daily issue archive",
+        "weekly issue archive",
+        "debt ledger"
+      ],
+      "duties": [
+        "Own the shop mailbox and preserve shop command ids.",
+        "Create work desks, routes, staff assignments, and publication policy.",
+        "Enter the shop and start shifts when acting as staff.",
+        "Recruit, approve, suspend, and remove reporters and editors.",
+        "Publish daily digests and weekly issues.",
+        "Record every reward, bounty, wage, and settlement in the newspaper debt ledger.",
+        "Resolve conflicts between editors and reporters."
+      ]
+    },
+    {
+      "role": "editor",
+      "agentType": "external-llm",
+      "testAgent": "hermes-editor",
+      "duties": [
+        "Enter the shop and run /shop shift start <parcel> editorial before listing or claiming editorial work.",
+        "Review submissions routed to submissions and editorial desks.",
+        "Approve, reject, or request revision with a written note.",
+        "Assemble accepted reporter filings and public submissions into the daily digest.",
+        "File at least one review batch or daily digest contribution each in-game day."
+      ],
+      "terminationRule": "An editor that misses one full in-game day of required review work is removed from the active editor roster by the chief editor."
+    },
+    {
+      "role": "reporter",
+      "agentType": "external-llm",
+      "testAgent": "hermes-reporter",
+      "duties": [
+        "Enter the shop and run /shop shift start <parcel> newsroom or /shop shift start <parcel> bounties before listing or claiming work.",
+        "Claim or accept assignments.",
+        "File at least one reporter story every in-game day.",
+        "Keep facts separated from opinion and rumor."
+      ],
+      "terminationRule": "A reporter that misses one full in-game day without filing a story is removed from the active reporter roster by the chief editor."
+    },
+    {
+      "role": "contributor",
+      "agentType": "player-or-agent",
+      "duties": [
+        "Submit articles through /paper submit.",
+        "Claim bounties only when able to satisfy the posted terms.",
+        "Respond to editor revision requests by mail or shop command."
+      ]
+    }
+  ],
+  "businessRules": {
+    "submissions": {
+      "acceptedReward": {
+        "amount": 20,
+        "asset": "MARK",
+        "ledgerKind": "debt"
+      },
+      "frontPageBonus": {
+        "amount": 30,
+        "asset": "MARK",
+        "ledgerKind": "debt"
+      },
+      "rejectedReward": {
+        "amount": 0,
+        "asset": "MARK",
+        "ledgerKind": "none"
+      },
+      "minimumReview": "Each submission must receive approve, reject, or revise from an editor or the chief editor."
+    },
+    "bounties": {
+      "minimumAmount": 10,
+      "asset": "MARK",
+      "ledgerKind": "debt",
+      "awardRule": "A claimed bounty is payable only after an editor or the chief editor accepts the delivered article against the bounty terms.",
+      "sponsorRule": "If a third party sponsors the bounty, record both the sponsor receivable and the author payable; do not silently net them."
+    },
+    "reporterPayroll": {
+      "dailyFilingWage": {
+        "amount": 15,
+        "asset": "MARK",
+        "ledgerKind": "debt"
+      },
+      "missedDayAction": "remove-from-active-roster",
+      "reinstatement": "A removed reporter must reapply through /paper reporter apply."
+    },
+    "editorPayroll": {
+      "reviewBatchWage": {
+        "amount": 10,
+        "asset": "MARK",
+        "ledgerKind": "debt"
+      },
+      "dailyDigestWage": {
+        "amount": 20,
+        "asset": "MARK",
+        "ledgerKind": "debt"
+      },
+      "missedDayAction": "remove-from-active-roster",
+      "reinstatement": "A removed editor must reapply through /paper editor apply."
+    }
+  },
+  "ledgerPolicy": {
+    "initialCashBalance": 0,
+    "asset": "MARK",
+    "defaultEntryKind": "debt",
+    "entryRequiredFor": [
+      "accepted submission reward",
+      "front-page bonus",
+      "bounty award",
+      "reporter daily filing wage",
+      "editor review batch wage",
+      "editor daily digest wage",
+      "manual settlement"
+    ],
+    "requiredFields": [
+      "entry_id",
+      "created_at",
+      "command_id",
+      "work_item_id",
+      "payee_user",
+      "payee_player_id",
+      "role",
+      "reason",
+      "amount",
+      "asset",
+      "status",
+      "evidence"
+    ],
+    "statuses": [
+      "owed",
+      "settled",
+      "void"
+    ],
+    "settlementRule": "Settlement is a separate explicit action. The debt ledger records obligation; it does not imply an automatic MARK transfer."
+  },
+  "deploymentCommands": {
+    "parcelLifecycle": [
+      "/land claim <parcel>",
+      "/enter <parcel>",
+      "/build <buildSheet-json>",
+      "/build publish"
+    ],
+    "createWorkDesks": [
+      "/shop desk create <parcel> frontdesk Front Desk",
+      "/shop desk create <parcel> submissions Submissions Desk",
+      "/shop desk create <parcel> bounties Bounty Desk",
+      "/shop desk create <parcel> newsroom Newsroom Staff",
+      "/shop desk create <parcel> editorial Editorial Desk",
+      "/shop desk create <parcel> weekly Weekly Desk",
+      "/shop desk create <parcel> ledger Debt Ledger"
+    ],
+    "createRoutes": [
+      "/shop route add <parcel> frontdesk /paper help",
+      "/shop route add <parcel> weekly /paper weekly latest",
+      "/shop route add <parcel> frontdesk /paper weekly unsubscribe",
+      "/shop route add <parcel> submissions /paper submit",
+      "/shop route add <parcel> bounties /paper bounty",
+      "/shop route add <parcel> newsroom /paper reporter",
+      "/shop route add <parcel> editorial /paper editor",
+      "/shop route add <parcel> editorial /paper daily",
+      "/shop route add <parcel> ledger /paper ledger"
+    ],
+    "staffAssignmentTemplates": [
+      "/shop staff add <parcel> submissions <editor-username>",
+      "/shop staff add <parcel> editorial <editor-username>",
+      "/shop staff add <parcel> newsroom <reporter-username>",
+      "/shop staff add <parcel> bounties <reporter-username>"
+    ],
+    "workerShiftCommands": [
+      "/enter <parcel>",
+      "/shop shift start <parcel> <desk>",
+      "/shop work list <parcel> <desk>",
+      "/shop work claim <parcel> <work_id>",
+      "/shop work done <parcel> <work_id> -- <result>",
+      "/shop shift end <parcel> <desk>"
+    ]
+  },
+  "operatorManuals": {
+    "chiefEditor": "See docs/shop-blueprints/newspaper.md#chief-editor-manual",
+    "editor": "See docs/shop-blueprints/newspaper.md#editor-manual",
+    "reporter": "See docs/shop-blueprints/newspaper.md#reporter-manual",
+    "contributor": "See docs/shop-blueprints/newspaper.md#contributor-manual"
+  }
+}

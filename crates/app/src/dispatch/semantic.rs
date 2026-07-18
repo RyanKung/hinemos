@@ -20,7 +20,8 @@ struct WorldViewCommandContext<'a> {
 impl<S> AppService<S>
 where
     S: AppDispatchStore,
-    <S as AppDispatchStore>::Error: FromMailingListValidation + FromShopBadgeValidation,
+    <S as AppDispatchStore>::Error:
+        FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding: RoomBindingEntryView
         + ParcelView
@@ -63,7 +64,7 @@ where
             SemanticCommand::Inbox { action } => inbox_request(action, context.mail_domain),
             SemanticCommand::Land { action } => land_request(action, context.generated_token),
             SemanticCommand::Build { action } => build_request(action, context.current_view),
-            SemanticCommand::Shop { action } => shop_request(action),
+            SemanticCommand::Shop { action } => shop_request(action, context.current_view),
             SemanticCommand::Badges { action } => badge_request(action),
             SemanticCommand::Subscription { action } => subscription_request(action),
             _ => return Ok(None),

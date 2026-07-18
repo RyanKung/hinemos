@@ -12,6 +12,18 @@ impl FromMailingListValidation for std::convert::Infallible {
     }
 }
 
+/// Error adapter for app-level shop work validation.
+pub trait FromShopWorkValidation {
+    /// Builds an invalid shop-work error.
+    fn invalid_shop_work(message: &str) -> Self;
+}
+
+impl FromShopWorkValidation for std::convert::Infallible {
+    fn invalid_shop_work(_message: &str) -> Self {
+        unreachable!("infallible test stores do not reject shop-work validation")
+    }
+}
+
 /// Error adapter for app-level shop badge validation.
 pub trait FromShopBadgeValidation {
     /// Builds an invalid shop badge error.
@@ -282,6 +294,111 @@ pub trait ShopMailingListPostView {
     fn recipient_count(&self) -> i64;
 }
 
+/// Protocol-neutral view of a shop-local work desk.
+pub trait ShopWorkDeskView {
+    /// Work-desk id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable work-desk slug.
+    fn slug(&self) -> &str;
+
+    /// Player-facing title.
+    fn title(&self) -> &str;
+
+    /// Desk status.
+    fn status(&self) -> &str;
+
+    /// Queued work item count.
+    fn queued_count(&self) -> i64;
+
+    /// Active on-site worker count.
+    fn active_worker_count(&self) -> i64;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of a shop-local staff assignment.
+pub trait ShopStaffView {
+    /// Assigned worker username.
+    fn staff_user(&self) -> &str;
+
+    /// Assignment status.
+    fn status(&self) -> &str;
+
+    /// Last update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of an in-shop work shift.
+pub trait ShopShiftView {
+    /// Shift id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable work-desk slug.
+    fn slug(&self) -> &str;
+
+    /// Worker username.
+    fn worker_user(&self) -> &str;
+
+    /// Shift status.
+    fn status(&self) -> &str;
+
+    /// Start timestamp.
+    fn started_at(&self) -> &str;
+
+    /// End timestamp when present.
+    fn ended_at(&self) -> Option<&str>;
+}
+
+/// Protocol-neutral view of one shop-local work item.
+pub trait ShopWorkItemView {
+    /// Work item id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable work-desk slug.
+    fn slug(&self) -> &str;
+
+    /// Work-desk title.
+    fn desk_title(&self) -> &str;
+
+    /// Operator command id that produced this item.
+    fn operator_command_id(&self) -> i64;
+
+    /// Slash command prefix matched by the route.
+    fn command_prefix(&self) -> &str;
+
+    /// Work status.
+    fn status(&self) -> &str;
+
+    /// Visitor username.
+    fn sender_user(&self) -> &str;
+
+    /// Raw visitor command.
+    fn raw_input(&self) -> &str;
+
+    /// Assigned worker username, if claimed.
+    fn assignee_user(&self) -> Option<&str>;
+
+    /// Completion result, if done.
+    fn result(&self) -> Option<&str>;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+
+    /// Last update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
 /// Protocol-neutral view of a shop command route.
 pub trait ShopCommandRouteView {
     /// Route id.
@@ -290,11 +407,11 @@ pub trait ShopCommandRouteView {
     /// Parcel id.
     fn parcel_id(&self) -> &str;
 
-    /// Stable mailing-list slug.
+    /// Stable work-desk slug.
     fn slug(&self) -> &str;
 
-    /// Mailing-list title.
-    fn list_title(&self) -> &str;
+    /// Work-desk title.
+    fn desk_title(&self) -> &str;
 
     /// Slash command prefix that is routed.
     fn command_prefix(&self) -> &str;
@@ -399,14 +516,6 @@ pub struct ShopMailingListSend<P, I> {
     pub deliveries: Vec<ShopMailingListDelivery<I>>,
 }
 
-/// Result from dispatching one operator command into a routed stream.
-pub struct ShopCommandRouteDispatch<P, I> {
-    /// Stored mailing-list post created for the route.
-    pub post: P,
-    /// Created or reused inbox deliveries.
-    pub deliveries: Vec<ShopMailingListDelivery<I>>,
-}
-
 /// Storage boundary for shop operator actions.
 pub trait ShopStore {
     /// Store error type.
@@ -429,6 +538,14 @@ pub trait ShopStore {
     type MailingListPost: ShopMailingListPostView;
     /// Stored shop command-route type.
     type CommandRoute: ShopCommandRouteView;
+    /// Stored shop work-desk type.
+    type WorkDesk: ShopWorkDeskView;
+    /// Stored shop staff assignment type.
+    type Staff: ShopStaffView;
+    /// Stored shop shift type.
+    type Shift: ShopShiftView;
+    /// Stored shop work item type.
+    type WorkItem: ShopWorkItemView;
     /// Stored shop badge definition type.
     type BadgeDefinition: ShopBadgeDefinitionView;
     /// Stored shop badge award type.
@@ -538,7 +655,97 @@ pub trait ShopStore {
         body: &str,
     ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error>;
 
-    /// Creates or returns a shop command route for an owned list.
+    /// Creates a shop-local work desk for an owned shop parcel.
+    async fn create_shop_work_desk(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<Self::WorkDesk, Self::Error>;
+
+    /// Lists shop-local work desks for an owned shop parcel.
+    async fn shop_work_desks(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::WorkDesk>, Self::Error>;
+
+    /// Adds or reactivates a worker assignment for one work desk.
+    async fn add_shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<Self::Staff, Self::Error>;
+
+    /// Lists staff assignments for one owned work desk.
+    async fn shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Self::Staff>, Self::Error>;
+
+    /// Removes a worker assignment from one work desk.
+    async fn remove_shop_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<Self::Staff, Self::Error>;
+
+    /// Starts an active in-shop shift for an assigned worker.
+    async fn start_shop_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<Self::Shift, Self::Error>;
+
+    /// Ends the worker's active in-shop shift for one desk.
+    async fn end_shop_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<Self::Shift, Self::Error>;
+
+    /// Lists available or claimed work visible to an active in-shop worker.
+    async fn shop_work_items(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        slug: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<Self::WorkItem>, Self::Error>;
+
+    /// Claims one queued work item for an active in-shop worker.
+    async fn claim_shop_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+    ) -> Result<Self::WorkItem, Self::Error>;
+
+    /// Completes one claimed work item for an active in-shop worker.
+    async fn finish_shop_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+        result: &str,
+    ) -> Result<Self::WorkItem, Self::Error>;
+
+    /// Creates or returns a shop command route for an owned work desk.
     async fn add_shop_command_route(
         &self,
         parcel_id: &str,
@@ -554,7 +761,7 @@ pub trait ShopStore {
         owner_player_id: &str,
     ) -> Result<Vec<Self::CommandRoute>, Self::Error>;
 
-    /// Removes a shop command route from an owned list.
+    /// Removes a shop command route from an owned work desk.
     async fn remove_shop_command_route(
         &self,
         parcel_id: &str,
@@ -563,12 +770,12 @@ pub trait ShopStore {
         command_prefix: &str,
     ) -> Result<Self::CommandRoute, Self::Error>;
 
-    /// Dispatches one saved operator command into matching route streams.
+    /// Dispatches one saved operator command into matching work queues.
     async fn dispatch_shop_command_routes<P>(
         &self,
         parcel: &P,
         command_id: i64,
-    ) -> Result<Vec<ShopCommandRouteDispatch<Self::MailingListPost, Self::InboxItem>>, Self::Error>
+    ) -> Result<Vec<Self::WorkItem>, Self::Error>
     where
         P: ParcelView + Sync;
 

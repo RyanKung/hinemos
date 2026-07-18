@@ -85,7 +85,7 @@ where
 impl<S, E> AppService<S>
 where
     S: ShopStore<Error = E> + LandStore<Error = E>,
-    E: FromMailingListValidation + FromShopBadgeValidation,
+    E: FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
 {
     pub(super) async fn handle_shop_request(
         &self,
@@ -226,13 +226,20 @@ where
                     .text,
                 None,
             )),
-            ShopAppRequest::RouteAdd {
+            ShopAppRequest::DeskCreate {
+                current_view,
                 parcel_id,
                 slug,
-                command_prefix,
+                title,
             } => {
                 let text = self
-                    .add_shop_command_route(parcel_id, &identity.player_id, slug, command_prefix)
+                    .create_shop_work_desk(
+                        current_view,
+                        parcel_id,
+                        &identity.player_id,
+                        slug,
+                        title,
+                    )
                     .await?
                     .text;
                 Ok(text_events(
@@ -240,19 +247,179 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::RouteList { parcel_id } => Ok(text_events(
-                self.list_shop_command_routes(parcel_id, &identity.player_id)
+            ShopAppRequest::DeskList {
+                current_view,
+                parcel_id,
+            } => Ok(text_events(
+                self.list_shop_work_desks(current_view, parcel_id, &identity.player_id)
                     .await?
                     .text,
                 None,
             )),
-            ShopAppRequest::RouteRemove {
+            ShopAppRequest::StaffAdd {
+                current_view,
+                parcel_id,
+                slug,
+                username,
+            } => Ok(text_events(
+                self.add_shop_staff(current_view, parcel_id, slug, &identity.player_id, username)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::StaffList {
+                current_view,
+                parcel_id,
+                slug,
+            } => Ok(text_events(
+                self.list_shop_staff(current_view, parcel_id, slug, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::StaffRemove {
+                current_view,
+                parcel_id,
+                slug,
+                username,
+            } => Ok(text_events(
+                self.remove_shop_staff(
+                    current_view,
+                    parcel_id,
+                    slug,
+                    &identity.player_id,
+                    username,
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ShopAppRequest::ShiftStart {
+                current_view,
+                parcel_id,
+                slug,
+            } => Ok(text_events(
+                self.start_shop_shift(
+                    current_view,
+                    parcel_id,
+                    slug,
+                    &identity.user,
+                    &identity.player_id,
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ShopAppRequest::ShiftEnd {
+                current_view,
+                parcel_id,
+                slug,
+            } => Ok(text_events(
+                self.end_shop_shift(
+                    current_view,
+                    parcel_id,
+                    slug,
+                    &identity.user,
+                    &identity.player_id,
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ShopAppRequest::WorkList {
+                current_view,
+                parcel_id,
+                slug,
+            } => Ok(text_events(
+                self.list_shop_work(
+                    current_view,
+                    parcel_id,
+                    slug,
+                    &identity.user,
+                    &identity.player_id,
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ShopAppRequest::WorkClaim {
+                current_view,
+                parcel_id,
+                work_id,
+            } => Ok(text_events(
+                self.claim_shop_work(
+                    current_view,
+                    parcel_id,
+                    &identity.user,
+                    &identity.player_id,
+                    work_id,
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ShopAppRequest::WorkDone {
+                current_view,
+                parcel_id,
+                work_id,
+                result,
+            } => Ok(text_events(
+                self.finish_shop_work(
+                    current_view,
+                    parcel_id,
+                    &identity.user,
+                    &identity.player_id,
+                    work_id,
+                    result,
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ShopAppRequest::RouteAdd {
+                current_view,
                 parcel_id,
                 slug,
                 command_prefix,
             } => {
                 let text = self
-                    .remove_shop_command_route(parcel_id, &identity.player_id, slug, command_prefix)
+                    .add_shop_command_route(
+                        current_view,
+                        parcel_id,
+                        &identity.player_id,
+                        slug,
+                        command_prefix,
+                    )
+                    .await?
+                    .text;
+                Ok(text_events(
+                    text,
+                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                ))
+            }
+            ShopAppRequest::RouteList {
+                current_view,
+                parcel_id,
+            } => Ok(text_events(
+                self.list_shop_command_routes(current_view, parcel_id, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::RouteRemove {
+                current_view,
+                parcel_id,
+                slug,
+                command_prefix,
+            } => {
+                let text = self
+                    .remove_shop_command_route(
+                        current_view,
+                        parcel_id,
+                        &identity.player_id,
+                        slug,
+                        command_prefix,
+                    )
                     .await?
                     .text;
                 Ok(text_events(

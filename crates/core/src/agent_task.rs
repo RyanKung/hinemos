@@ -5,8 +5,9 @@ use thiserror::Error;
 
 use crate::{
     BadgeAction, BuildAction, EntityRef, InboxAction, JsonObservation, LandAction, PayAction,
-    SemanticCommand, SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction,
-    ShopRouteAction, SubscriptionAction, agent_task_match::command_matches_template,
+    SemanticCommand, SettingsAction, ShopAction, ShopBadgeAction, ShopDeskAction,
+    ShopMailingListAction, ShopRouteAction, ShopShiftAction, ShopStaffAction, ShopWorkAction,
+    SubscriptionAction, agent_task_match::command_matches_template,
 };
 
 /// Persistent controller state for one task objective.
@@ -658,7 +659,11 @@ fn shop_line(action: &ShopAction) -> String {
             format!("/shop request-payment {command_id} {amount} {delivery}")
         }
         ShopAction::MailingList { action } => shop_mailing_list_line(action),
+        ShopAction::Desk { action } => shop_desk_line(action),
         ShopAction::Route { action } => shop_route_line(action),
+        ShopAction::Staff { action } => shop_staff_line(action),
+        ShopAction::Shift { action } => shop_shift_line(action),
+        ShopAction::Work { action } => shop_work_line(action),
         ShopAction::Badge { action } => shop_badge_line(action),
     }
 }
@@ -692,6 +697,19 @@ fn shop_mailing_list_line(action: &ShopMailingListAction) -> String {
     }
 }
 
+fn shop_desk_line(action: &ShopDeskAction) -> String {
+    match action {
+        ShopDeskAction::Create {
+            parcel_id,
+            slug,
+            title,
+        } => {
+            format!("/shop desk create {parcel_id} {slug} {title}")
+        }
+        ShopDeskAction::List { parcel_id } => format!("/shop desk list {parcel_id}"),
+    }
+}
+
 fn shop_route_line(action: &ShopRouteAction) -> String {
     match action {
         ShopRouteAction::Add {
@@ -708,6 +726,58 @@ fn shop_route_line(action: &ShopRouteAction) -> String {
             command_prefix,
         } => {
             format!("/shop route remove {parcel_id} {slug} {command_prefix}")
+        }
+    }
+}
+
+fn shop_staff_line(action: &ShopStaffAction) -> String {
+    match action {
+        ShopStaffAction::Add {
+            parcel_id,
+            slug,
+            username,
+        } => {
+            format!("/shop staff add {parcel_id} {slug} {username}")
+        }
+        ShopStaffAction::List { parcel_id, slug } => {
+            format!("/shop staff list {parcel_id} {slug}")
+        }
+        ShopStaffAction::Remove {
+            parcel_id,
+            slug,
+            username,
+        } => {
+            format!("/shop staff remove {parcel_id} {slug} {username}")
+        }
+    }
+}
+
+fn shop_shift_line(action: &ShopShiftAction) -> String {
+    match action {
+        ShopShiftAction::Start { parcel_id, slug } => {
+            format!("/shop shift start {parcel_id} {slug}")
+        }
+        ShopShiftAction::End { parcel_id, slug } => {
+            format!("/shop shift end {parcel_id} {slug}")
+        }
+    }
+}
+
+fn shop_work_line(action: &ShopWorkAction) -> String {
+    match action {
+        ShopWorkAction::List { parcel_id, slug } => match slug {
+            Some(slug) => format!("/shop work list {parcel_id} {slug}"),
+            None => format!("/shop work list {parcel_id}"),
+        },
+        ShopWorkAction::Claim { parcel_id, work_id } => {
+            format!("/shop work claim {parcel_id} {work_id}")
+        }
+        ShopWorkAction::Done {
+            parcel_id,
+            work_id,
+            result,
+        } => {
+            format!("/shop work done {parcel_id} {work_id} -- {result}")
         }
     }
 }

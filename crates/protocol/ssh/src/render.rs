@@ -600,6 +600,6 @@ pub(crate) fn exec_help() -> &'static str {
      Autonomous agent mail: log in with an ed25519 SSH key, run /settings mail-token, then use SMTP/IMAP with username <user> and that token. Keep IMAP IDLE open to receive no-prompt EXISTS notifications, then FETCH and STORE +FLAGS (\\Seen).\n\
      Room service agents: requests arrive with subject `Room command #<id> for <view_id>`; reply with subject `Re: #<id>` so players can associate the answer with the request.\n\
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
-     Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
+     Common commands inside the session: /look, /go east, /go west, /inspect board, /read agreement, /help.\n\
      Wallet commands: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>."
 }

@@ -79,7 +79,7 @@ fn commercial_parcel_input_routes_through_app() {
             events,
             vec![
                 UiEvent::Text(
-                    "Shop request #1 sent to owner owner for parcel parcel.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\nPreview: hello\r\n"
+                    "Shop request #1 sent to owner owner for parcel parcel.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\nQueued 1 shop work item(s). Workers must be inside the shop with an active shift to list, claim, or complete them.\r\nPreview: hello\r\n"
                         .to_owned()
                 ),
                 UiEvent::LiveInboxNotice {
@@ -92,13 +92,18 @@ fn commercial_parcel_input_routes_through_app() {
                         body: "body".to_owned(),
                     },
                 },
+                UiEvent::LiveViewMessage {
+                    view_id: "parcel_view".to_owned(),
+                    text: "[shop work] 1 new item(s) queued for parcel P1.".to_owned(),
+                },
             ]
         );
         assert_eq!(
             app.store().calls.lock().unwrap().clone(),
             vec![
                 "operator:visitor:visitor-player:P1:/shop request-payment 7 25 hello world:true"
-                    .to_owned()
+                    .to_owned(),
+                "dispatch-work:1".to_owned(),
             ]
         );
 
@@ -396,7 +401,13 @@ fn shop_command_route_service_commands_render_expected_text() {
         });
 
         let added = app
-            .add_shop_command_route("P1", "owner-player", "updates", "/paper submit")
+            .add_shop_command_route(
+                "parcel-view",
+                "P1",
+                "owner-player",
+                "updates",
+                "/paper submit",
+            )
             .await
             .expect("add route");
         assert!(
@@ -404,17 +415,24 @@ fn shop_command_route_service_commands_render_expected_text() {
                 .text
                 .contains("Routed shop commands matching /paper submit")
         );
-        assert!(added.text.contains("/subscribe P1 updates"));
+        assert!(added.text.contains("work desk"));
+        assert!(added.text.contains("start a shift"));
 
         let listed = app
-            .list_shop_command_routes("P1", "owner-player")
+            .list_shop_command_routes("parcel-view", "P1", "owner-player")
             .await
             .expect("list routes");
         assert!(listed.text.contains("Shop Command Routes for P1"));
         assert!(listed.text.contains("/hello -> updates"));
 
         let removed = app
-            .remove_shop_command_route("P1", "owner-player", "updates", "/paper submit")
+            .remove_shop_command_route(
+                "parcel-view",
+                "P1",
+                "owner-player",
+                "updates",
+                "/paper submit",
+            )
             .await
             .expect("remove route");
         assert!(
@@ -430,6 +448,62 @@ fn shop_command_route_service_commands_render_expected_text() {
                 "route-list:P1:owner-player".to_owned(),
                 "route-remove:P1:owner-player:updates:/paper submit".to_owned(),
             ]
+        );
+    });
+}
+
+#[test]
+fn shop_work_router_configuration_requires_inside_shop() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let app = AppService::new(TestCommercialStore {
+            parcel: Mutex::new(TestCommercialParcel {
+                parcel_id: "P1",
+                view_id: "parcel-view",
+                front_view_id: "street-a",
+                district: "north",
+                position: 1,
+                owner_user: Some("owner".to_owned()),
+                owner_player_id: Some("owner-player".to_owned()),
+                room_user: Some("room-user".to_owned()),
+                room_player_id: Some("room-player".to_owned()),
+                status: PARCEL_STATUS_BUILT,
+                title: Some("Parcel".to_owned()),
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: None,
+            }),
+            calls: Mutex::new(Vec::new()),
+        });
+        let expected = TestCommerceError::InvalidShopWork(
+            "shop work can only happen while inside that shop".to_owned(),
+        );
+
+        let desk = app
+            .create_shop_work_desk("street-a", "P1", "owner-player", "updates", "Updates")
+            .await
+            .expect_err("desk create outside shop");
+        assert_eq!(desk, expected);
+
+        let staff = app
+            .add_shop_staff("street-a", "P1", "updates", "owner-player", "reporter")
+            .await
+            .expect_err("staff add outside shop");
+        assert_eq!(staff, expected);
+
+        let route = app
+            .add_shop_command_route("street-a", "P1", "owner-player", "updates", "/paper")
+            .await
+            .expect_err("route add outside shop");
+        assert_eq!(route, expected);
+
+        assert!(
+            app.store().calls.lock().unwrap().is_empty(),
+            "outside-shop configuration must not reach storage mutation calls"
         );
     });
 }

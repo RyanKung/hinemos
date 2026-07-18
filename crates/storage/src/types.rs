@@ -614,14 +614,102 @@ pub struct StoredShopCommandRoute {
     pub id: i64,
     /// Parcel id for the shop.
     pub parcel_id: String,
-    /// Stable mailing-list slug.
+    /// Stable work-desk slug.
     pub slug: String,
-    /// Mailing-list title.
-    pub list_title: String,
+    /// Work-desk title.
+    pub desk_title: String,
     /// Slash command prefix matched against operator commands.
     pub command_prefix: String,
     /// Database formatted creation time.
     pub created_at: String,
+}
+
+/// Stored shop work-desk summary.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopWorkDesk {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the shop.
+    pub parcel_id: String,
+    /// Current owner player id captured when the desk was created.
+    pub owner_player_id: String,
+    /// Stable work-desk slug.
+    pub slug: String,
+    /// Player-facing title.
+    pub title: String,
+    /// Desk status.
+    pub status: String,
+    /// Queued item count.
+    pub queued_count: i64,
+    /// Active worker count.
+    pub active_worker_count: i64,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
+/// Stored shop staff assignment.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopStaff {
+    /// Assigned worker username.
+    pub staff_user: String,
+    /// Assignment status.
+    pub status: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
+/// Stored shop work shift.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopShift {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the shop.
+    pub parcel_id: String,
+    /// Stable work-desk slug.
+    pub slug: String,
+    /// Worker username.
+    pub worker_user: String,
+    /// Worker player id.
+    pub worker_player_id: String,
+    /// Shift status.
+    pub status: String,
+    /// Database formatted start time.
+    pub started_at: String,
+    /// Database formatted end time.
+    pub ended_at: Option<String>,
+}
+
+/// Stored shop work item.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopWorkItem {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the shop.
+    pub parcel_id: String,
+    /// Stable work-desk slug.
+    pub slug: String,
+    /// Work-desk title.
+    pub desk_title: String,
+    /// Operator command id that produced this item.
+    pub operator_command_id: i64,
+    /// Slash command prefix matched by the route.
+    pub command_prefix: String,
+    /// Work status.
+    pub status: String,
+    /// Visitor username.
+    pub sender_user: String,
+    /// Raw visitor command.
+    pub raw_input: String,
+    /// Assigned worker username, if claimed.
+    pub assignee_user: Option<String>,
+    /// Assigned worker player id, if claimed.
+    pub assignee_player_id: Option<String>,
+    /// Completion result, if done.
+    pub result: Option<String>,
+    /// Database formatted creation time.
+    pub created_at: String,
+    /// Database formatted update time.
+    pub updated_at: String,
 }
 
 /// Stored shop badge definition summary.

@@ -1,8 +1,9 @@
 use super::contracts::{
-    BuildStore, FromMailingListValidation, FromShopBadgeValidation, LandStore, ParcelStore,
-    ParcelView, PaymentRequestView, PaymentStore, ShopBadgeAwardView, ShopBadgeDefinitionView,
-    ShopCommandRouteView, ShopMailingListSubscriberView, ShopMailingListSubscriptionView,
-    ShopMailingListView, ShopStore, TransferView,
+    BuildStore, FromMailingListValidation, FromShopBadgeValidation, FromShopWorkValidation,
+    LandStore, ParcelStore, ParcelView, PaymentRequestView, PaymentStore, ShopBadgeAwardView,
+    ShopBadgeDefinitionView, ShopCommandRouteView, ShopMailingListSubscriberView,
+    ShopMailingListSubscriptionView, ShopMailingListView, ShopShiftView, ShopStaffView, ShopStore,
+    ShopWorkDeskView, ShopWorkItemView, TransferView,
 };
 use super::rendering::{
     custom_command_preview, is_custom_command_input, non_empty, render_parcel_detail,
@@ -19,13 +20,14 @@ use crate::{
     shop_badge_note_is_valid, shop_badge_slug_is_valid, shop_badge_title_is_valid,
     shop_command_route_prefix_is_valid, shop_mailing_list_body_is_valid,
     shop_mailing_list_slug_is_valid, shop_mailing_list_subject_is_valid,
-    shop_mailing_list_title_is_valid,
+    shop_mailing_list_title_is_valid, shop_work_desk_slug_is_valid, shop_work_desk_title_is_valid,
+    shop_work_result_is_valid,
 };
 
 impl<S, E> AppService<S>
 where
-    S: ShopStore<Error = E>,
-    E: FromMailingListValidation + FromShopBadgeValidation,
+    S: ShopStore<Error = E> + LandStore<Error = E>,
+    E: FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
 {
     /// Returns true when a commercial parcel will consume this raw input line.
     #[must_use]
@@ -285,15 +287,265 @@ where
             .await
     }
 
-    /// Adds a command route from a shop command prefix into a shop-chat stream.
+    /// Creates a shop-local work desk.
+    pub async fn create_shop_work_desk(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_desk_slug(slug)?;
+        validate_work_desk_title(title)?;
+        let desk = self
+            .store
+            .create_shop_work_desk(parcel_id, owner_player_id, slug, title)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Created shop work desk {} for parcel {}: {}.\r\nRoute commands: /shop route add {} {} <command-prefix>\r\nAssign staff: /shop staff add {} {} <username>\r\n",
+                desk.slug(),
+                desk.parcel_id(),
+                desk.title(),
+                desk.parcel_id(),
+                desk.slug(),
+                desk.parcel_id(),
+                desk.slug()
+            ),
+        })
+    }
+
+    /// Lists shop-local work desks for an owned shop parcel.
+    pub async fn list_shop_work_desks(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        let desks = self
+            .store
+            .shop_work_desks(parcel_id, owner_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: render_shop_work_desks(parcel_id, &desks).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Adds a worker to one shop-local work desk.
+    pub async fn add_shop_staff(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_desk_slug(slug)?;
+        let staff = self
+            .store
+            .add_shop_staff(parcel_id, slug, owner_player_id, username)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Added shop staff {} to {} for parcel {}.\r\nThey must enter the shop and run /shop shift start {} {} before consuming work.\r\n",
+                staff.staff_user(),
+                slug,
+                parcel_id,
+                parcel_id,
+                slug
+            ),
+        })
+    }
+
+    /// Lists workers assigned to one shop-local work desk.
+    pub async fn list_shop_staff(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_desk_slug(slug)?;
+        let staff = self
+            .store
+            .shop_staff(parcel_id, slug, owner_player_id, 50)
+            .await?;
+        Ok(BusinessListResult {
+            text: render_shop_staff(parcel_id, slug, &staff).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Removes a worker from one shop-local work desk.
+    pub async fn remove_shop_staff(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_desk_slug(slug)?;
+        let staff = self
+            .store
+            .remove_shop_staff(parcel_id, slug, owner_player_id, username)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Removed shop staff {} from {} for parcel {}. Status: {}.\r\n",
+                staff.staff_user(),
+                slug,
+                parcel_id,
+                staff.status()
+            ),
+        })
+    }
+
+    /// Starts a worker shift inside the target shop.
+    pub async fn start_shop_shift(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_desk_slug(slug)?;
+        let shift = self
+            .store
+            .start_shop_shift(parcel_id, slug, worker_user, worker_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Started shop shift #{} at {} for parcel {}. Work list: /shop work list {} {}\r\n",
+                shift.id(),
+                shift.slug(),
+                shift.parcel_id(),
+                shift.parcel_id(),
+                shift.slug()
+            ),
+        })
+    }
+
+    /// Ends a worker shift inside the target shop.
+    pub async fn end_shop_shift(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_desk_slug(slug)?;
+        let shift = self
+            .store
+            .end_shop_shift(parcel_id, slug, worker_user, worker_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Ended shop shift #{} at {} for parcel {}.\r\n",
+                shift.id(),
+                shift.slug(),
+                shift.parcel_id()
+            ),
+        })
+    }
+
+    /// Lists work items for an active in-shop worker.
+    pub async fn list_shop_work(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        slug: Option<&str>,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        if let Some(slug) = slug {
+            validate_work_desk_slug(slug)?;
+        }
+        let items = self
+            .store
+            .shop_work_items(parcel_id, worker_user, worker_player_id, slug, 50)
+            .await?;
+        Ok(BusinessListResult {
+            text: render_shop_work_items(parcel_id, slug, &items).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Claims one work item for an active in-shop worker.
+    pub async fn claim_shop_work(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        let item = self
+            .store
+            .claim_shop_work(parcel_id, worker_user, worker_player_id, work_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Claimed shop work #{} at {} for parcel {}.\r\nCommand #{} from {}: {}\r\nComplete: /shop work done {} {} -- <result>\r\n",
+                item.id(),
+                item.slug(),
+                item.parcel_id(),
+                item.operator_command_id(),
+                item.sender_user(),
+                item.raw_input(),
+                item.parcel_id(),
+                item.id()
+            ),
+        })
+    }
+
+    /// Completes one claimed work item for an active in-shop worker.
+    pub async fn finish_shop_work(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+        result: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_result(result)?;
+        let item = self
+            .store
+            .finish_shop_work(parcel_id, worker_user, worker_player_id, work_id, result)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Completed shop work #{} at {} for parcel {}.\r\n",
+                item.id(),
+                item.slug(),
+                item.parcel_id()
+            ),
+        })
+    }
+
+    /// Adds a command route from a shop command prefix into a shop-local work desk.
     pub async fn add_shop_command_route(
         &self,
+        current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
         slug: &str,
         command_prefix: &str,
     ) -> Result<BusinessListResult, E> {
-        validate_mailing_list_slug(slug)?;
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_desk_slug(slug)?;
         validate_command_route_prefix(command_prefix)?;
         let route = self
             .store
@@ -301,13 +553,11 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Routed shop commands matching {} to {} ({}) for parcel {}.\r\nSubscribers receive matching commands as inbox mail. Join: /subscribe {} {}\r\n",
+                "Routed shop commands matching {} to work desk {} ({}) for parcel {}.\r\nWorkers must enter the shop and start a shift before listing or claiming routed work.\r\n",
                 route.command_prefix(),
-                route.list_title(),
+                route.desk_title(),
                 route.slug(),
-                route.parcel_id(),
-                route.parcel_id(),
-                route.slug()
+                route.parcel_id()
             ),
         })
     }
@@ -315,9 +565,11 @@ where
     /// Lists command routes for an owned shop parcel.
     pub async fn list_shop_command_routes(
         &self,
+        current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
         let routes = self
             .store
             .shop_command_routes(parcel_id, owner_player_id)
@@ -330,12 +582,14 @@ where
     /// Removes a command route from a shop-chat stream.
     pub async fn remove_shop_command_route(
         &self,
+        current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
         slug: &str,
         command_prefix: &str,
     ) -> Result<BusinessListResult, E> {
-        validate_mailing_list_slug(slug)?;
+        self.ensure_inside_shop(current_view, parcel_id).await?;
+        validate_work_desk_slug(slug)?;
         validate_command_route_prefix(command_prefix)?;
         let route = self
             .store
@@ -463,6 +717,17 @@ where
         })
     }
 
+    async fn ensure_inside_shop(&self, current_view: &str, parcel_id: &str) -> Result<(), E> {
+        let parcel = self.store.commercial_parcel(parcel_id).await?;
+        if parcel.view_id() == current_view {
+            Ok(())
+        } else {
+            Err(E::invalid_shop_work(
+                "shop work can only happen while inside that shop",
+            ))
+        }
+    }
+
     /// Handles a raw or slash-prefixed input line inside a commercial parcel room.
     pub async fn handle_commercial_parcel_input<P>(
         &self,
@@ -501,20 +766,16 @@ where
             .store
             .inbox_item_by_source(inbox_player_id, "operator_command", command.id())
             .await?;
-        let routed = self
+        let work_items = self
             .store
             .dispatch_shop_command_routes(binding, command.id())
             .await?;
-        let routed_streams = routed.len();
-        let routed_deliveries = routed
-            .iter()
-            .map(|dispatch| dispatch.deliveries.len())
-            .sum::<usize>();
-        let route_summary = if routed_streams == 0 {
+        let queued_work_items = work_items.len();
+        let route_summary = if queued_work_items == 0 {
             String::new()
         } else {
             format!(
-                "Routed to {routed_streams} shop stream(s), {routed_deliveries} subscriber inbox(es).\r\n"
+                "Queued {queued_work_items} shop work item(s). Workers must be inside the shop with an active shift to list, claim, or complete them.\r\n"
             )
         };
         let mut events = vec![UiEvent::Text(format!(
@@ -531,13 +792,14 @@ where
             target_player_id: owner_player_id.to_owned(),
             notice: LiveInboxNotice::from_item(&inbox_item),
         });
-        for dispatch in routed {
-            events.extend(dispatch.deliveries.into_iter().map(|delivery| {
-                UiEvent::LiveInboxNotice {
-                    target_player_id: delivery.recipient_player_id,
-                    notice: LiveInboxNotice::from_item(&delivery.inbox_item),
-                }
-            }));
+        if queued_work_items > 0 {
+            events.push(UiEvent::LiveViewMessage {
+                view_id: ParcelView::view_id(binding).to_owned(),
+                text: format!(
+                    "[shop work] {queued_work_items} new item(s) queued for parcel {}.",
+                    binding.parcel_id()
+                ),
+            });
         }
         Ok(Some(events))
     }
@@ -587,14 +849,47 @@ where
     }
 }
 
+fn validate_work_desk_slug<E>(slug: &str) -> Result<(), E>
+where
+    E: FromShopWorkValidation,
+{
+    if shop_work_desk_slug_is_valid(slug) {
+        Ok(())
+    } else {
+        Err(E::invalid_shop_work("invalid shop work desk slug"))
+    }
+}
+
+fn validate_work_desk_title<E>(title: &str) -> Result<(), E>
+where
+    E: FromShopWorkValidation,
+{
+    if shop_work_desk_title_is_valid(title) {
+        Ok(())
+    } else {
+        Err(E::invalid_shop_work("invalid shop work desk title"))
+    }
+}
+
+fn validate_work_result<E>(result: &str) -> Result<(), E>
+where
+    E: FromShopWorkValidation,
+{
+    if shop_work_result_is_valid(result) {
+        Ok(())
+    } else {
+        Err(E::invalid_shop_work("invalid shop work result"))
+    }
+}
+
 fn validate_command_route_prefix<E>(command_prefix: &str) -> Result<(), E>
 where
-    E: FromMailingListValidation,
+    E: FromShopWorkValidation,
 {
     if shop_command_route_prefix_is_valid(command_prefix) {
         Ok(())
     } else {
-        Err(E::invalid_mailing_list("invalid shop command route prefix"))
+        Err(E::invalid_shop_work("invalid shop command route prefix"))
     }
 }
 
@@ -723,11 +1018,103 @@ fn render_shop_mailing_list_subscriptions(
     lines.join("\n")
 }
 
+fn render_shop_work_desks(parcel_id: &str, desks: &[impl ShopWorkDeskView]) -> String {
+    let mut lines = vec![format!("Shop Work Desks for {parcel_id}")];
+    if desks.is_empty() {
+        lines.push(
+            "No work desks. Create one with /shop desk create <parcel> <slug> <title>.".to_owned(),
+        );
+    } else {
+        for desk in desks {
+            lines.push(format!(
+                "- {} [{}] {} queued={} active_workers={} created={}. Route: /shop route add {} {} <command-prefix>",
+                desk.slug(),
+                desk.status(),
+                desk.title(),
+                desk.queued_count(),
+                desk.active_worker_count(),
+                desk.created_at(),
+                desk.parcel_id(),
+                desk.slug()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_shop_staff(parcel_id: &str, slug: &str, staff: &[impl ShopStaffView]) -> String {
+    let mut lines = vec![format!("Shop Staff for {parcel_id} {slug}")];
+    if staff.is_empty() {
+        lines.push(
+            "No assigned staff. Add one with /shop staff add <parcel> <slug> <username>."
+                .to_owned(),
+        );
+    } else {
+        for member in staff {
+            lines.push(format!(
+                "- {} [{}] updated={}",
+                member.staff_user(),
+                member.status(),
+                member.updated_at()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_shop_work_items(
+    parcel_id: &str,
+    slug: Option<&str>,
+    items: &[impl ShopWorkItemView],
+) -> String {
+    let scope = slug
+        .map(|slug| format!("{parcel_id} {slug}"))
+        .unwrap_or_else(|| parcel_id.to_owned());
+    let mut lines = vec![format!("Shop Work for {scope}")];
+    if items.is_empty() {
+        lines.push(
+            "No visible work. Start a shift in the shop, then wait for routed commands.".to_owned(),
+        );
+    } else {
+        for item in items {
+            let assignee = item
+                .assignee_user()
+                .map(|user| format!(" assignee={user}"))
+                .unwrap_or_default();
+            let result = item
+                .result()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| format!(" result={value}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "- #{} [{}] {} ({}) command=#{} prefix={} from={}{}{} updated={}. Claim: /shop work claim {} {}",
+                item.id(),
+                item.status(),
+                item.slug(),
+                item.desk_title(),
+                item.operator_command_id(),
+                item.command_prefix(),
+                item.sender_user(),
+                assignee,
+                result,
+                item.updated_at(),
+                item.parcel_id(),
+                item.id()
+            ));
+            lines.push(format!("  {}", item.raw_input()));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
 fn render_shop_command_routes(parcel_id: &str, routes: &[impl ShopCommandRouteView]) -> String {
     let mut lines = vec![format!("Shop Command Routes for {parcel_id}")];
     if routes.is_empty() {
         lines.push(
-            "No command routes. Create one with /shop route add <parcel> <slug> <command-prefix>."
+            "No command routes. Create one with /shop route add <parcel> <desk-slug> <command-prefix>."
                 .to_owned(),
         );
     } else {
@@ -736,7 +1123,7 @@ fn render_shop_command_routes(parcel_id: &str, routes: &[impl ShopCommandRouteVi
                 "- {} -> {} ({}) created={}",
                 route.command_prefix(),
                 route.slug(),
-                route.list_title(),
+                route.desk_title(),
                 route.created_at()
             ));
         }

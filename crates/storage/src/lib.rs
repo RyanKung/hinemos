@@ -36,6 +36,9 @@ pub use hinemos_core::{
     PAYMENT_REQUEST_STATUS_PENDING, SHOP_BADGE_AWARD_ACTIVE, SHOP_BADGE_AWARD_REVOKED,
     SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_STATUS_OPEN,
     SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE, SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED,
+    SHOP_WORK_DESK_STATUS_CLOSED, SHOP_WORK_DESK_STATUS_OPEN, SHOP_WORK_ITEM_CANCELLED,
+    SHOP_WORK_ITEM_CLAIMED, SHOP_WORK_ITEM_DONE, SHOP_WORK_ITEM_QUEUED, SHOP_WORK_SHIFT_ACTIVE,
+    SHOP_WORK_SHIFT_ENDED, SHOP_WORK_STAFF_ACTIVE, SHOP_WORK_STAFF_REMOVED,
 };
 pub(crate) use messages::NewInboxItem;
 pub use types::{
@@ -45,8 +48,9 @@ pub use types::{
     StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind,
     StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward, StoredShopBadgeDefinition,
     StoredShopCommandRoute, StoredShopMailingList, StoredShopMailingListPost,
-    StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredSocialEdge,
-    StoredTransfer, StoredWorldMessage,
+    StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredShopShift,
+    StoredShopStaff, StoredShopWorkDesk, StoredShopWorkItem, StoredSocialEdge, StoredTransfer,
+    StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
