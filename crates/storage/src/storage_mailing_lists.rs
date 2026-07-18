@@ -1,7 +1,11 @@
-use hinemos_app::{ShopMailingListDelivery, ShopMailingListSend, ShopMailingListSubscriberPage};
+use hinemos_app::{
+    ParcelView, ShopCommandRouteDispatch, ShopMailingListDelivery, ShopMailingListSend,
+    ShopMailingListSubscriberPage,
+};
 use hinemos_core::{
-    PARCEL_STATUS_BUILT, SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE,
-    SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED, SHOP_MAILING_LISTS_PER_PARCEL_MAX,
+    PARCEL_STATUS_BUILT, SHOP_MAILING_LIST_BODY_MAX_CHARS, SHOP_MAILING_LIST_STATUS_CLOSED,
+    SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE, SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED,
+    SHOP_MAILING_LISTS_PER_PARCEL_MAX, shop_command_route_prefix_is_valid,
     shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
     shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
 };
@@ -9,8 +13,9 @@ use serde_json::json;
 
 use crate::parcels::{canonical_parcel_id, fetch_parcel_by_id};
 use crate::{
-    NewInboxItem, PgStorage, StorageError, StoredInboxItem, StoredParcel, StoredShopMailingList,
-    StoredShopMailingListPost, StoredShopMailingListSubscriber, StoredShopMailingListSubscription,
+    NewInboxItem, PgStorage, StorageError, StoredInboxItem, StoredOperatorCommand, StoredParcel,
+    StoredShopCommandRoute, StoredShopMailingList, StoredShopMailingListPost,
+    StoredShopMailingListSubscriber, StoredShopMailingListSubscription,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
@@ -18,6 +23,28 @@ struct MailingListDeliveryRecipient {
     id: i64,
     recipient_user: String,
     recipient_player_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+struct ShopCommandRouteTarget {
+    id: i64,
+    list_id: i64,
+    parcel_id: String,
+    slug: String,
+    list_title: String,
+    command_prefix: String,
+}
+
+struct MailingListPostInsert<'a> {
+    list_id: i64,
+    parcel_id: &'a str,
+    slug: &'a str,
+    list_title: &'a str,
+    recipients: &'a [MailingListDeliveryRecipient],
+    sender_user: &'a str,
+    sender_player_id: &'a str,
+    subject: &'a str,
+    body: &'a str,
 }
 
 impl PgStorage {
@@ -315,52 +342,188 @@ impl PgStorage {
             });
         }
 
-        let mut tx = self.pool.begin().await?;
-        let post = sqlx::query_as::<_, StoredShopMailingListPost>(
-            r#"
-            insert into shop_mailing_list_posts (
-                list_id, sender_user, sender_player_id, subject, body, recipient_count
-            )
-            values ($1, $2, $3, $4, $5, $6)
-            returning id,
-                      $7::text as parcel_id,
-                      $8::text as slug,
-                      $9::text as list_title,
-                      sender_user, sender_player_id, subject, body, recipient_count,
-                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
-            "#,
-        )
-        .bind(list.id)
-        .bind(sender_user)
-        .bind(sender_player_id)
-        .bind(subject.trim())
-        .bind(body.trim())
-        .bind(recipient_count)
-        .bind(&list.parcel_id)
-        .bind(&list.slug)
-        .bind(&list.title)
-        .fetch_one(&mut *tx)
-        .await?;
-        for recipient in &recipients {
-            sqlx::query(
-                r#"
-                insert into shop_mailing_list_deliveries (
-                    post_id, recipient_user, recipient_player_id
-                )
-                values ($1, $2, $3)
-                on conflict (post_id, recipient_player_id) do nothing
-                "#,
-            )
-            .bind(post.id)
-            .bind(&recipient.recipient_user)
-            .bind(&recipient.recipient_player_id)
-            .execute(&mut *tx)
+        let post = self
+            .insert_shop_mailing_list_post_for_recipients(MailingListPostInsert {
+                list_id: list.id,
+                parcel_id: &list.parcel_id,
+                slug: &list.slug,
+                list_title: &list.title,
+                recipients: &recipients,
+                sender_user,
+                sender_player_id,
+                subject: subject.trim(),
+                body: body.trim(),
+            })
             .await?;
-        }
-        tx.commit().await?;
 
         let deliveries = self.deliver_shop_mailing_list_post(post.id).await?;
         Ok(ShopMailingListSend { post, deliveries })
+    }
+
+    /// Adds or returns a command route from an owned shop into one mailing list.
+    pub async fn add_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<StoredShopCommandRoute, StorageError> {
+        validate_slug(slug)?;
+        validate_command_prefix(command_prefix)?;
+        let list = self
+            .owned_shop_mailing_list(parcel_id, slug, owner_player_id)
+            .await?;
+        let route = sqlx::query_as::<_, StoredShopCommandRoute>(
+            r#"
+            insert into shop_command_routes (
+                parcel_id, list_id, owner_player_id, command_prefix
+            )
+            values ($1, $2, $3, $4)
+            on conflict (parcel_id, list_id, command_prefix) do update
+            set owner_player_id = excluded.owner_player_id
+            returning id, parcel_id,
+                      $5::text as slug,
+                      $6::text as list_title,
+                      command_prefix,
+                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            "#,
+        )
+        .bind(&list.parcel_id)
+        .bind(list.id)
+        .bind(owner_player_id)
+        .bind(command_prefix.trim())
+        .bind(&list.slug)
+        .bind(&list.title)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(route)
+    }
+
+    /// Lists command routes for an owned shop parcel.
+    pub async fn shop_command_routes(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<StoredShopCommandRoute>, StorageError> {
+        let parcel = self.owned_built_parcel(parcel_id, owner_player_id).await?;
+        let routes = sqlx::query_as::<_, StoredShopCommandRoute>(
+            r#"
+            select r.id, r.parcel_id, l.slug, l.title as list_title,
+                   r.command_prefix,
+                   to_char(r.created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from shop_command_routes r
+            join shop_mailing_lists l on l.id = r.list_id
+            where r.parcel_id = $1
+            order by r.created_at desc, l.slug, r.command_prefix
+            "#,
+        )
+        .bind(&parcel.parcel_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(routes)
+    }
+
+    /// Removes a command route from an owned shop mailing list.
+    pub async fn remove_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<StoredShopCommandRoute, StorageError> {
+        validate_slug(slug)?;
+        validate_command_prefix(command_prefix)?;
+        let list = self
+            .owned_shop_mailing_list(parcel_id, slug, owner_player_id)
+            .await?;
+        let route = sqlx::query_as::<_, StoredShopCommandRoute>(
+            r#"
+            select r.id, r.parcel_id, l.slug, l.title as list_title,
+                   r.command_prefix,
+                   to_char(r.created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from shop_command_routes r
+            join shop_mailing_lists l on l.id = r.list_id
+            where r.parcel_id = $1
+              and r.list_id = $2
+              and r.command_prefix = $3
+            "#,
+        )
+        .bind(&list.parcel_id)
+        .bind(list.id)
+        .bind(command_prefix.trim())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            StorageError::InvalidMailingList(format!(
+                "shop command route not found: {}/{} {}",
+                list.parcel_id,
+                list.slug,
+                command_prefix.trim()
+            ))
+        })?;
+        sqlx::query("delete from shop_command_routes where id = $1")
+            .bind(route.id)
+            .execute(&self.pool)
+            .await?;
+        Ok(route)
+    }
+
+    /// Dispatches one saved operator command into matching route streams.
+    pub async fn dispatch_shop_command_routes<P>(
+        &self,
+        parcel: &P,
+        command_id: i64,
+    ) -> Result<
+        Vec<ShopCommandRouteDispatch<StoredShopMailingListPost, StoredInboxItem>>,
+        StorageError,
+    >
+    where
+        P: ParcelView,
+    {
+        let command = self.operator_command(command_id).await?;
+        if command.parcel_id != parcel.parcel_id() {
+            return Err(StorageError::InvalidMailingList(format!(
+                "shop command {} belongs to {}, not {}",
+                command.id,
+                command.parcel_id,
+                parcel.parcel_id()
+            )));
+        }
+        let targets = self.shop_command_route_targets(parcel.parcel_id()).await?;
+        let mut routed = Vec::new();
+        for target in targets
+            .into_iter()
+            .filter(|target| command_prefix_matches(&command.raw_input, &target.command_prefix))
+        {
+            let recipients = self.active_subscription_recipients(target.list_id).await?;
+            if recipients.is_empty() {
+                continue;
+            }
+            let body = routed_command_body(
+                command.id,
+                &target.parcel_id,
+                &command.sender_user,
+                &command.raw_input,
+                &target.command_prefix,
+                &target.slug,
+            );
+            let post = self
+                .insert_shop_mailing_list_post_for_recipients(MailingListPostInsert {
+                    list_id: target.list_id,
+                    parcel_id: &target.parcel_id,
+                    slug: &target.slug,
+                    list_title: &target.list_title,
+                    recipients: &recipients,
+                    sender_user: &command.sender_user,
+                    sender_player_id: &command.sender_player_id,
+                    subject: &target.command_prefix,
+                    body: &body,
+                })
+                .await?;
+            let deliveries = self.deliver_shop_mailing_list_post(post.id).await?;
+            routed.push(ShopCommandRouteDispatch { post, deliveries });
+        }
+        Ok(routed)
     }
 
     /// Delivers an existing mailing-list post into subscriber inboxes idempotently.
@@ -630,6 +793,100 @@ impl PgStorage {
         Ok(rows)
     }
 
+    async fn operator_command(
+        &self,
+        command_id: i64,
+    ) -> Result<StoredOperatorCommand, StorageError> {
+        let command = sqlx::query_as::<_, StoredOperatorCommand>(
+            r#"
+            select id, view_id, parcel_id, sender_user, sender_player_id,
+                   owner_user, owner_player_id, raw_input, status,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from operator_commands
+            where id = $1
+            "#,
+        )
+        .bind(command_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StorageError::OperatorCommandNotFound(command_id))?;
+        Ok(command)
+    }
+
+    async fn shop_command_route_targets(
+        &self,
+        parcel_id: &str,
+    ) -> Result<Vec<ShopCommandRouteTarget>, StorageError> {
+        let parcel_id = canonical_parcel_id(parcel_id);
+        let targets = sqlx::query_as::<_, ShopCommandRouteTarget>(
+            r#"
+            select r.id, r.list_id, r.parcel_id, l.slug, l.title as list_title,
+                   r.command_prefix
+            from shop_command_routes r
+            join shop_mailing_lists l on l.id = r.list_id
+            where r.parcel_id = $1
+            order by r.created_at, r.id
+            "#,
+        )
+        .bind(parcel_id.as_ref())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(targets)
+    }
+
+    async fn insert_shop_mailing_list_post_for_recipients(
+        &self,
+        insert: MailingListPostInsert<'_>,
+    ) -> Result<StoredShopMailingListPost, StorageError> {
+        let recipient_count = i64::try_from(insert.recipients.len()).map_err(|_| {
+            StorageError::InvalidMailingList("subscriber count exceeds supported range".to_owned())
+        })?;
+        let mut tx = self.pool.begin().await?;
+        let post = sqlx::query_as::<_, StoredShopMailingListPost>(
+            r#"
+            insert into shop_mailing_list_posts (
+                list_id, sender_user, sender_player_id, subject, body, recipient_count
+            )
+            values ($1, $2, $3, $4, $5, $6)
+            returning id,
+                      $7::text as parcel_id,
+                      $8::text as slug,
+                      $9::text as list_title,
+                      sender_user, sender_player_id, subject, body, recipient_count,
+                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            "#,
+        )
+        .bind(insert.list_id)
+        .bind(insert.sender_user)
+        .bind(insert.sender_player_id)
+        .bind(insert.subject)
+        .bind(insert.body)
+        .bind(recipient_count)
+        .bind(insert.parcel_id)
+        .bind(insert.slug)
+        .bind(insert.list_title)
+        .fetch_one(&mut *tx)
+        .await?;
+        for recipient in insert.recipients {
+            sqlx::query(
+                r#"
+                insert into shop_mailing_list_deliveries (
+                    post_id, recipient_user, recipient_player_id
+                )
+                values ($1, $2, $3)
+                on conflict (post_id, recipient_player_id) do nothing
+                "#,
+            )
+            .bind(post.id)
+            .bind(&recipient.recipient_user)
+            .bind(&recipient.recipient_player_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(post)
+    }
+
     async fn shop_mailing_list_post(
         &self,
         post_id: i64,
@@ -690,6 +947,55 @@ fn validate_body(body: &str) -> Result<(), StorageError> {
         Err(StorageError::InvalidMailingList(
             "invalid mailing-list body".to_owned(),
         ))
+    }
+}
+
+fn validate_command_prefix(command_prefix: &str) -> Result<(), StorageError> {
+    if shop_command_route_prefix_is_valid(command_prefix) {
+        Ok(())
+    } else {
+        Err(StorageError::InvalidMailingList(
+            "invalid shop command route prefix".to_owned(),
+        ))
+    }
+}
+
+fn command_prefix_matches(raw_input: &str, command_prefix: &str) -> bool {
+    let raw_input = raw_input.trim();
+    let command_prefix = command_prefix.trim();
+    let Some(head) = raw_input.get(..command_prefix.len()) else {
+        return false;
+    };
+    if !head.eq_ignore_ascii_case(command_prefix) {
+        return false;
+    }
+    raw_input
+        .get(command_prefix.len()..)
+        .is_some_and(|tail| tail.is_empty() || tail.chars().next().is_some_and(char::is_whitespace))
+}
+
+fn routed_command_body(
+    command_id: i64,
+    parcel_id: &str,
+    sender_user: &str,
+    raw_input: &str,
+    command_prefix: &str,
+    slug: &str,
+) -> String {
+    let body = format!(
+        "Shop command #{command_id} from {sender_user} in {parcel_id}:\n{raw_input}\n\nMatched route: {command_prefix}\nReply in stream: /chat {parcel_id} {slug} -- <message>"
+    );
+    truncate_mailing_list_body(&body)
+}
+
+fn truncate_mailing_list_body(body: &str) -> String {
+    let body = body.trim();
+    if body.chars().count() <= SHOP_MAILING_LIST_BODY_MAX_CHARS {
+        body.to_owned()
+    } else {
+        body.chars()
+            .take(SHOP_MAILING_LIST_BODY_MAX_CHARS)
+            .collect()
     }
 }
 

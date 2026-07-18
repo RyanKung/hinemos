@@ -211,8 +211,13 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
     assert_contains(
         &customer_visit,
-        "Style: Ledger-first counter service.",
+        "Style: Ledger-first counter",
         "customer sees the edited shop style",
+    );
+    assert_contains(
+        &customer_visit,
+        "service.",
+        "customer sees the edited shop style terminator",
     );
     assert_contains(
         &customer_visit,

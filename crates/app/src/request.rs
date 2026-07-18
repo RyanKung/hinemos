@@ -210,6 +210,29 @@ pub enum AppRequest<'a> {
     },
     /// List the current player's shop mailing-list subscriptions.
     ShopMailingListSubscriptions,
+    /// Add a command route from an owned shop into one mailing list.
+    ShopRouteAdd {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable mailing-list slug.
+        slug: &'a str,
+        /// Slash command prefix to route.
+        command_prefix: &'a str,
+    },
+    /// List command routes for an owned shop.
+    ShopRouteList {
+        /// Parcel id.
+        parcel_id: &'a str,
+    },
+    /// Remove a command route from an owned shop mailing list.
+    ShopRouteRemove {
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable mailing-list slug.
+        slug: &'a str,
+        /// Slash command prefix to remove.
+        command_prefix: &'a str,
+    },
     /// List badge definitions for an owned shop.
     ShopBadgeList {
         /// Parcel id.

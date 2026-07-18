@@ -15,8 +15,7 @@ The repository is a Rust workspace with:
 - `crates/protocol/ssh`: SSH daemon, admin socket, SMTP/IMAP sidecar, and room
   rendering overlays.
 - `crates/protocol/http`: HTTP adapter and read-only anonymous demo API.
-- `crates/cli`: `hinemos` binary and built-in room runner.
-- `rooms/*`: built-in external room services.
+- `crates/cli`: `hinemos` binary.
 - `web/landing`: Yew/Trunk landing page with an anonymous demo terminal.
 - `worlds/sample`: sample world data in RON.
 
@@ -133,31 +132,10 @@ Players generate mailbox tokens in-world with `/settings mail-token`.
 
 ## Service Rooms
 
-Built-in service rooms are external room services connected through the room
-mailbox protocol. They are not static world views; the core world queues room
-requests in Postgres, and the room runner polls and replies through room mail.
-
-Run all built-in room workers:
-
-```sh
-DATABASE_URL=postgres://USER@127.0.0.1:5432/hinemos \
-cargo run -p hinemos-cli -- serve rooms
-```
-
-Process one batch and exit:
-
-```sh
-DATABASE_URL=postgres://USER@127.0.0.1:5432/hinemos \
-cargo run -p hinemos-cli -- serve rooms --once
-```
-
-Current built-in rooms:
-
-- Blackstone Izakaya
-- Hinemos Bank
-- Hinemos Daily Seer
-- Hinemos School
-- Workers Society
+Service rooms are external agents connected through the room mailbox protocol.
+They are not static world views; the core world queues room requests in
+Postgres, and external services poll and reply through room mail. The workspace
+does not ship an in-process room runner.
 
 ## Ledger Model
 
@@ -185,7 +163,6 @@ cargo clippy --workspace --all-targets -- -W clippy::too_many_lines -D warnings
 Focused integration tests that require `DATABASE_URL` and local SSH tooling:
 
 ```sh
-cargo test -p hinemos-cli --test workers_wage_flow
 cargo test -p hinemos-cli --test commerce_flow
 cargo test -p hinemos-cli --test mail_sidecar
 ```

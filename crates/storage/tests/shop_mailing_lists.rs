@@ -489,6 +489,87 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
 }
 
 #[tokio::test]
+async fn shop_command_routes_dispatch_operator_commands_to_stream_subscribers() {
+    if skip_without_database() {
+        return;
+    }
+    let (db, storage) = storage_with_built_shop().await;
+    storage
+        .create_shop_mailing_list("E1-C0-01", "player:owner", "submissions", "Submissions")
+        .await
+        .expect("create routed list");
+    storage
+        .subscribe_shop_mailing_list("E1-C0-01", "submissions", "customer", "player:customer")
+        .await
+        .expect("subscribe customer");
+    storage
+        .subscribe_shop_mailing_list("E1-C0-01", "submissions", "late", "player:late")
+        .await
+        .expect("subscribe late");
+    let route = storage
+        .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/hello")
+        .await
+        .expect("add route");
+    assert_eq!(route.command_prefix, "/hello");
+    assert_eq!(
+        storage
+            .shop_command_routes("E1-C0-01", "player:owner")
+            .await
+            .expect("list routes")
+            .len(),
+        1
+    );
+
+    let parcel = storage
+        .commercial_parcel("E1-C0-01")
+        .await
+        .expect("load shop parcel");
+    let command = storage
+        .save_operator_command(
+            &parcel,
+            "customer",
+            "player:customer",
+            "/hello newsroom",
+            true,
+        )
+        .await
+        .expect("operator command");
+    let routed = storage
+        .dispatch_shop_command_routes(&parcel, command.id)
+        .await
+        .expect("dispatch route");
+    assert_eq!(routed.len(), 1);
+    assert_eq!(routed[0].post.slug, "submissions");
+    assert_eq!(routed[0].post.recipient_count, 2);
+    assert_eq!(routed[0].deliveries.len(), 2);
+    assert_eq!(
+        db.query_value(
+            "select count(*)
+             from inbox_items
+             where kind = 'mail'
+               and source_kind = 'shop_mailing_list_post'
+               and subject = '/hello'
+               and body like '%Matched route: /hello%'"
+        ),
+        "2"
+    );
+
+    storage
+        .remove_shop_command_route("E1-C0-01", "player:owner", "submissions", "/hello")
+        .await
+        .expect("remove route");
+    let second = storage
+        .save_operator_command(&parcel, "customer", "player:customer", "/hello again", true)
+        .await
+        .expect("second operator command");
+    let routed_after_remove = storage
+        .dispatch_shop_command_routes(&parcel, second.id)
+        .await
+        .expect("dispatch after remove");
+    assert!(routed_after_remove.is_empty());
+}
+
+#[tokio::test]
 async fn mailing_list_count_is_limited_per_parcel() {
     if skip_without_database() {
         return;

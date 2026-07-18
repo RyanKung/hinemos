@@ -90,6 +90,12 @@ pub(super) struct TestMailingListSubscription {
 pub(super) struct TestMailingListPost;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestCommandRoute {
+    pub(super) slug: String,
+    pub(super) command_prefix: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TestShopBadge {
     pub(super) slug: String,
     pub(super) title: String,
@@ -648,6 +654,32 @@ impl ShopMailingListPostView for TestMailingListPost {
     }
 }
 
+impl ShopCommandRouteView for TestCommandRoute {
+    fn id(&self) -> i64 {
+        13
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn list_title(&self) -> &str {
+        "Shop Updates"
+    }
+
+    fn command_prefix(&self) -> &str {
+        &self.command_prefix
+    }
+
+    fn created_at(&self) -> &str {
+        "created"
+    }
+}
+
 impl ShopBadgeDefinitionView for TestShopBadge {
     fn id(&self) -> i64 {
         11
@@ -869,6 +901,7 @@ impl ShopStore for TestCommercialStore {
     type MailingListSubscriber = TestMailingListSubscriber;
     type MailingListSubscription = TestMailingListSubscription;
     type MailingListPost = TestMailingListPost;
+    type CommandRoute = TestCommandRoute;
     type BadgeDefinition = TestShopBadge;
     type BadgeAward = TestShopBadgeAward;
 
@@ -1059,6 +1092,64 @@ impl ShopStore for TestCommercialStore {
                 },
             }],
         })
+    }
+
+    async fn add_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<Self::CommandRoute, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "route-add:{parcel_id}:{owner_player_id}:{slug}:{command_prefix}"
+        ));
+        Ok(TestCommandRoute {
+            slug: slug.to_owned(),
+            command_prefix: command_prefix.to_owned(),
+        })
+    }
+
+    async fn shop_command_routes(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::CommandRoute>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("route-list:{parcel_id}:{owner_player_id}"));
+        Ok(vec![TestCommandRoute {
+            slug: "updates".to_owned(),
+            command_prefix: "/hello".to_owned(),
+        }])
+    }
+
+    async fn remove_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<Self::CommandRoute, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "route-remove:{parcel_id}:{owner_player_id}:{slug}:{command_prefix}"
+        ));
+        Ok(TestCommandRoute {
+            slug: slug.to_owned(),
+            command_prefix: command_prefix.to_owned(),
+        })
+    }
+
+    async fn dispatch_shop_command_routes<P>(
+        &self,
+        _parcel: &P,
+        _command_id: i64,
+    ) -> Result<Vec<ShopCommandRouteDispatch<Self::MailingListPost, Self::InboxItem>>, Self::Error>
+    where
+        P: ParcelView + Sync,
+    {
+        Ok(Vec::new())
     }
 
     async fn create_shop_badge(

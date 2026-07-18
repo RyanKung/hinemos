@@ -1,6 +1,6 @@
 use crate::{
     BadgeAction, BuildAction, InboxAction, LandAction, PayAction, SemanticCommand, SettingsAction,
-    ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
+    ShopAction, ShopBadgeAction, ShopMailingListAction, ShopRouteAction, SubscriptionAction,
     extension_command_input_matches_template,
 };
 
@@ -222,6 +222,9 @@ fn shop_action_matches(action: &ShopAction, template: &ShopAction) -> bool {
         (ShopAction::MailingList { action }, ShopAction::MailingList { action: template }) => {
             shop_mailing_list_action_matches(action, template)
         }
+        (ShopAction::Route { action }, ShopAction::Route { action: template }) => {
+            shop_route_action_matches(action, template)
+        }
         (ShopAction::Badge { action }, ShopAction::Badge { action: template }) => {
             shop_badge_action_matches(action, template)
         }
@@ -274,6 +277,46 @@ fn shop_mailing_list_action_matches(
         (
             ShopMailingListAction::List { parcel_id },
             ShopMailingListAction::List {
+                parcel_id: template,
+            },
+        ) => template_string_matches(parcel_id, template),
+        _ => false,
+    }
+}
+
+fn shop_route_action_matches(action: &ShopRouteAction, template: &ShopRouteAction) -> bool {
+    match (action, template) {
+        (
+            ShopRouteAction::Add {
+                parcel_id,
+                slug,
+                command_prefix,
+            },
+            ShopRouteAction::Add {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                command_prefix: template_prefix,
+            },
+        )
+        | (
+            ShopRouteAction::Remove {
+                parcel_id,
+                slug,
+                command_prefix,
+            },
+            ShopRouteAction::Remove {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                command_prefix: template_prefix,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_string_matches(slug, template_slug)
+                && template_string_matches(command_prefix, template_prefix)
+        }
+        (
+            ShopRouteAction::List { parcel_id },
+            ShopRouteAction::List {
                 parcel_id: template,
             },
         ) => template_string_matches(parcel_id, template),

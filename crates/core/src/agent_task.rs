@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     BadgeAction, BuildAction, EntityRef, InboxAction, JsonObservation, LandAction, PayAction,
     SemanticCommand, SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction,
-    SubscriptionAction, agent_task_match::command_matches_template,
+    ShopRouteAction, SubscriptionAction, agent_task_match::command_matches_template,
 };
 
 /// Persistent controller state for one task objective.
@@ -658,6 +658,7 @@ fn shop_line(action: &ShopAction) -> String {
             format!("/shop request-payment {command_id} {amount} {delivery}")
         }
         ShopAction::MailingList { action } => shop_mailing_list_line(action),
+        ShopAction::Route { action } => shop_route_line(action),
         ShopAction::Badge { action } => shop_badge_line(action),
     }
 }
@@ -687,6 +688,26 @@ fn shop_mailing_list_line(action: &ShopMailingListAction) -> String {
         }
         ShopMailingListAction::Close { parcel_id, slug } => {
             format!("/shop mailing-list close {parcel_id} {slug}")
+        }
+    }
+}
+
+fn shop_route_line(action: &ShopRouteAction) -> String {
+    match action {
+        ShopRouteAction::Add {
+            parcel_id,
+            slug,
+            command_prefix,
+        } => {
+            format!("/shop route add {parcel_id} {slug} {command_prefix}")
+        }
+        ShopRouteAction::List { parcel_id } => format!("/shop route list {parcel_id}"),
+        ShopRouteAction::Remove {
+            parcel_id,
+            slug,
+            command_prefix,
+        } => {
+            format!("/shop route remove {parcel_id} {slug} {command_prefix}")
         }
     }
 }

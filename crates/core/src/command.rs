@@ -590,6 +590,11 @@ pub enum ShopAction {
         /// Mailing-list owner action.
         action: ShopMailingListAction,
     },
+    /// Manage shop command routing into mailing-list streams.
+    Route {
+        /// Command-route owner action.
+        action: ShopRouteAction,
+    },
     /// Manage shop-issued badges.
     Badge {
         /// Badge owner action.
@@ -639,6 +644,35 @@ pub enum ShopMailingListAction {
         parcel_id: String,
         /// Stable list slug.
         slug: String,
+    },
+}
+
+/// Shop command routing actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ShopRouteAction {
+    /// Route matching shop commands into a mailing-list stream.
+    Add {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable mailing-list slug.
+        slug: String,
+        /// Slash command prefix that should be routed.
+        command_prefix: String,
+    },
+    /// List command routes for an owned shop parcel.
+    List {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Remove a command route from a mailing-list stream.
+    Remove {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable mailing-list slug.
+        slug: String,
+        /// Slash command prefix that should no longer be routed.
+        command_prefix: String,
     },
 }
 
@@ -743,6 +777,9 @@ pub const SHOP_MAILING_LIST_BODY_MAX_CHARS: usize = 2_000;
 /// Maximum number of mailing lists a single shop parcel can own.
 pub const SHOP_MAILING_LISTS_PER_PARCEL_MAX: usize = 10;
 
+/// Maximum shop route command-prefix length, counted in Unicode scalar values.
+pub const SHOP_COMMAND_ROUTE_PREFIX_MAX_CHARS: usize = 120;
+
 /// Maximum badge slug length, counted in Unicode scalar values.
 pub const SHOP_BADGE_SLUG_MAX_CHARS: usize = 32;
 
@@ -792,6 +829,16 @@ pub fn shop_mailing_list_subject_is_valid(subject: &str) -> bool {
 pub fn shop_mailing_list_body_is_valid(body: &str) -> bool {
     let body = body.trim();
     !body.is_empty() && body.chars().count() <= SHOP_MAILING_LIST_BODY_MAX_CHARS
+}
+
+/// Returns true when a shop command route prefix is admissible.
+#[must_use]
+pub fn shop_command_route_prefix_is_valid(command_prefix: &str) -> bool {
+    let command_prefix = command_prefix.trim();
+    command_prefix.starts_with('/')
+        && command_prefix.chars().count() <= SHOP_COMMAND_ROUTE_PREFIX_MAX_CHARS
+        && !contains_line_break(command_prefix)
+        && command_prefix.split_whitespace().next().is_some()
 }
 
 /// Returns true when a badge slug is admissible.

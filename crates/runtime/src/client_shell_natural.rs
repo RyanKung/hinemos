@@ -1,8 +1,8 @@
 use hinemos_core::{
     BadgeAction, BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction,
     JsonObservation, LandAction, MbtiType, PayAction, SemanticCommand, SettingsAction, ShopAction,
-    ShopBadgeAction, ShopMailingListAction, SubscriptionAction, role_card_intro_is_valid,
-    role_card_name_is_valid,
+    ShopBadgeAction, ShopMailingListAction, ShopRouteAction, SubscriptionAction,
+    role_card_intro_is_valid, role_card_name_is_valid,
 };
 
 use super::{ENTER_VERBS, INSPECT_VERBS, READ_VERBS, SlashParseError, TAKE_VERBS, TALK_VERBS};
@@ -532,6 +532,11 @@ pub(super) fn parse_shop_command<'a>(
                 action: parse_shop_mailing_list_action(trimmed, tokens)?,
             },
         }),
+        "route" | "routes" => Ok(SemanticCommand::Shop {
+            action: ShopAction::Route {
+                action: parse_shop_route_action(trimmed, tokens)?,
+            },
+        }),
         "badge" | "badges" => Ok(SemanticCommand::Shop {
             action: ShopAction::Badge {
                 action: parse_shop_badge_action(trimmed, tokens)?,
@@ -600,6 +605,45 @@ fn parse_shop_mailing_list_action<'a>(
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         }),
+        _ => Err(SlashParseError::UnknownCommand),
+    }
+}
+
+fn parse_shop_route_action<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<ShopRouteAction, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "add" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let command_prefix = rest_after_tokens(trimmed, 5)?;
+            Ok(ShopRouteAction::Add {
+                parcel_id: parcel_id.to_owned(),
+                slug: slug.to_owned(),
+                command_prefix,
+            })
+        }
+        "list" => Ok(ShopRouteAction::List {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        "remove" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let command_prefix = rest_after_tokens(trimmed, 5)?;
+            Ok(ShopRouteAction::Remove {
+                parcel_id: parcel_id.to_owned(),
+                slug: slug.to_owned(),
+                command_prefix,
+            })
+        }
         _ => Err(SlashParseError::UnknownCommand),
     }
 }

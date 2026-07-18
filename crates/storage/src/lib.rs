@@ -13,7 +13,6 @@ mod schema;
 mod storage_badges;
 mod storage_ext;
 mod storage_mailing_lists;
-mod storage_marriage;
 mod storage_memory;
 mod storage_payments;
 mod storage_rooms;
@@ -42,10 +41,10 @@ pub(crate) use messages::NewInboxItem;
 pub use types::{
     NewMemoryAtom, NewMemoryEvent, StoredAccountSettings, StoredAdmission, StoredAgentSelfModel,
     StoredBalance, StoredHungerState, StoredIdentity, StoredInboxItem, StoredMailAuthToken,
-    StoredMarriageCertificate, StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand,
-    StoredParcel, StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding,
-    StoredRoomBindingKind, StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward,
-    StoredShopBadgeDefinition, StoredShopMailingList, StoredShopMailingListPost,
+    StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
+    StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind,
+    StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward, StoredShopBadgeDefinition,
+    StoredShopCommandRoute, StoredShopMailingList, StoredShopMailingListPost,
     StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredSocialEdge,
     StoredTransfer, StoredWorldMessage,
 };
@@ -80,8 +79,6 @@ pub struct ServiceRoomUpsert<'a> {
     pub custom_commands: Option<&'a str>,
     /// Optional command list that counts as hunger recovery.
     pub recovery_commands: Option<&'a str>,
-    /// Optional built-in handler key consumed by the built-in room runner.
-    pub builtin_handler: Option<&'a str>,
     /// Whether the room is currently enabled.
     pub enabled: bool,
 }

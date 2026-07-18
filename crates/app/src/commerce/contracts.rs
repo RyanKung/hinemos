@@ -282,6 +282,27 @@ pub trait ShopMailingListPostView {
     fn recipient_count(&self) -> i64;
 }
 
+/// Protocol-neutral view of a shop command route.
+pub trait ShopCommandRouteView {
+    /// Route id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable mailing-list slug.
+    fn slug(&self) -> &str;
+
+    /// Mailing-list title.
+    fn list_title(&self) -> &str;
+
+    /// Slash command prefix that is routed.
+    fn command_prefix(&self) -> &str;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+}
+
 /// Protocol-neutral view of a shop badge definition.
 pub trait ShopBadgeDefinitionView {
     /// Badge definition id.
@@ -378,6 +399,14 @@ pub struct ShopMailingListSend<P, I> {
     pub deliveries: Vec<ShopMailingListDelivery<I>>,
 }
 
+/// Result from dispatching one operator command into a routed stream.
+pub struct ShopCommandRouteDispatch<P, I> {
+    /// Stored mailing-list post created for the route.
+    pub post: P,
+    /// Created or reused inbox deliveries.
+    pub deliveries: Vec<ShopMailingListDelivery<I>>,
+}
+
 /// Storage boundary for shop operator actions.
 pub trait ShopStore {
     /// Store error type.
@@ -398,6 +427,8 @@ pub trait ShopStore {
     type MailingListSubscription: ShopMailingListSubscriptionView;
     /// Stored shop mailing-list post type.
     type MailingListPost: ShopMailingListPostView;
+    /// Stored shop command-route type.
+    type CommandRoute: ShopCommandRouteView;
     /// Stored shop badge definition type.
     type BadgeDefinition: ShopBadgeDefinitionView;
     /// Stored shop badge award type.
@@ -506,6 +537,40 @@ pub trait ShopStore {
         subject: &str,
         body: &str,
     ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error>;
+
+    /// Creates or returns a shop command route for an owned list.
+    async fn add_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<Self::CommandRoute, Self::Error>;
+
+    /// Lists shop command routes for an owned parcel.
+    async fn shop_command_routes(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::CommandRoute>, Self::Error>;
+
+    /// Removes a shop command route from an owned list.
+    async fn remove_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<Self::CommandRoute, Self::Error>;
+
+    /// Dispatches one saved operator command into matching route streams.
+    async fn dispatch_shop_command_routes<P>(
+        &self,
+        parcel: &P,
+        command_id: i64,
+    ) -> Result<Vec<ShopCommandRouteDispatch<Self::MailingListPost, Self::InboxItem>>, Self::Error>
+    where
+        P: ParcelView + Sync;
 
     /// Creates or updates a badge definition for an owned shop parcel.
     async fn create_shop_badge(

@@ -88,7 +88,7 @@ impl Chrome {
         Resident loop: use /map, /go, /who, /say, and /memory report <text> to search for residents and keep daily reports.\n\
         Land: /land list, /land info <doorplate>, /land claim <doorplate>, /land token <doorplate>, /land transfer <doorplate> <user>\n\
         Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
-        Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>; shop chats use /shop mailing-list create <parcel> <slug> <title>, /chat <parcel-or-shop> <slug> -- <message>\n\
+        Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>; shop chats use /shop mailing-list create <parcel> <slug> <title>, /chat <parcel-or-shop> <slug> -- <message>; route commands with /shop route add <parcel> <slug> <command-prefix>\n\
         Local extensions appear in Available inside their view.";
 
     /// Feedback line after inspecting an entity.

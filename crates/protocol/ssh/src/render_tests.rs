@@ -322,15 +322,15 @@ fn service_room_binding_respects_front_entity_before_overlay() {
     };
     let binding = StoredRoomBinding {
         kind: StoredRoomBindingKind::ServiceRoom,
-        view_id: "hinemos_bank".to_owned(),
+        view_id: "external_workshop".to_owned(),
         front_view_id: "official_street".to_owned(),
-        front_entity_id: Some("bank_kiosk".to_owned()),
-        address: "bank".to_owned(),
-        label: "Hinemos Bank".to_owned(),
+        front_entity_id: Some("workshop_kiosk".to_owned()),
+        address: "workshop".to_owned(),
+        label: "External Workshop".to_owned(),
         status_text: Some("Open weekdays".to_owned()),
-        custom_commands: Some("/balance".to_owned()),
+        custom_commands: Some("/room status".to_owned()),
         recovery_commands: None,
-        entry_text: "- bank Hinemos Bank. Enter: /enter bank.".to_owned(),
+        entry_text: "- workshop External Workshop. Enter: /enter workshop.".to_owned(),
         ascii_label: None,
         owner_user: None,
         parcel_status: None,
@@ -340,27 +340,27 @@ fn service_room_binding_respects_front_entity_before_overlay() {
         parcel_operator_prompt: None,
         parcel_custom_commands: None,
         parcel_mailing_lists: Vec::new(),
-        enter_aliases: vec!["bank".to_owned()],
-        room_user: Some("room-bank".to_owned()),
-        room_player_id: Some("room:bank".to_owned()),
+        enter_aliases: vec!["workshop".to_owned()],
+        room_user: Some("room-workshop".to_owned()),
+        room_player_id: Some("room:workshop".to_owned()),
         owner_player_id: None,
-        command_policy: StoredRoomCommandPolicy::ForwardListed(vec!["/balance".to_owned()]),
+        command_policy: StoredRoomCommandPolicy::ForwardListed(vec!["/room status".to_owned()]),
     };
 
     overlay_room_binding_entries(&mut observation, std::slice::from_ref(&binding));
-    assert!(!observation.description.contains("Hinemos Bank"));
+    assert!(!observation.description.contains("External Workshop"));
 
     observation.entities.push(EntityObservation {
-        id: "bank_kiosk".to_owned(),
+        id: "workshop_kiosk".to_owned(),
         kind: EntityKind::Npc,
-        name: "Bank Kiosk".to_owned(),
+        name: "Workshop Kiosk".to_owned(),
         description: String::new(),
         actions: vec![ActionKind::Talk],
     });
     overlay_room_binding_entries(&mut observation, &[binding]);
 
-    assert!(observation.description.contains("Hinemos Bank"));
-    assert!(render_text_observation(&observation).contains("/enter bank"));
+    assert!(observation.description.contains("External Workshop"));
+    assert!(render_text_observation(&observation).contains("/enter workshop"));
 }
 
 #[test]

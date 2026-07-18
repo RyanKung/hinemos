@@ -1,6 +1,9 @@
 use super::*;
-use crate::{StoredShopBadgeAward, StoredShopBadgeDefinition};
-use hinemos_app::{FromShopBadgeValidation, ShopBadgeAwardView, ShopBadgeDefinitionView};
+use crate::{StoredShopBadgeAward, StoredShopBadgeDefinition, StoredShopCommandRoute};
+use hinemos_app::{
+    FromShopBadgeValidation, ShopBadgeAwardView, ShopBadgeDefinitionView, ShopCommandRouteDispatch,
+    ShopCommandRouteView,
+};
 
 impl ParcelStore for PgStorage {
     type Error = StorageError;
@@ -320,6 +323,32 @@ impl ShopMailingListPostView for StoredShopMailingListPost {
     }
 }
 
+impl ShopCommandRouteView for StoredShopCommandRoute {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn list_title(&self) -> &str {
+        &self.list_title
+    }
+
+    fn command_prefix(&self) -> &str {
+        &self.command_prefix
+    }
+
+    fn created_at(&self) -> &str {
+        &self.created_at
+    }
+}
+
 impl ShopBadgeDefinitionView for StoredShopBadgeDefinition {
     fn id(&self) -> i64 {
         self.id
@@ -482,6 +511,7 @@ impl ShopStore for PgStorage {
     type MailingListSubscriber = StoredShopMailingListSubscriber;
     type MailingListSubscription = StoredShopMailingListSubscription;
     type MailingListPost = StoredShopMailingListPost;
+    type CommandRoute = StoredShopCommandRoute;
     type BadgeDefinition = StoredShopBadgeDefinition;
     type BadgeAward = StoredShopBadgeAward;
 
@@ -639,6 +669,47 @@ impl ShopStore for PgStorage {
             body,
         )
         .await
+    }
+
+    async fn add_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<Self::CommandRoute, Self::Error> {
+        PgStorage::add_shop_command_route(self, parcel_id, owner_player_id, slug, command_prefix)
+            .await
+    }
+
+    async fn shop_command_routes(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::CommandRoute>, Self::Error> {
+        PgStorage::shop_command_routes(self, parcel_id, owner_player_id).await
+    }
+
+    async fn remove_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<Self::CommandRoute, Self::Error> {
+        PgStorage::remove_shop_command_route(self, parcel_id, owner_player_id, slug, command_prefix)
+            .await
+    }
+
+    async fn dispatch_shop_command_routes<P>(
+        &self,
+        parcel: &P,
+        command_id: i64,
+    ) -> Result<Vec<ShopCommandRouteDispatch<Self::MailingListPost, Self::InboxItem>>, Self::Error>
+    where
+        P: ParcelView + Sync,
+    {
+        PgStorage::dispatch_shop_command_routes(self, parcel, command_id).await
     }
 
     async fn create_shop_badge(

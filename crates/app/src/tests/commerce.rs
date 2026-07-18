@@ -368,6 +368,73 @@ fn shop_mailing_list_chat_posts_as_member_message() {
 }
 
 #[test]
+fn shop_command_route_service_commands_render_expected_text() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let app = AppService::new(TestCommercialStore {
+            parcel: Mutex::new(TestCommercialParcel {
+                parcel_id: "P1",
+                view_id: "parcel-view",
+                front_view_id: "street-a",
+                district: "north",
+                position: 1,
+                owner_user: Some("owner".to_owned()),
+                owner_player_id: Some("owner-player".to_owned()),
+                room_user: Some("room-user".to_owned()),
+                room_player_id: Some("room-player".to_owned()),
+                status: PARCEL_STATUS_BUILT,
+                title: Some("Parcel".to_owned()),
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: None,
+            }),
+            calls: Mutex::new(Vec::new()),
+        });
+
+        let added = app
+            .add_shop_command_route("P1", "owner-player", "updates", "/paper submit")
+            .await
+            .expect("add route");
+        assert!(
+            added
+                .text
+                .contains("Routed shop commands matching /paper submit")
+        );
+        assert!(added.text.contains("/subscribe P1 updates"));
+
+        let listed = app
+            .list_shop_command_routes("P1", "owner-player")
+            .await
+            .expect("list routes");
+        assert!(listed.text.contains("Shop Command Routes for P1"));
+        assert!(listed.text.contains("/hello -> updates"));
+
+        let removed = app
+            .remove_shop_command_route("P1", "owner-player", "updates", "/paper submit")
+            .await
+            .expect("remove route");
+        assert!(
+            removed
+                .text
+                .contains("Removed shop command route /paper submit")
+        );
+
+        assert_eq!(
+            app.store().calls.lock().unwrap().clone(),
+            vec![
+                "route-add:P1:owner-player:updates:/paper submit".to_owned(),
+                "route-list:P1:owner-player".to_owned(),
+                "route-remove:P1:owner-player:updates:/paper submit".to_owned(),
+            ]
+        );
+    });
+}
+
+#[test]
 fn shop_badge_service_commands_render_expected_text() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()

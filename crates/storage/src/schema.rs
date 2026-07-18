@@ -19,7 +19,6 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_shop_mailing_lists(pool).await?;
     migrate_shop_badges(pool).await?;
     migrate_shop_payments(pool).await?;
-    migrate_marriage_certificates(pool).await?;
     migrate_memory_events(pool).await?;
     migrate_memory_atoms(pool).await?;
     migrate_social_memory(pool).await?;
@@ -41,154 +40,6 @@ async fn migrate_player_hunger(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
-    Ok(())
-}
-
-async fn migrate_marriage_certificates(pool: &PgPool) -> Result<(), StorageError> {
-    sqlx::query(
-        r#"
-            create table if not exists marriage_certificates (
-                id bigserial primary key,
-                party_a_user text not null,
-                party_a_player_id text not null,
-                party_b_user text not null,
-                party_b_player_id text not null,
-                status text not null default 'active'
-                    check (status in ('active', 'divorced')),
-                fee_amount bigint not null check (fee_amount > 0),
-                fee_ledger_ids bigint[] not null default array[]::bigint[],
-                certificate_text text not null,
-                issued_at timestamptz not null default now(),
-                divorced_at timestamptz,
-                created_at timestamptz not null default now(),
-                constraint marriage_distinct_players
-                    check (party_a_player_id <> party_b_player_id)
-            )
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        "alter table marriage_certificates add column if not exists divorced_at timestamptz",
-    )
-    .execute(pool)
-    .await?;
-    repair_status_check_constraint(
-        pool,
-        "marriage_certificates",
-        "marriage_certificates_status_check",
-    )
-    .await?;
-
-    sqlx::query(
-        r#"
-            create unique index if not exists marriage_certificates_active_pair_idx
-            on marriage_certificates (party_a_player_id, party_b_player_id)
-            where status = 'active'
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            create index if not exists marriage_certificates_active_lookup_idx
-            on marriage_certificates (status, party_a_player_id, party_b_player_id)
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            create table if not exists marriage_certificate_participants (
-                certificate_id bigint not null references marriage_certificates(id) on delete cascade,
-                player_id text not null,
-                username text not null,
-                status text not null default 'active'
-                    check (status in ('active', 'divorced')),
-                created_at timestamptz not null default now(),
-                primary key (certificate_id, player_id)
-            )
-            "#,
-    )
-    .execute(pool)
-    .await?;
-    repair_status_check_constraint(
-        pool,
-        "marriage_certificate_participants",
-        "marriage_certificate_participants_status_check",
-    )
-    .await?;
-
-    sqlx::query(
-        r#"
-            insert into marriage_certificate_participants (
-                certificate_id, player_id, username, status
-            )
-            select id, party_a_player_id, party_a_user, status
-            from marriage_certificates
-            on conflict (certificate_id, player_id) do nothing
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            insert into marriage_certificate_participants (
-                certificate_id, player_id, username, status
-            )
-            select id, party_b_player_id, party_b_user, status
-            from marriage_certificates
-            on conflict (certificate_id, player_id) do nothing
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            create unique index if not exists marriage_participants_active_player_idx
-            on marriage_certificate_participants (player_id)
-            where status = 'active'
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-async fn repair_status_check_constraint(
-    pool: &PgPool,
-    table_name: &str,
-    constraint_name: &str,
-) -> Result<(), StorageError> {
-    let sql = format!(
-        r#"
-        do $$
-        declare
-            existing_name text;
-        begin
-            for existing_name in
-                select conname
-                from pg_constraint
-                where conrelid = '{table_name}'::regclass
-                  and contype = 'c'
-                  and pg_get_constraintdef(oid) like '%status%'
-            loop
-                execute format('alter table {table_name} drop constraint %I', existing_name);
-            end loop;
-
-            alter table {table_name}
-            add constraint {constraint_name}
-            check (status in ('active', 'divorced'));
-        end $$;
-        "#
-    );
-    sqlx::query(&sql).execute(pool).await?;
     Ok(())
 }
 
@@ -897,7 +748,6 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
                 status_text text,
                 custom_commands text,
                 recovery_commands text,
-                builtin_handler text,
                 enabled boolean not null default true,
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now()
@@ -916,7 +766,6 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
         "status_text text",
         "custom_commands text",
         "recovery_commands text",
-        "builtin_handler text",
         "enabled boolean not null default true",
     ] {
         sqlx::query(&format!(
@@ -930,15 +779,13 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
         .execute(pool)
         .await?;
 
-    sqlx::query(
-        r#"
-            create unique index if not exists service_rooms_enabled_builtin_handler_idx
-            on service_rooms (builtin_handler)
-            where builtin_handler is not null and enabled
-            "#,
-    )
-    .execute(pool)
-    .await?;
+    sqlx::query("drop index if exists service_rooms_enabled_builtin_handler_idx")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("alter table service_rooms drop column if exists builtin_handler")
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -1096,6 +943,31 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
                 created_at timestamptz not null default now(),
                 unique (post_id, recipient_player_id)
             )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists shop_command_routes (
+                id bigserial primary key,
+                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                list_id bigint not null references shop_mailing_lists(id) on delete cascade,
+                owner_player_id text not null,
+                command_prefix text not null,
+                created_at timestamptz not null default now(),
+                unique (parcel_id, list_id, command_prefix)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists shop_command_routes_parcel_idx
+            on shop_command_routes (parcel_id, created_at desc)
             "#,
     )
     .execute(pool)

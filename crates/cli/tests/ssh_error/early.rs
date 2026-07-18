@@ -241,6 +241,27 @@ fn room_token_request_returns_authenticatable_service_room_token() {
     let temp = TestTempDir::new("hinemos-room-token");
     let world_dir = temp.path.join("world");
     copy_dir_recursive(&root.join("worlds/sample"), &world_dir);
+    fs::write(
+        world_dir.join("rooms.ron"),
+        r#"[
+    (
+        view_id: "external_room",
+        front_view_id: Some("arrival_street"),
+        front_entity_id: None,
+        address: Some("XR1"),
+        label: Some("External Room"),
+        enter_aliases: Some("external room"),
+        room_user: "room-external_room",
+        room_player_id: "room:external_room",
+        status_text: Some("External room used by the admin token test."),
+        custom_commands: Some("/room status"),
+        recovery_commands: None,
+        enabled: true,
+    ),
+]
+"#,
+    )
+    .expect("write external room registration");
 
     let host = "127.0.0.1";
     let port = free_local_port();
@@ -262,7 +283,7 @@ fn room_token_request_returns_authenticatable_service_room_token() {
     let response = unix_admin_call(
         &admin_socket,
         &AdminRequest::RoomToken {
-            view_id: "blackstone_izakaya".to_owned(),
+            view_id: "external_room".to_owned(),
         },
     )
     .expect("admin room-token");
@@ -276,9 +297,9 @@ fn room_token_request_returns_authenticatable_service_room_token() {
         } => (view_id, username, player_id, token),
         other => panic!("unexpected room-token response: {other:?}"),
     };
-    assert_eq!(view_id, "blackstone_izakaya");
-    assert_eq!(username, "room-blackstone_izakaya");
-    assert_eq!(player_id, "room:blackstone_izakaya");
+    assert_eq!(view_id, "external_room");
+    assert_eq!(username, "room-external_room");
+    assert_eq!(player_id, "room:external_room");
 
     assert_eq!(
         test_database.query_value(&format!(

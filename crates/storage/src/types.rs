@@ -286,8 +286,6 @@ pub struct StoredServiceRoom {
     pub custom_commands: Option<String>,
     /// Commands that count as hunger recovery, one command per line or semicolon.
     pub recovery_commands: Option<String>,
-    /// Optional built-in handler key consumed by the built-in room runner.
-    pub builtin_handler: Option<String>,
     /// Whether this registration is active.
     pub enabled: bool,
 }
@@ -609,6 +607,23 @@ pub struct StoredShopMailingListPost {
     pub created_at: String,
 }
 
+/// Stored shop command-route summary.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredShopCommandRoute {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the shop.
+    pub parcel_id: String,
+    /// Stable mailing-list slug.
+    pub slug: String,
+    /// Mailing-list title.
+    pub list_title: String,
+    /// Slash command prefix matched against operator commands.
+    pub command_prefix: String,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
 /// Stored shop badge definition summary.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopBadgeDefinition {
@@ -663,31 +678,6 @@ pub struct StoredShopBadgeAward {
     pub awarded_at: String,
     /// Database formatted revoke time.
     pub revoked_at: Option<String>,
-}
-
-/// Stored active marriage certificate.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct StoredMarriageCertificate {
-    /// Database id.
-    pub id: i64,
-    /// First participant username, canonicalized lexicographically by player id.
-    pub party_a_user: String,
-    /// First participant player id.
-    pub party_a_player_id: String,
-    /// Second participant username.
-    pub party_b_user: String,
-    /// Second participant player id.
-    pub party_b_player_id: String,
-    /// Certificate status, currently active.
-    pub status: String,
-    /// Per-player fee amount in MARK.
-    pub fee_amount: i64,
-    /// Ledger ids for the two fee charges.
-    pub fee_ledger_ids: Vec<i64>,
-    /// Rendered certificate text.
-    pub certificate_text: String,
-    /// Database formatted issue time.
-    pub issued_at: String,
 }
 
 /// New append-only memory event.

@@ -180,11 +180,6 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         "Sent to room service",
         "baseline resident path should not depend on service rooms",
     );
-    assert_not_contains(
-        &output,
-        "Workers Society front",
-        "baseline resident path should not expose builtin shopfront entities",
-    );
 
     let player_id = test_database.query_value(&format!(
         "select player_id from ssh_identities where username = '{user}'"

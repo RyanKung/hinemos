@@ -162,6 +162,19 @@ pub(super) enum ShopAppRequest<'a> {
         slug: &'a str,
     },
     MailingListSubscriptions,
+    RouteAdd {
+        parcel_id: &'a str,
+        slug: &'a str,
+        command_prefix: &'a str,
+    },
+    RouteList {
+        parcel_id: &'a str,
+    },
+    RouteRemove {
+        parcel_id: &'a str,
+        slug: &'a str,
+        command_prefix: &'a str,
+    },
     BadgeList {
         parcel_id: &'a str,
     },
@@ -266,6 +279,9 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             | AppRequest::ShopMailingListSubscribe { .. }
             | AppRequest::ShopMailingListUnsubscribe { .. }
             | AppRequest::ShopMailingListSubscriptions
+            | AppRequest::ShopRouteAdd { .. }
+            | AppRequest::ShopRouteList { .. }
+            | AppRequest::ShopRouteRemove { .. }
             | AppRequest::ShopBadgeList { .. }
             | AppRequest::ShopBadgeCreate { .. }
             | AppRequest::ShopBadgeAward { .. }
@@ -488,6 +504,27 @@ fn route_shop(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
         AppRequest::ShopMailingListSubscriptions => {
             RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscriptions)
         }
+        AppRequest::ShopRouteAdd {
+            parcel_id,
+            slug,
+            command_prefix,
+        } => RoutedAppRequest::Shop(ShopAppRequest::RouteAdd {
+            parcel_id,
+            slug,
+            command_prefix,
+        }),
+        AppRequest::ShopRouteList { parcel_id } => {
+            RoutedAppRequest::Shop(ShopAppRequest::RouteList { parcel_id })
+        }
+        AppRequest::ShopRouteRemove {
+            parcel_id,
+            slug,
+            command_prefix,
+        } => RoutedAppRequest::Shop(ShopAppRequest::RouteRemove {
+            parcel_id,
+            slug,
+            command_prefix,
+        }),
         AppRequest::ShopBadgeList { parcel_id } => {
             RoutedAppRequest::Shop(ShopAppRequest::BadgeList { parcel_id })
         }
@@ -609,7 +646,7 @@ mod tests {
     #[test]
     fn service_room_input_routes_without_interpreting_raw_text() {
         let routed = RoutedAppRequest::from(AppRequest::ServiceRoomInput {
-            room_view: "room-blackstone",
+            room_view: "external-room",
             raw_input: "hello",
         });
 
@@ -618,7 +655,7 @@ mod tests {
                 room_view,
                 raw_input,
             }) => {
-                assert_eq!(room_view, "room-blackstone");
+                assert_eq!(room_view, "external-room");
                 assert_eq!(raw_input, "hello");
             }
             _ => panic!("expected service room input route"),

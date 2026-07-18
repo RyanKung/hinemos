@@ -111,6 +111,27 @@ pub(super) fn shop_request(action: &ShopAction) -> AppRequest<'_> {
                 AppRequest::ShopMailingListClose { parcel_id, slug }
             }
         },
+        ShopAction::Route { action } => match action {
+            ShopRouteAction::Add {
+                parcel_id,
+                slug,
+                command_prefix,
+            } => AppRequest::ShopRouteAdd {
+                parcel_id,
+                slug,
+                command_prefix,
+            },
+            ShopRouteAction::List { parcel_id } => AppRequest::ShopRouteList { parcel_id },
+            ShopRouteAction::Remove {
+                parcel_id,
+                slug,
+                command_prefix,
+            } => AppRequest::ShopRouteRemove {
+                parcel_id,
+                slug,
+                command_prefix,
+            },
+        },
         ShopAction::Badge { action } => match action {
             ShopBadgeAction::List { parcel_id } => AppRequest::ShopBadgeList { parcel_id },
             ShopBadgeAction::Create {

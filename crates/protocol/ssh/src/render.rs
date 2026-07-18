@@ -175,10 +175,12 @@ pub(crate) fn overlay_parcel_observation(
             }
             if let Some(description) = binding.parcel_description.as_deref() {
                 let shop_commands = format_shop_commands(binding);
+                let style =
+                    sentence_terminated(binding.parcel_style.as_deref().unwrap_or("unspecified"));
                 observation.description = format!(
-                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}.\nShop commands: {}.\nMailing lists: {}.\nOperator prompt: {}",
+                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}\nShop commands: {}.\nMailing lists: {}.\nOperator prompt: {}",
                     binding.address,
-                    binding.parcel_style.as_deref().unwrap_or("unspecified"),
+                    style,
                     shop_commands.as_deref().unwrap_or("not specified"),
                     format_shop_mailing_lists(binding)
                         .as_deref()
@@ -231,6 +233,15 @@ pub(crate) fn overlay_parcel_observation(
 pub(crate) fn overlay_service_room(observation: &mut JsonObservation, room: &impl ServiceRoomView) {
     if let Some(status) = room.status_text().filter(|status| !status.is_empty()) {
         observation.description = format!("{}\n{status}", observation.description);
+    }
+}
+
+fn sentence_terminated(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.ends_with('.') || trimmed.ends_with('!') || trimmed.ends_with('?') {
+        trimmed.to_owned()
+    } else {
+        format!("{trimmed}.")
     }
 }
 

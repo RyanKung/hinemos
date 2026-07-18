@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use hinemos_core::{
     ActionKind, BadgeAction, BuildAction, Direction, EntityKind, EntityObservation, EntityRef,
     Gender, GridRoad, InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand,
-    SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
+    SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, ShopRouteAction,
+    SubscriptionAction,
 };
 
 use super::{Chrome, SlashParseError, render_text_observation};
@@ -339,6 +340,34 @@ fn slash_parser_accepts_shop_mailing_list_actions() {
                     slug: "n".to_owned(),
                     subject: "Hello".to_owned(),
                     body: "Body".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop route add N1 submissions /paper submit")
+            .expect("shop route add parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Route {
+                action: ShopRouteAction::Add {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned(),
+                    command_prefix: "/paper submit".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/shop route remove N1 submissions /paper submit")
+            .expect("shop route remove parses"),
+        SemanticCommand::Shop {
+            action: ShopAction::Route {
+                action: ShopRouteAction::Remove {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned(),
+                    command_prefix: "/paper submit".to_owned()
                 }
             }
         }

@@ -63,7 +63,6 @@ fn service_room(
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     }
 }
@@ -317,7 +316,6 @@ fn room_directory_cache_invalidates_commercial_parcel_scopes() {
                 status_text: None,
                 custom_commands: None,
                 recovery_commands: None,
-                builtin_handler: None,
                 enabled: true,
             }),
         },
@@ -356,7 +354,6 @@ fn room_directory_cache_caches_service_rooms_by_room_user() {
                 status_text: None,
                 custom_commands: None,
                 recovery_commands: None,
-                builtin_handler: None,
                 enabled: true,
             }],
         },
@@ -388,7 +385,6 @@ fn room_directory_cache_caches_room_contexts_by_view() {
                     status_text: None,
                     custom_commands: None,
                     recovery_commands: None,
-                    builtin_handler: None,
                     enabled: true,
                 }),
                 front_bindings: Vec::new(),
@@ -518,7 +514,6 @@ fn service_room_enter_tokens_normalize_and_dedupe_aliases() {
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     };
 
@@ -552,7 +547,6 @@ fn service_room_alias_conflict_rejects_same_front_view_tokens() {
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();
@@ -597,7 +591,6 @@ fn service_room_alias_conflict_rejects_address_conflict() {
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();
@@ -658,7 +651,6 @@ fn service_room_alias_conflict_rejects_parcel_id() {
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();

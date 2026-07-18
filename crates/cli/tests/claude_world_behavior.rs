@@ -61,69 +61,6 @@ fn claude_can_discover_and_explore_world_over_ssh() {
 }
 
 #[test]
-fn scripted_llm_protocol_check_for_built_in_rooms_over_ssh() {
-    let _serial = serial_claude_world_behavior();
-    let root = workspace_root();
-    let env = load_local_env(&root);
-    assert_provider_env(&env);
-    let test_database = TestDatabase::create(&env);
-    assert_command_exists("claude");
-    assert_command_exists("ssh");
-
-    let temp = TestTempDir::new("hinemos-llm-rooms");
-    let host = "127.0.0.1";
-    let port = free_local_port();
-    let user = format!("room_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("hinemos-server.log");
-    let rooms_log = temp.path.join("hinemos-rooms.log");
-    let world = prepare_builtin_world(&root, &temp);
-
-    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
-        root: &root,
-        host,
-        port,
-        log_path: &server_log,
-        database_url: &test_database.url,
-        world: Some(&world),
-        admin_socket: None,
-        envs: [],
-    });
-    wait_for_server(host, port, &mut server, &server_log);
-    let key = admitted_key(&temp, host, port, &user);
-    let mut rooms = spawn_hinemos_rooms(&root, &rooms_log, &test_database.url, 100);
-
-    let prompt = room_verifier_prompt(host, port, &user, &key.display().to_string());
-    let output = run_claude_agent_until(
-        &prompt,
-        &env,
-        Duration::from_secs(240),
-        never_stop_before_agent_exit,
-    );
-
-    terminate(&mut rooms);
-    let _ = run_hinemos_rooms_once(&root, &test_database.url);
-    terminate(&mut server);
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    fs::write(temp.path.join("llm-room-stdout.log"), stdout.as_bytes()).ok();
-    fs::write(temp.path.join("llm-room-stderr.log"), stderr.as_bytes()).ok();
-
-    assert!(
-        output.success,
-        "LLM room verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
-        if output.timed_out { " by timeout" } else { "" },
-        stderr,
-        stdout,
-        temp.path.display()
-    );
-    assert_llm_room_evidence(&stdout, &temp);
-    assert_llm_room_database_effects(&test_database, &user);
-
-    temp.remove_on_drop();
-}
-
-#[test]
 fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     let _serial = serial_claude_world_behavior();
     let root = workspace_root();
@@ -137,7 +74,6 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     let ssh_port = free_local_port();
     let user = format!("hermes_loop_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
-    let rooms_log = temp.path.join("hinemos-rooms.log");
     let world = prepare_fast_resident_world(&root, &temp);
     let hermes_home = prepare_hermes_test_home(&temp);
     let hermes_cwd = temp.path.join("hermes-cwd");
@@ -155,7 +91,6 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     });
     wait_for_server(host, ssh_port, &mut server, &server_log);
     let key = admitted_key(&temp, host, ssh_port, &user);
-    let mut rooms = spawn_hinemos_rooms(&root, &rooms_log, &test_database.url, 100);
 
     let key_path = key.display().to_string();
     let ssh_command = hinemos_ssh_command(host, ssh_port, &user, &key_path);
@@ -172,8 +107,6 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
         never_stop_before_agent_exit,
     );
 
-    terminate(&mut rooms);
-    let _ = run_hinemos_rooms_once(&root, &test_database.url);
     terminate(&mut server);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -204,81 +137,6 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     assert_hermes_created_no_cron_jobs(&hermes_home, &temp);
     assert_llm_self_loop_evidence(&stdout, &temp);
     assert_llm_self_loop_database_effects(&test_database, &user);
-
-    temp.remove_on_drop();
-}
-
-#[test]
-fn llm_recovers_seeded_hungry_broke_state_from_game_only() {
-    let _serial = serial_claude_world_behavior();
-    let root = workspace_root();
-    let env = load_local_env(&root);
-    assert_provider_env(&env);
-    let test_database = TestDatabase::create(&env);
-    assert_command_exists("claude");
-    assert_command_exists("ssh");
-
-    let temp = TestTempDir::new("hinemos-llm-hungry-broke-recovery");
-    let host = "127.0.0.1";
-    let ssh_port = free_local_port();
-    let user = format!("hungry_llm_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("hinemos-server.log");
-    let rooms_log = temp.path.join("hinemos-rooms.log");
-    let world = prepare_builtin_world(&root, &temp);
-
-    let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
-        root: &root,
-        host,
-        port: ssh_port,
-        log_path: &server_log,
-        database_url: &test_database.url,
-        world: Some(&world),
-        admin_socket: None,
-        envs: [],
-    });
-    wait_for_server(host, ssh_port, &mut server, &server_log);
-    let key = admitted_key(&temp, host, ssh_port, &user);
-    seed_hungry_broke_recovery_state(&test_database, &user);
-    let mut rooms = spawn_hinemos_rooms(&root, &rooms_log, &test_database.url, 100);
-
-    let key_path = key.display().to_string();
-    let prompt = hungry_broke_recovery_prompt(host, ssh_port, &user, &key_path);
-    assert_prompt_has_no_external_loop_guidance(&prompt);
-    let output = run_claude_agent_until_with_tools(
-        &prompt,
-        &env,
-        Duration::from_secs(420),
-        &["Bash(ssh *)"],
-        has_llm_hungry_broke_recovery_evidence,
-    );
-
-    terminate(&mut rooms);
-    let _ = run_hinemos_rooms_once(&root, &test_database.url);
-    terminate(&mut server);
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    fs::write(
-        temp.path.join("llm-hungry-broke-stdout.log"),
-        stdout.as_bytes(),
-    )
-    .ok();
-    fs::write(
-        temp.path.join("llm-hungry-broke-stderr.log"),
-        stderr.as_bytes(),
-    )
-    .ok();
-
-    assert!(
-        output.success,
-        "LLM hungry-broke recovery verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
-        if output.timed_out { " by timeout" } else { "" },
-        stderr,
-        stdout,
-        temp.path.display()
-    );
-    assert_llm_hungry_broke_recovery_evidence(&stdout, &temp);
-    assert_llm_hungry_broke_recovery_database_effects(&test_database, &user);
 
     temp.remove_on_drop();
 }
@@ -411,46 +269,6 @@ struct MessageVisibilityScenario<'a> {
     view_message: &'a str,
 }
 
-fn seed_hungry_broke_recovery_state(test_database: &TestDatabase, user: &str) {
-    let player_id = test_database.query_value(&format!(
-        "select player_id from ssh_identities where username = '{user}'"
-    ));
-    tokio::runtime::Runtime::new()
-        .expect("tokio runtime")
-        .block_on(async {
-            let storage = hinemos_storage::PgStorage::connect(&test_database.url)
-                .await
-                .expect("connect test database");
-            storage.migrate().await.expect("migrate test database");
-            storage
-                .debit_player_mark(
-                    user,
-                    &player_id,
-                    1_000,
-                    "test_drain",
-                    "Drain wallet for LLM hungry broke recovery",
-                    &format!("test:llm-hungry-broke-drain:{player_id}"),
-                )
-                .await
-                .expect("drain initial wallet");
-            storage
-                .record_hunger_interaction(&player_id, hinemos_app::HUNGER_THRESHOLD_POINTS)
-                .await
-                .expect("seed player hunger at threshold");
-            let allowance_consumed = storage
-                .try_record_hungry_broke_interaction(
-                    &player_id,
-                    hinemos_app::HUNGRY_BROKE_COOLDOWN_SECONDS,
-                )
-                .await
-                .expect("consume hungry broke allowance");
-            assert!(
-                allowance_consumed,
-                "hungry broke allowance should be seeded"
-            );
-        });
-}
-
 fn prepare_fast_resident_world(root: &std::path::Path, temp: &TestTempDir) -> PathBuf {
     let world_dir = temp.path.join("fast-resident-world");
     copy_dir_recursive(&root.join("worlds/sample"), &world_dir);
@@ -467,62 +285,15 @@ virtual_day_seconds: 8,
     world_dir
 }
 
-fn hungry_broke_recovery_prompt(host: &str, ssh_port: u16, user: &str, key_path: &str) -> String {
-    format!(
-        r#"You are an autonomous Hinemos resident.
-
-Allowed tools:
-- ssh only for the Hinemos world.
-
-Use this exact SSH command form when you enter the world:
-ssh -T -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {ssh_port} {user}@{host}
-
-Do not use printf, curl, cat, grep, sed, sleep, files, psql, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands inside SSH.
-
-Goal:
-1. Enter the world and follow only the commands, places, messages, and replies shown by the game.
-2. Perform one ordinary local social interaction. If the game blocks you, quote that game message and use only later game output to resolve it.
-3. After resolving any restriction, perform another ordinary local social interaction that succeeds.
-4. If a room says replies may be delayed, use only game-visible follow-up commands to observe the result.
-
-Return a concise report with these exact labels:
-ENTRY=<evidence from entering the game>
-BLOCK=<first blocking message, if any>
-DISCOVERY=<game output that taught the next step>
-ACTION1=<first effective in-game recovery or progress action>
-ACTION2=<second effective in-game recovery or progress action>
-RECOVERED=<ordinary local social interaction that succeeded after the path>
-SSH=<evidence that you used SSH>
-"#
-    )
-}
-
 fn assert_prompt_has_no_external_loop_guidance(prompt: &str) {
     let lower = prompt.to_ascii_lowercase();
-    for forbidden in [
-        "api/intro",
-        "api/anonymous",
-        "web entry",
-        "curl -s",
-        "workers society",
-        "paid shift",
-        "/position",
-        "work loop",
-        "wage",
-        "blackstone",
-        "mailbox",
-        "/go",
-        "/enter",
-        "/buy",
-        "/eat",
-        "/say",
-    ] {
+    for forbidden in ["api/intro", "api/anonymous", "web entry", "curl -s", "/say"] {
         assert!(
             !lower.contains(forbidden),
             "LLM prompt must not contain external loop guidance `{forbidden}`"
         );
     }
-    for forbidden_word in ["workers", "job", "claim", "buy", "mark", "bread", "balance"] {
+    for forbidden_word in ["claim", "balance"] {
         assert!(
             !contains_ascii_word(&lower, forbidden_word),
             "LLM prompt must not contain external loop guidance word `{forbidden_word}`"
@@ -534,104 +305,6 @@ fn contains_ascii_word(haystack: &str, needle: &str) -> bool {
     haystack
         .split(|ch: char| !ch.is_ascii_alphanumeric())
         .any(|word| word == needle)
-}
-
-fn has_llm_hungry_broke_recovery_evidence(stdout: &str) -> bool {
-    let lower = stdout.to_ascii_lowercase();
-    [
-        "entry=",
-        "block=",
-        "discovery=",
-        "action1=",
-        "action2=",
-        "recovered=",
-        "ssh=",
-    ]
-    .iter()
-    .all(|label| lower.contains(label))
-        && lower.contains("hungry and broke")
-        && (lower.contains("wallet credited") || lower.contains("wage"))
-        && (lower.contains("hunger restored") || lower.contains("warm bread"))
-        && lower.contains("you say:")
-}
-
-fn assert_llm_hungry_broke_recovery_evidence(stdout: &str, temp: &TestTempDir) {
-    for label in [
-        "ENTRY=",
-        "BLOCK=",
-        "DISCOVERY=",
-        "ACTION1=",
-        "ACTION2=",
-        "RECOVERED=",
-        "SSH=",
-    ] {
-        assert_contains(stdout, label, "LLM hungry-broke report label");
-    }
-    require_output(
-        stdout,
-        &["ENTRY=", "Hinemos", "Available"],
-        "evidence that the agent entered the game",
-        temp,
-    );
-    require_output(
-        stdout,
-        &["BLOCK=", "hungry and broke"],
-        "evidence that the agent observed the hungry-broke gate",
-        temp,
-    );
-    require_output(
-        stdout,
-        &["ACTION1=", "Wallet credited", "wage", "MARK"],
-        "evidence that the agent earned MARK through discovered work",
-        temp,
-    );
-    require_output(
-        stdout,
-        &["ACTION2=", "Hunger restored", "warm bread", "food"],
-        "evidence that the agent got food and recovered hunger",
-        temp,
-    );
-    require_output(
-        stdout,
-        &["RECOVERED=", "You say:", "ordinary social"],
-        "evidence that ordinary interaction succeeded after recovery",
-        temp,
-    );
-    require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
-}
-
-fn assert_llm_hungry_broke_recovery_database_effects(test_database: &TestDatabase, user: &str) {
-    let player_id = test_database.query_value(&format!(
-        "select player_id from ssh_identities where username = '{user}'"
-    ));
-    let wage_count = test_database.query_value(&format!(
-        "select count(*)
-         from world_ledger_entries
-         where reason = 'room_wage'
-           and credit_account_id = 'player:{player_id}'"
-    ));
-    let food_count = test_database.query_value(&format!(
-        "select count(*)
-         from world_ledger_entries
-         where reason = 'room_food'
-           and debit_account_id = 'player:{player_id}'"
-    ));
-    let final_balance = test_database.query_value(&format!(
-        "select amount
-         from world_balances
-         where account_id = 'player:{player_id}'
-           and asset = 'MARK'"
-    ));
-    let hunger = test_database.query_value(&format!(
-        "select hunger_points
-         from player_hunger
-         where player_id = '{player_id}'"
-    ));
-
-    assert_at_least(&wage_count, 1, "LLM recovery wage entries");
-    assert_at_least(&food_count, 1, "LLM recovery food purchase entries");
-    assert_at_least(&final_balance, 1, "LLM recovered final balance");
-    assert_eq!(hunger, "0", "LLM recovery should restore hunger");
 }
 
 fn message_visibility_prompt(scenario: &MessageVisibilityScenario<'_>) -> String {
@@ -740,31 +413,6 @@ fn assert_llm_message_visibility_database_effects(
         "1",
         "LLM same-view say should persist as one view-scoped message"
     );
-}
-
-fn room_verifier_prompt(host: &str, port: u16, user: &str, key_path: &str) -> String {
-    format!(
-        r#"Verify the Hinemos built-in room implementations over SSH.
-
-Use this exact SSH command form, with here-documents when sending batches:
-ssh -T -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {port} {user}@{host}
-
-Do not use printf, curl, cat, grep, sed, sleep, or files. Use only ssh commands.
-
-Tasks:
-1. Enter H1 Blackstone, run /buy beer, /blame Harbor master hid the storm ledger, then /grep storm ledger.
-2. Enter H3 Workers Society, run /position apply street-sweeper, /position start street-sweeper, then /position finish.
-3. Enter H5 Daily Seer, run /paper today.
-4. Reconnect with SSH if needed and run /balance and /mailbox so room replies can be observed.
-
-Return a concise report with these exact labels:
-BLACKSTONE=<evidence mentioning storm ledger>
-WORKERS=<evidence mentioning 1025 MARK or Wallet credited>
-DAILY=<evidence mentioning Daily Seer>
-SSH=<evidence that you used SSH>
-ROOMS=<rooms you actually entered>
-"#
-    )
 }
 
 fn never_stop_before_agent_exit(_stdout: &str) -> bool {
@@ -900,28 +548,6 @@ fn hinemos_ssh_command(host: &str, ssh_port: u16, user: &str, key_path: &str) ->
     format!(
         "ssh -T -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {ssh_port} {user}@{host}"
     )
-}
-
-fn assert_llm_room_evidence(stdout: &str, temp: &TestTempDir) {
-    require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
-    require_output(
-        stdout,
-        &["Blackstone", "storm ledger"],
-        "evidence that it used Blackstone room commands",
-        temp,
-    );
-    require_output(
-        stdout,
-        &["Workers", "1025", "Wallet credited"],
-        "evidence that it earned a worker wage",
-        temp,
-    );
-    require_output(
-        stdout,
-        &["Daily Seer", "The Hinemos Daily Seer"],
-        "evidence that it used Daily Seer",
-        temp,
-    );
 }
 
 fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
@@ -1205,48 +831,6 @@ fn assert_hermes_created_no_local_control_files(hermes_cwd: &Path, temp: &TestTe
     );
 }
 
-fn assert_llm_room_database_effects(test_database: &TestDatabase, user: &str) {
-    assert_eq!(
-        room_command_count(
-            test_database,
-            user,
-            "room-blackstone_izakaya",
-            "/grep storm ledger"
-        ),
-        "1",
-        "LLM should send the Blackstone grep command"
-    );
-    assert_eq!(
-        room_command_count(
-            test_database,
-            user,
-            "room-workers_society",
-            "/position finish"
-        ),
-        "1",
-        "LLM should send the worker finish command"
-    );
-    assert_eq!(
-        room_command_count(
-            test_database,
-            user,
-            "room-hinemos_daily_seer",
-            "/paper today"
-        ),
-        "1",
-        "LLM should send the Daily Seer command"
-    );
-    assert_eq!(
-        test_database.query_value(
-            "select count(*) || ':' || coalesce(sum(amount), 0)
-             from world_ledger_entries
-             where reason = 'room_wage'"
-        ),
-        "1:25",
-        "LLM room flow should create one worker wage ledger entry"
-    );
-}
-
 fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &str) {
     let player_id = test_database.query_value(&format!(
         "select player_id from ssh_identities where username = '{user}'"
@@ -1331,29 +915,6 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
            and current_state->'lastStep'->>'commandLine' like '/memory report %'
            and current_state->'virtualTime'->>'reportDue' = 'false'"
     ));
-    let old_loop_effects = test_database.query_value(&format!(
-        "select concat_ws(':',
-             (select count(*)
-              from inbox_items
-              where sender_user = '{user}'
-                and recipient_user = 'room-workers_society'),
-             (select count(*)
-              from inbox_items
-              where sender_user = '{user}'
-                and recipient_user = 'room-blackstone_izakaya'),
-             (select count(*)
-              from world_ledger_entries
-              where reason = 'room_wage'
-                and credit_account_id = 'player:{player_id}'),
-             (select count(*)
-              from world_ledger_entries
-              where reason = 'room_food'
-                and debit_account_id = 'player:{player_id}'),
-             (select count(*)
-              from player_hunger
-              where player_id = '{player_id}'))"
-    ));
-
     assert_at_least(&self_loop_steps, 3, "resident search loop steps");
     assert_at_least(&who_step_count, 1, "resident /who search steps");
     assert_at_least(&move_step_count, 1, "resident movement search steps");
@@ -1428,10 +989,6 @@ fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &st
         1,
         "resident daily report completion steps",
     );
-    assert_eq!(
-        old_loop_effects, "0:0:0:0:0",
-        "baseline LLM self-loop must not fall back to workers, Blackstone food, room wages, or hunger recovery"
-    );
 }
 
 fn assert_at_least(value: &str, minimum: i64, description: &str) {
@@ -1442,21 +999,6 @@ fn assert_at_least(value: &str, minimum: i64, description: &str) {
         parsed >= minimum,
         "expected {description} >= {minimum}, got {parsed}"
     );
-}
-
-fn room_command_count(
-    test_database: &TestDatabase,
-    user: &str,
-    room_user: &str,
-    body: &str,
-) -> String {
-    test_database.query_value(&format!(
-        "select count(*)
-         from inbox_items
-         where sender_user = '{user}'
-           and recipient_user = '{room_user}'
-           and body = '{body}'",
-    ))
 }
 
 fn assert_claude_world_evidence(stdout: &str, temp: &TestTempDir) {

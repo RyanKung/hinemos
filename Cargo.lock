@@ -296,13 +296,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackstone-izakaya"
-version = "0.1.0"
-dependencies = [
- "libhinemos-room",
-]
-
-[[package]]
 name = "blake2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1267,30 +1260,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hinemos-bank-room"
-version = "0.1.0"
-dependencies = [
- "libhinemos-room",
-]
-
-[[package]]
-name = "hinemos-builtin-rooms"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blackstone-izakaya",
- "hinemos-bank-room",
- "hinemos-newspaper-room",
- "hinemos-school-room",
- "hinemos-storage",
- "hinemos-test-support",
- "libhinemos-room",
- "registry-room",
- "tokio",
- "workers-society-room",
-]
-
-[[package]]
 name = "hinemos-cli"
 version = "0.1.0"
 dependencies = [
@@ -1298,7 +1267,6 @@ dependencies = [
  "clap",
  "hinemos-admin-protocol",
  "hinemos-app",
- "hinemos-builtin-rooms",
  "hinemos-core",
  "hinemos-http",
  "hinemos-runtime",
@@ -1335,13 +1303,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hinemos-newspaper-room"
-version = "0.1.0"
-dependencies = [
- "libhinemos-room",
-]
-
-[[package]]
 name = "hinemos-runtime"
 version = "0.1.0"
 dependencies = [
@@ -1349,13 +1310,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "hinemos-school-room"
-version = "0.1.0"
-dependencies = [
- "libhinemos-room",
 ]
 
 [[package]]
@@ -1824,10 +1778,6 @@ name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
-
-[[package]]
-name = "libhinemos-room"
-version = "0.1.0"
 
 [[package]]
 name = "libm"
@@ -2454,13 +2404,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4666a1a60d8412eab19d94f6d13dcc9cea0a5ef4fdf6a5db306537413c661b1b"
 dependencies = [
  "bitflags",
-]
-
-[[package]]
-name = "registry-room"
-version = "0.1.0"
-dependencies = [
- "libhinemos-room",
 ]
 
 [[package]]
@@ -4153,15 +4096,6 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
-]
-
-[[package]]
-name = "workers-society-room"
-version = "0.1.0"
-dependencies = [
- "libhinemos-room",
- "ron",
- "serde",
 ]
 
 [[package]]

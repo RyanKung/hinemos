@@ -1,8 +1,8 @@
 use super::contracts::{
     BuildStore, FromMailingListValidation, FromShopBadgeValidation, LandStore, ParcelStore,
     ParcelView, PaymentRequestView, PaymentStore, ShopBadgeAwardView, ShopBadgeDefinitionView,
-    ShopMailingListSubscriberView, ShopMailingListSubscriptionView, ShopMailingListView, ShopStore,
-    TransferView,
+    ShopCommandRouteView, ShopMailingListSubscriberView, ShopMailingListSubscriptionView,
+    ShopMailingListView, ShopStore, TransferView,
 };
 use super::rendering::{
     custom_command_preview, is_custom_command_input, non_empty, render_parcel_detail,
@@ -17,8 +17,9 @@ use crate::{
     AppIdentity, AppService, BuildSheet, LiveInboxNotice, MailAuthTokenView, OperatorCommandView,
     PARCEL_STATUS_BUILT, RoomBindingKindView, UiEvent, shop_badge_description_is_valid,
     shop_badge_note_is_valid, shop_badge_slug_is_valid, shop_badge_title_is_valid,
-    shop_mailing_list_body_is_valid, shop_mailing_list_slug_is_valid,
-    shop_mailing_list_subject_is_valid, shop_mailing_list_title_is_valid,
+    shop_command_route_prefix_is_valid, shop_mailing_list_body_is_valid,
+    shop_mailing_list_slug_is_valid, shop_mailing_list_subject_is_valid,
+    shop_mailing_list_title_is_valid,
 };
 
 impl<S, E> AppService<S>
@@ -284,6 +285,72 @@ where
             .await
     }
 
+    /// Adds a command route from a shop command prefix into a shop-chat stream.
+    pub async fn add_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<BusinessListResult, E> {
+        validate_mailing_list_slug(slug)?;
+        validate_command_route_prefix(command_prefix)?;
+        let route = self
+            .store
+            .add_shop_command_route(parcel_id, owner_player_id, slug, command_prefix)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Routed shop commands matching {} to {} ({}) for parcel {}.\r\nSubscribers receive matching commands as inbox mail. Join: /subscribe {} {}\r\n",
+                route.command_prefix(),
+                route.list_title(),
+                route.slug(),
+                route.parcel_id(),
+                route.parcel_id(),
+                route.slug()
+            ),
+        })
+    }
+
+    /// Lists command routes for an owned shop parcel.
+    pub async fn list_shop_command_routes(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let routes = self
+            .store
+            .shop_command_routes(parcel_id, owner_player_id)
+            .await?;
+        Ok(BusinessListResult {
+            text: render_shop_command_routes(parcel_id, &routes).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Removes a command route from a shop-chat stream.
+    pub async fn remove_shop_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<BusinessListResult, E> {
+        validate_mailing_list_slug(slug)?;
+        validate_command_route_prefix(command_prefix)?;
+        let route = self
+            .store
+            .remove_shop_command_route(parcel_id, owner_player_id, slug, command_prefix)
+            .await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Removed shop command route {} -> {} for parcel {}.\r\n",
+                route.command_prefix(),
+                route.slug(),
+                route.parcel_id()
+            ),
+        })
+    }
+
     /// Creates or updates a badge definition for an owned shop parcel.
     pub async fn create_shop_badge(
         &self,
@@ -434,11 +501,28 @@ where
             .store
             .inbox_item_by_source(inbox_player_id, "operator_command", command.id())
             .await?;
+        let routed = self
+            .store
+            .dispatch_shop_command_routes(binding, command.id())
+            .await?;
+        let routed_streams = routed.len();
+        let routed_deliveries = routed
+            .iter()
+            .map(|dispatch| dispatch.deliveries.len())
+            .sum::<usize>();
+        let route_summary = if routed_streams == 0 {
+            String::new()
+        } else {
+            format!(
+                "Routed to {routed_streams} shop stream(s), {routed_deliveries} subscriber inbox(es).\r\n"
+            )
+        };
         let mut events = vec![UiEvent::Text(format!(
-            "Shop request #{} sent to owner {} for parcel {}.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\n{}",
+            "Shop request #{} sent to owner {} for parcel {}.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\n{}{}",
             command.id(),
             command.owner_user(),
             command.parcel_id(),
+            route_summary,
             custom_command_preview(binding, raw_line)
                 .map(|preview| format!("Preview: {preview}\r\n"))
                 .unwrap_or_default()
@@ -447,6 +531,14 @@ where
             target_player_id: owner_player_id.to_owned(),
             notice: LiveInboxNotice::from_item(&inbox_item),
         });
+        for dispatch in routed {
+            events.extend(dispatch.deliveries.into_iter().map(|delivery| {
+                UiEvent::LiveInboxNotice {
+                    target_player_id: delivery.recipient_player_id,
+                    notice: LiveInboxNotice::from_item(&delivery.inbox_item),
+                }
+            }));
+        }
         Ok(Some(events))
     }
 }
@@ -492,6 +584,17 @@ where
         Ok(())
     } else {
         Err(E::invalid_mailing_list("invalid mailing-list body"))
+    }
+}
+
+fn validate_command_route_prefix<E>(command_prefix: &str) -> Result<(), E>
+where
+    E: FromMailingListValidation,
+{
+    if shop_command_route_prefix_is_valid(command_prefix) {
+        Ok(())
+    } else {
+        Err(E::invalid_mailing_list("invalid shop command route prefix"))
     }
 }
 
@@ -613,6 +716,28 @@ fn render_shop_mailing_list_subscriptions(
                 subscription.slug(),
                 subscription.parcel_id(),
                 subscription.slug()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_shop_command_routes(parcel_id: &str, routes: &[impl ShopCommandRouteView]) -> String {
+    let mut lines = vec![format!("Shop Command Routes for {parcel_id}")];
+    if routes.is_empty() {
+        lines.push(
+            "No command routes. Create one with /shop route add <parcel> <slug> <command-prefix>."
+                .to_owned(),
+        );
+    } else {
+        for route in routes {
+            lines.push(format!(
+                "- {} -> {} ({}) created={}",
+                route.command_prefix(),
+                route.slug(),
+                route.list_title(),
+                route.created_at()
             ));
         }
     }

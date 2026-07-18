@@ -106,9 +106,6 @@ pub struct WorldMetadata {
     /// Whether the hunger survival gate participates in ordinary commands.
     #[serde(default)]
     pub hunger_loop_enabled: bool,
-    /// Whether builtin service rooms from `rooms.ron` are inserted at startup.
-    #[serde(default)]
-    pub builtin_service_rooms_enabled: bool,
     /// Real-world seconds represented by one in-world day.
     #[serde(default = "default_virtual_day_seconds")]
     pub virtual_day_seconds: u64,
@@ -121,7 +118,6 @@ impl Default for WorldMetadata {
             admission_board_entity_id: default_admission_board_entity_id(),
             agreement_version: default_agreement_version(),
             hunger_loop_enabled: false,
-            builtin_service_rooms_enabled: false,
             virtual_day_seconds: default_virtual_day_seconds(),
         }
     }

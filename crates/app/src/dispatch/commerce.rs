@@ -226,6 +226,40 @@ where
                     .text,
                 None,
             )),
+            ShopAppRequest::RouteAdd {
+                parcel_id,
+                slug,
+                command_prefix,
+            } => {
+                let text = self
+                    .add_shop_command_route(parcel_id, &identity.player_id, slug, command_prefix)
+                    .await?
+                    .text;
+                Ok(text_events(
+                    text,
+                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                ))
+            }
+            ShopAppRequest::RouteList { parcel_id } => Ok(text_events(
+                self.list_shop_command_routes(parcel_id, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ShopAppRequest::RouteRemove {
+                parcel_id,
+                slug,
+                command_prefix,
+            } => {
+                let text = self
+                    .remove_shop_command_route(parcel_id, &identity.player_id, slug, command_prefix)
+                    .await?
+                    .text;
+                Ok(text_events(
+                    text,
+                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                ))
+            }
             ShopAppRequest::BadgeList { parcel_id } => Ok(text_events(
                 self.list_shop_badges(parcel_id, &identity.player_id)
                     .await?
