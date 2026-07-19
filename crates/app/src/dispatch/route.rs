@@ -12,9 +12,9 @@ pub(super) enum RoutedAppRequest<'a> {
     Inbox(InboxAppRequest<'a>),
     Payment(PaymentAppRequest<'a>),
     Message(MessageAppRequest<'a>),
-    Land(LandAppRequest<'a>),
-    Build(BuildAppRequest<'a>),
-    Shop(ShopAppRequest<'a>),
+    ParcelRegistry(ParcelRegistryAppRequest<'a>),
+    ParcelBuild(ParcelBuildAppRequest<'a>),
+    ParcelOperation(ParcelOperationAppRequest<'a>),
     ServiceRoom(ServiceRoomAppRequest<'a>),
     Admission(AdmissionAppRequest),
     Settings(SettingsAppRequest<'a>),
@@ -83,7 +83,7 @@ pub(super) enum MessageAppRequest<'a> {
     },
 }
 
-pub(super) enum LandAppRequest<'a> {
+pub(super) enum ParcelRegistryAppRequest<'a> {
     List,
     Info {
         parcel_id: &'a str,
@@ -103,7 +103,7 @@ pub(super) enum LandAppRequest<'a> {
     },
 }
 
-pub(super) enum BuildAppRequest<'a> {
+pub(super) enum ParcelBuildAppRequest<'a> {
     Help,
     Apply {
         current_view: &'a str,
@@ -119,7 +119,7 @@ pub(super) enum BuildAppRequest<'a> {
     },
 }
 
-pub(super) enum ShopAppRequest<'a> {
+pub(super) enum ParcelOperationAppRequest<'a> {
     Inbox,
     RequestPayment {
         current_view: &'a str,
@@ -328,45 +328,45 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             request @ (AppRequest::Say { .. }
             | AppRequest::Mail { .. }
             | AppRequest::Broadcast { .. }) => route_message(request),
-            request @ (AppRequest::LandList
-            | AppRequest::LandInfo { .. }
-            | AppRequest::LandClaim { .. }
-            | AppRequest::LandTransfer { .. }
-            | AppRequest::LandRotateToken { .. }) => route_land(request),
-            request @ (AppRequest::BuildHelp
-            | AppRequest::BuildApply { .. }
-            | AppRequest::BuildSet { .. }
-            | AppRequest::BuildPublish { .. }) => route_build(request),
-            request @ (AppRequest::ShopInbox
-            | AppRequest::ShopRequestPayment { .. }
-            | AppRequest::ShopMailingListCreate { .. }
-            | AppRequest::ShopMailingListList { .. }
-            | AppRequest::ShopMailingListSubscribers { .. }
-            | AppRequest::ShopMailingListSend { .. }
-            | AppRequest::ShopMailingListChat { .. }
-            | AppRequest::ShopMailingListClose { .. }
-            | AppRequest::ShopMailingListSubscribe { .. }
-            | AppRequest::ShopMailingListUnsubscribe { .. }
-            | AppRequest::ShopMailingListSubscriptions
-            | AppRequest::ShopDeskCreate { .. }
-            | AppRequest::ShopDeskList { .. }
-            | AppRequest::ShopStaffAdd { .. }
-            | AppRequest::ShopStaffList { .. }
-            | AppRequest::ShopStaffRemove { .. }
-            | AppRequest::ShopShiftStart { .. }
-            | AppRequest::ShopShiftEnd { .. }
-            | AppRequest::ShopWorkList { .. }
-            | AppRequest::ShopWorkClaim { .. }
-            | AppRequest::ShopWorkDone { .. }
-            | AppRequest::ShopRouteAdd { .. }
-            | AppRequest::ShopRouteList { .. }
-            | AppRequest::ShopRouteRemove { .. }
-            | AppRequest::ShopBadgeList { .. }
-            | AppRequest::ShopBadgeCreate { .. }
-            | AppRequest::ShopBadgeAward { .. }
-            | AppRequest::ShopBadgeRevoke { .. }
+            request @ (AppRequest::ParcelList
+            | AppRequest::ParcelInfo { .. }
+            | AppRequest::ParcelClaim { .. }
+            | AppRequest::ParcelTransfer { .. }
+            | AppRequest::ParcelRotateToken { .. }) => route_parcel_registry(request),
+            request @ (AppRequest::ParcelBuildHelp
+            | AppRequest::ParcelBuildApply { .. }
+            | AppRequest::ParcelBuildSet { .. }
+            | AppRequest::ParcelBuildPublish { .. }) => route_parcel_build(request),
+            request @ (AppRequest::ParcelInbox
+            | AppRequest::ParcelRequestPayment { .. }
+            | AppRequest::ParcelMailingListCreate { .. }
+            | AppRequest::ParcelMailingListList { .. }
+            | AppRequest::ParcelMailingListSubscribers { .. }
+            | AppRequest::ParcelMailingListSend { .. }
+            | AppRequest::ParcelMailingListChat { .. }
+            | AppRequest::ParcelMailingListClose { .. }
+            | AppRequest::ParcelMailingListSubscribe { .. }
+            | AppRequest::ParcelMailingListUnsubscribe { .. }
+            | AppRequest::ParcelMailingListSubscriptions
+            | AppRequest::ParcelDeskCreate { .. }
+            | AppRequest::ParcelDeskList { .. }
+            | AppRequest::ParcelStaffAdd { .. }
+            | AppRequest::ParcelStaffList { .. }
+            | AppRequest::ParcelStaffRemove { .. }
+            | AppRequest::ParcelShiftStart { .. }
+            | AppRequest::ParcelShiftEnd { .. }
+            | AppRequest::ParcelWorkList { .. }
+            | AppRequest::ParcelWorkClaim { .. }
+            | AppRequest::ParcelWorkDone { .. }
+            | AppRequest::ParcelRouteAdd { .. }
+            | AppRequest::ParcelRouteList { .. }
+            | AppRequest::ParcelRouteRemove { .. }
+            | AppRequest::ParcelBadgeList { .. }
+            | AppRequest::ParcelBadgeCreate { .. }
+            | AppRequest::ParcelBadgeAward { .. }
+            | AppRequest::ParcelBadgeRevoke { .. }
             | AppRequest::BadgesMine
-            | AppRequest::BadgesUser { .. }) => route_shop(request),
+            | AppRequest::BadgesUser { .. }) => route_parcel_operation(request),
             request @ (AppRequest::ServiceRoomInput { .. }
             | AppRequest::ServiceRoomHelp { .. }
             | AppRequest::ServiceRoomObservation { .. }
@@ -479,324 +479,331 @@ fn route_message(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
     }
 }
 
-fn route_land(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
+fn route_parcel_registry(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
     match request {
-        AppRequest::LandList => RoutedAppRequest::Land(LandAppRequest::List),
-        AppRequest::LandInfo { parcel_id } => {
-            RoutedAppRequest::Land(LandAppRequest::Info { parcel_id })
+        AppRequest::ParcelList => RoutedAppRequest::ParcelRegistry(ParcelRegistryAppRequest::List),
+        AppRequest::ParcelInfo { parcel_id } => {
+            RoutedAppRequest::ParcelRegistry(ParcelRegistryAppRequest::Info { parcel_id })
         }
-        AppRequest::LandClaim { parcel_id, token } => {
-            RoutedAppRequest::Land(LandAppRequest::Claim { parcel_id, token })
+        AppRequest::ParcelClaim { parcel_id, token } => {
+            RoutedAppRequest::ParcelRegistry(ParcelRegistryAppRequest::Claim { parcel_id, token })
         }
-        AppRequest::LandTransfer {
+        AppRequest::ParcelTransfer {
             parcel_id,
             target,
             token,
-        } => RoutedAppRequest::Land(LandAppRequest::Transfer {
+        } => RoutedAppRequest::ParcelRegistry(ParcelRegistryAppRequest::Transfer {
             parcel_id,
             target,
             token,
         }),
-        AppRequest::LandRotateToken { parcel_id, token } => {
-            RoutedAppRequest::Land(LandAppRequest::RotateToken { parcel_id, token })
+        AppRequest::ParcelRotateToken { parcel_id, token } => {
+            RoutedAppRequest::ParcelRegistry(ParcelRegistryAppRequest::RotateToken {
+                parcel_id,
+                token,
+            })
         }
         _ => unreachable!("land request route called with non-land request"),
     }
 }
 
-fn route_build(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
+fn route_parcel_build(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
     match request {
-        AppRequest::BuildHelp => RoutedAppRequest::Build(BuildAppRequest::Help),
-        AppRequest::BuildApply {
+        AppRequest::ParcelBuildHelp => RoutedAppRequest::ParcelBuild(ParcelBuildAppRequest::Help),
+        AppRequest::ParcelBuildApply {
             current_view,
             sheet,
-        } => RoutedAppRequest::Build(BuildAppRequest::Apply {
+        } => RoutedAppRequest::ParcelBuild(ParcelBuildAppRequest::Apply {
             current_view,
             sheet,
         }),
-        AppRequest::BuildSet {
+        AppRequest::ParcelBuildSet {
             current_view,
             field,
             value,
-        } => RoutedAppRequest::Build(BuildAppRequest::Set {
+        } => RoutedAppRequest::ParcelBuild(ParcelBuildAppRequest::Set {
             current_view,
             field,
             value,
         }),
-        AppRequest::BuildPublish { current_view } => {
-            RoutedAppRequest::Build(BuildAppRequest::Publish { current_view })
+        AppRequest::ParcelBuildPublish { current_view } => {
+            RoutedAppRequest::ParcelBuild(ParcelBuildAppRequest::Publish { current_view })
         }
         _ => unreachable!("build request route called with non-build request"),
     }
 }
 
-fn route_shop(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
+fn route_parcel_operation(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
     match request {
-        AppRequest::ShopInbox => RoutedAppRequest::Shop(ShopAppRequest::Inbox),
-        AppRequest::ShopRequestPayment {
-            current_view,
-            command_id,
-            amount,
-            delivery,
-        } => RoutedAppRequest::Shop(ShopAppRequest::RequestPayment {
-            current_view,
-            command_id,
-            amount,
-            delivery,
-        }),
-        AppRequest::ShopMailingListCreate {
-            current_view,
-            parcel_id,
-            slug,
-            title,
-        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListCreate {
-            current_view,
-            parcel_id,
-            slug,
-            title,
-        }),
-        AppRequest::ShopMailingListList {
-            current_view,
-            parcel_id,
-        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListList {
-            current_view,
-            parcel_id,
-        }),
-        AppRequest::ShopMailingListSubscribers {
-            current_view,
-            parcel_id,
-            slug,
-        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscribers {
-            current_view,
-            parcel_id,
-            slug,
-        }),
-        AppRequest::ShopMailingListSend {
-            current_view,
-            parcel_id,
-            slug,
-            subject,
-            body,
-        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListSend {
-            current_view,
-            parcel_id,
-            slug,
-            subject,
-            body,
-        }),
-        AppRequest::ShopMailingListChat {
-            current_view,
-            target,
-            slug,
-            body,
-        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListChat {
-            current_view,
-            target,
-            slug,
-            body,
-        }),
-        AppRequest::ShopMailingListClose {
-            current_view,
-            parcel_id,
-            slug,
-        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListClose {
-            current_view,
-            parcel_id,
-            slug,
-        }),
-        AppRequest::ShopMailingListSubscribe {
-            current_view,
-            target,
-            slug,
-        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscribe {
-            current_view,
-            target,
-            slug,
-        }),
-        AppRequest::ShopMailingListUnsubscribe {
-            current_view,
-            target,
-            slug,
-        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListUnsubscribe {
-            current_view,
-            target,
-            slug,
-        }),
-        AppRequest::ShopMailingListSubscriptions => {
-            RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscriptions)
+        AppRequest::ParcelInbox => {
+            RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::Inbox)
         }
-        AppRequest::ShopDeskCreate {
+        AppRequest::ParcelRequestPayment {
+            current_view,
+            command_id,
+            amount,
+            delivery,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::RequestPayment {
+            current_view,
+            command_id,
+            amount,
+            delivery,
+        }),
+        AppRequest::ParcelMailingListCreate {
             current_view,
             parcel_id,
             slug,
             title,
-        } => RoutedAppRequest::Shop(ShopAppRequest::DeskCreate {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListCreate {
             current_view,
             parcel_id,
             slug,
             title,
         }),
-        AppRequest::ShopDeskList {
+        AppRequest::ParcelMailingListList {
             current_view,
             parcel_id,
-        } => RoutedAppRequest::Shop(ShopAppRequest::DeskList {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListList {
             current_view,
             parcel_id,
         }),
-        AppRequest::ShopStaffAdd {
+        AppRequest::ParcelMailingListSubscribers {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListSubscribers {
+            current_view,
+            parcel_id,
+            slug,
+        }),
+        AppRequest::ParcelMailingListSend {
+            current_view,
+            parcel_id,
+            slug,
+            subject,
+            body,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListSend {
+            current_view,
+            parcel_id,
+            slug,
+            subject,
+            body,
+        }),
+        AppRequest::ParcelMailingListChat {
+            current_view,
+            target,
+            slug,
+            body,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListChat {
+            current_view,
+            target,
+            slug,
+            body,
+        }),
+        AppRequest::ParcelMailingListClose {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListClose {
+            current_view,
+            parcel_id,
+            slug,
+        }),
+        AppRequest::ParcelMailingListSubscribe {
+            current_view,
+            target,
+            slug,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListSubscribe {
+            current_view,
+            target,
+            slug,
+        }),
+        AppRequest::ParcelMailingListUnsubscribe {
+            current_view,
+            target,
+            slug,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListUnsubscribe {
+            current_view,
+            target,
+            slug,
+        }),
+        AppRequest::ParcelMailingListSubscriptions => {
+            RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::MailingListSubscriptions)
+        }
+        AppRequest::ParcelDeskCreate {
+            current_view,
+            parcel_id,
+            slug,
+            title,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::DeskCreate {
+            current_view,
+            parcel_id,
+            slug,
+            title,
+        }),
+        AppRequest::ParcelDeskList {
+            current_view,
+            parcel_id,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::DeskList {
+            current_view,
+            parcel_id,
+        }),
+        AppRequest::ParcelStaffAdd {
             current_view,
             parcel_id,
             slug,
             username,
-        } => RoutedAppRequest::Shop(ShopAppRequest::StaffAdd {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::StaffAdd {
             current_view,
             parcel_id,
             slug,
             username,
         }),
-        AppRequest::ShopStaffList {
+        AppRequest::ParcelStaffList {
             current_view,
             parcel_id,
             slug,
-        } => RoutedAppRequest::Shop(ShopAppRequest::StaffList {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::StaffList {
             current_view,
             parcel_id,
             slug,
         }),
-        AppRequest::ShopStaffRemove {
+        AppRequest::ParcelStaffRemove {
             current_view,
             parcel_id,
             slug,
             username,
-        } => RoutedAppRequest::Shop(ShopAppRequest::StaffRemove {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::StaffRemove {
             current_view,
             parcel_id,
             slug,
             username,
         }),
-        AppRequest::ShopShiftStart {
+        AppRequest::ParcelShiftStart {
             current_view,
             parcel_id,
             slug,
-        } => RoutedAppRequest::Shop(ShopAppRequest::ShiftStart {
-            current_view,
-            parcel_id,
-            slug,
-        }),
-        AppRequest::ShopShiftEnd {
-            current_view,
-            parcel_id,
-            slug,
-        } => RoutedAppRequest::Shop(ShopAppRequest::ShiftEnd {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::ShiftStart {
             current_view,
             parcel_id,
             slug,
         }),
-        AppRequest::ShopWorkList {
+        AppRequest::ParcelShiftEnd {
             current_view,
             parcel_id,
             slug,
-        } => RoutedAppRequest::Shop(ShopAppRequest::WorkList {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::ShiftEnd {
             current_view,
             parcel_id,
             slug,
         }),
-        AppRequest::ShopWorkClaim {
+        AppRequest::ParcelWorkList {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::WorkList {
+            current_view,
+            parcel_id,
+            slug,
+        }),
+        AppRequest::ParcelWorkClaim {
             current_view,
             parcel_id,
             work_id,
-        } => RoutedAppRequest::Shop(ShopAppRequest::WorkClaim {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::WorkClaim {
             current_view,
             parcel_id,
             work_id,
         }),
-        AppRequest::ShopWorkDone {
+        AppRequest::ParcelWorkDone {
             current_view,
             parcel_id,
             work_id,
             result,
-        } => RoutedAppRequest::Shop(ShopAppRequest::WorkDone {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::WorkDone {
             current_view,
             parcel_id,
             work_id,
             result,
         }),
-        AppRequest::ShopRouteAdd {
+        AppRequest::ParcelRouteAdd {
             current_view,
             parcel_id,
             slug,
             command_prefix,
-        } => RoutedAppRequest::Shop(ShopAppRequest::RouteAdd {
-            current_view,
-            parcel_id,
-            slug,
-            command_prefix,
-        }),
-        AppRequest::ShopRouteList {
-            current_view,
-            parcel_id,
-        } => RoutedAppRequest::Shop(ShopAppRequest::RouteList {
-            current_view,
-            parcel_id,
-        }),
-        AppRequest::ShopRouteRemove {
-            current_view,
-            parcel_id,
-            slug,
-            command_prefix,
-        } => RoutedAppRequest::Shop(ShopAppRequest::RouteRemove {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::RouteAdd {
             current_view,
             parcel_id,
             slug,
             command_prefix,
         }),
-        AppRequest::ShopBadgeList {
+        AppRequest::ParcelRouteList {
             current_view,
             parcel_id,
-        } => RoutedAppRequest::Shop(ShopAppRequest::BadgeList {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::RouteList {
             current_view,
             parcel_id,
         }),
-        AppRequest::ShopBadgeCreate {
+        AppRequest::ParcelRouteRemove {
+            current_view,
+            parcel_id,
+            slug,
+            command_prefix,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::RouteRemove {
+            current_view,
+            parcel_id,
+            slug,
+            command_prefix,
+        }),
+        AppRequest::ParcelBadgeList {
+            current_view,
+            parcel_id,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::BadgeList {
+            current_view,
+            parcel_id,
+        }),
+        AppRequest::ParcelBadgeCreate {
             current_view,
             parcel_id,
             slug,
             title,
             description,
-        } => RoutedAppRequest::Shop(ShopAppRequest::BadgeCreate {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::BadgeCreate {
             current_view,
             parcel_id,
             slug,
             title,
             description,
         }),
-        AppRequest::ShopBadgeAward {
+        AppRequest::ParcelBadgeAward {
             current_view,
             parcel_id,
             slug,
             target,
             note,
-        } => RoutedAppRequest::Shop(ShopAppRequest::BadgeAward {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::BadgeAward {
             current_view,
             parcel_id,
             slug,
             target,
             note,
         }),
-        AppRequest::ShopBadgeRevoke {
+        AppRequest::ParcelBadgeRevoke {
             current_view,
             parcel_id,
             slug,
             target,
-        } => RoutedAppRequest::Shop(ShopAppRequest::BadgeRevoke {
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::BadgeRevoke {
             current_view,
             parcel_id,
             slug,
             target,
         }),
-        AppRequest::BadgesMine => RoutedAppRequest::Shop(ShopAppRequest::BadgesMine),
+        AppRequest::BadgesMine => {
+            RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::BadgesMine)
+        }
         AppRequest::BadgesUser { target } => {
-            RoutedAppRequest::Shop(ShopAppRequest::BadgesUser { target })
+            RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::BadgesUser { target })
         }
         _ => unreachable!("shop request route called with non-shop request"),
     }
@@ -903,13 +910,13 @@ mod tests {
             title: Some("Test Shop".to_owned()),
             ..BuildSheet::default()
         };
-        let routed = RoutedAppRequest::from(AppRequest::BuildApply {
+        let routed = RoutedAppRequest::from(AppRequest::ParcelBuildApply {
             current_view: "parcel-test",
             sheet: &sheet,
         });
 
         match routed {
-            RoutedAppRequest::Build(BuildAppRequest::Apply {
+            RoutedAppRequest::ParcelBuild(ParcelBuildAppRequest::Apply {
                 current_view,
                 sheet,
             }) => {

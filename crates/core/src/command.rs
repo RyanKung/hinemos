@@ -232,30 +232,15 @@ pub enum SemanticCommand {
         /// Payment action.
         action: PayAction,
     },
-    /// Manage commercial street parcels.
-    Land {
-        /// Land command action.
-        action: LandAction,
-    },
-    /// Edit the current owned parcel build sheet.
-    Build {
-        /// Build field update.
-        action: BuildAction,
-    },
-    /// Manage an operated shop.
-    Shop {
-        /// Shop command action.
-        action: ShopAction,
+    /// Manage a parcel and its in-parcel systems.
+    Parcel {
+        /// Parcel command action.
+        action: ParcelAction,
     },
     /// Inspect shop-issued badges.
     Badges {
         /// Badge inspection action.
         action: BadgeAction,
-    },
-    /// Manage the current player's shop mailing-list subscriptions.
-    Subscription {
-        /// Subscription command action.
-        action: SubscriptionAction,
     },
     /// Run a registered extension command.
     Extension {
@@ -270,36 +255,6 @@ pub enum SemanticCommand {
     Help,
     /// End the local CLI loop.
     Quit,
-}
-
-/// Land management actions.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum LandAction {
-    /// List all commercial parcels.
-    List,
-    /// Show one parcel.
-    Info {
-        /// Parcel id.
-        parcel_id: String,
-    },
-    /// Claim a free parcel.
-    Claim {
-        /// Parcel id.
-        parcel_id: String,
-    },
-    /// Transfer an owned parcel to another user or player id.
-    Transfer {
-        /// Parcel id.
-        parcel_id: String,
-        /// Target user or player id.
-        target: String,
-    },
-    /// Rotate and show the room mailbox token for an owned parcel.
-    Token {
-        /// Parcel id.
-        parcel_id: String,
-    },
 }
 
 /// Wallet payment actions.
@@ -554,27 +509,56 @@ pub enum BuildAction {
     Publish,
 }
 
-/// Structured shop build sheet supplied as JSON.
+/// Structured parcel build sheet supplied as JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildSheet {
-    /// Shop title.
+    /// Parcel title.
     pub title: Option<String>,
-    /// Shop description.
+    /// Parcel description.
     pub description: Option<String>,
     /// Presentation style note.
     pub style: Option<String>,
-    /// Operator prompt shown to visitors and shop operators.
+    /// Operator prompt shown to visitors and parcel operators.
     pub prompt: Option<String>,
     /// Custom command help. If omitted, the server may generate defaults.
     pub commands: Option<String>,
 }
 
-/// Shop operation actions.
+/// Parcel management, construction, operation, and membership actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ShopAction {
-    /// Show custom commands sent to shops owned by this player.
+pub enum ParcelAction {
+    /// List all claimable parcels.
+    List,
+    /// Show one parcel.
+    Info {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Claim a free parcel.
+    Claim {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Transfer an owned parcel to another user or player id.
+    Transfer {
+        /// Parcel id.
+        parcel_id: String,
+        /// Target user or player id.
+        target: String,
+    },
+    /// Rotate and show the room mailbox token for an owned parcel.
+    Token {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Edit the current owned parcel build sheet.
+    Build {
+        /// Build field update.
+        action: BuildAction,
+    },
+    /// Show custom commands sent to parcels owned by this player.
     Inbox,
     /// Create a payment request for a visitor command.
     RequestPayment {
@@ -585,48 +569,73 @@ pub enum ShopAction {
         /// Content delivered only after the visitor accepts and pays.
         delivery: String,
     },
-    /// Manage a shop mailing list.
+    /// Manage a parcel mailing list.
     MailingList {
         /// Mailing-list owner action.
-        action: ShopMailingListAction,
+        action: ParcelMailingListAction,
     },
-    /// Manage a shop-local work desk.
+    /// Manage a parcel-local work desk.
     Desk {
         /// Work-desk owner action.
-        action: ShopDeskAction,
+        action: ParcelDeskAction,
     },
-    /// Manage shop command routing into shop-local work desks.
+    /// Manage parcel command routing into parcel-local work desks.
     Route {
         /// Command-route owner action.
-        action: ShopRouteAction,
+        action: ParcelRouteAction,
     },
-    /// Manage shop staff assignments.
+    /// Manage parcel staff assignments.
     Staff {
         /// Staff owner action.
-        action: ShopStaffAction,
+        action: ParcelStaffAction,
     },
-    /// Manage an in-shop work shift.
+    /// Manage an in-parcel work shift.
     Shift {
         /// Shift worker action.
-        action: ShopShiftAction,
+        action: ParcelShiftAction,
     },
-    /// Consume shop work while inside the shop.
+    /// Consume parcel work while inside the parcel.
     Work {
         /// Work queue action.
-        action: ShopWorkAction,
+        action: ParcelWorkAction,
     },
-    /// Manage shop-issued badges.
+    /// Manage parcel-issued badges.
     Badge {
         /// Badge owner action.
-        action: ShopBadgeAction,
+        action: ParcelBadgeAction,
     },
+    /// Subscribe to an open parcel mailing list.
+    Subscribe {
+        /// Parcel id or visible parcel title.
+        target: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Unsubscribe from a parcel mailing list.
+    Unsubscribe {
+        /// Parcel id or visible parcel title.
+        target: String,
+        /// Stable list slug.
+        slug: String,
+    },
+    /// Post a group-chat message to an active parcel mailing list.
+    Chat {
+        /// Parcel id or visible parcel title.
+        target: String,
+        /// Stable list slug.
+        slug: String,
+        /// Message body.
+        body: String,
+    },
+    /// List the current player's active parcel mailing-list subscriptions.
+    Subscriptions,
 }
 
-/// Shop mailing-list management actions.
+/// Parcel mailing-list management actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ShopMailingListAction {
-    /// Create a list for an owned shop parcel.
+pub enum ParcelMailingListAction {
+    /// Create a list for an owned parcel.
     Create {
         /// Parcel id.
         parcel_id: String,
@@ -635,7 +644,7 @@ pub enum ShopMailingListAction {
         /// Player-facing list title.
         title: String,
     },
-    /// List mailing lists for an owned shop parcel.
+    /// List mailing lists for an owned parcel.
     List {
         /// Parcel id.
         parcel_id: String,
@@ -667,11 +676,11 @@ pub enum ShopMailingListAction {
     },
 }
 
-/// Shop-local work desk actions.
+/// Parcel-local work desk actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ShopDeskAction {
-    /// Create a desk for an owned shop parcel.
+pub enum ParcelDeskAction {
+    /// Create a desk for an owned parcel.
     Create {
         /// Parcel id.
         parcel_id: String,
@@ -680,18 +689,18 @@ pub enum ShopDeskAction {
         /// Player-facing desk title.
         title: String,
     },
-    /// List desks for an owned shop parcel.
+    /// List desks for an owned parcel.
     List {
         /// Parcel id.
         parcel_id: String,
     },
 }
 
-/// Shop command routing actions.
+/// Parcel command routing actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ShopRouteAction {
-    /// Route matching shop commands into a shop-local work desk.
+pub enum ParcelRouteAction {
+    /// Route matching parcel commands into a parcel-local work desk.
     Add {
         /// Parcel id.
         parcel_id: String,
@@ -700,12 +709,12 @@ pub enum ShopRouteAction {
         /// Slash command prefix that should be routed.
         command_prefix: String,
     },
-    /// List command routes for an owned shop parcel.
+    /// List command routes for an owned parcel.
     List {
         /// Parcel id.
         parcel_id: String,
     },
-    /// Remove a command route from a shop-local work desk.
+    /// Remove a command route from a parcel-local work desk.
     Remove {
         /// Parcel id.
         parcel_id: String,
@@ -716,10 +725,10 @@ pub enum ShopRouteAction {
     },
 }
 
-/// Shop staff assignment actions.
+/// Parcel staff assignment actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ShopStaffAction {
+pub enum ParcelStaffAction {
     /// Add or update a worker for one work desk.
     Add {
         /// Parcel id.
@@ -747,11 +756,11 @@ pub enum ShopStaffAction {
     },
 }
 
-/// Shop shift actions. A shift can only be started or ended inside the shop.
+/// Parcel shift actions. A shift can only be started or ended inside the parcel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ShopShiftAction {
-    /// Start working at a desk in the current shop view.
+pub enum ParcelShiftAction {
+    /// Start working at a desk in the current parcel view.
     Start {
         /// Parcel id.
         parcel_id: String,
@@ -767,10 +776,10 @@ pub enum ShopShiftAction {
     },
 }
 
-/// Shop-local work queue actions.
+/// Parcel-local work queue actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ShopWorkAction {
+pub enum ParcelWorkAction {
     /// List queued or claimed work for a desk.
     List {
         /// Parcel id.
@@ -796,16 +805,16 @@ pub enum ShopWorkAction {
     },
 }
 
-/// Shop badge owner actions.
+/// Parcel badge owner actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ShopBadgeAction {
-    /// List badge definitions for an owned shop parcel.
+pub enum ParcelBadgeAction {
+    /// List badge definitions for an owned parcel.
     List {
         /// Parcel id.
         parcel_id: String,
     },
-    /// Create or update a badge definition for an owned shop parcel.
+    /// Create or update a badge definition for an owned parcel.
     Create {
         /// Parcel id.
         parcel_id: String,
@@ -816,7 +825,7 @@ pub enum ShopBadgeAction {
         /// Optional one-line description.
         description: Option<String>,
     },
-    /// Award a shop badge to a target player.
+    /// Award a parcel badge to a target player.
     Award {
         /// Parcel id.
         parcel_id: String,
@@ -827,7 +836,7 @@ pub enum ShopBadgeAction {
         /// Optional one-line award note.
         note: Option<String>,
     },
-    /// Revoke an active shop badge award.
+    /// Revoke an active parcel badge award.
     Revoke {
         /// Parcel id.
         parcel_id: String,
@@ -838,7 +847,7 @@ pub enum ShopBadgeAction {
     },
 }
 
-/// Shop badge reader actions.
+/// Parcel badge reader actions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum BadgeAction {
@@ -851,88 +860,57 @@ pub enum BadgeAction {
     },
 }
 
-/// Shop mailing-list subscriber actions.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum SubscriptionAction {
-    /// Subscribe to an open shop mailing list.
-    Subscribe {
-        /// Parcel id or visible shop title.
-        target: String,
-        /// Stable list slug.
-        slug: String,
-    },
-    /// Unsubscribe from a shop mailing list.
-    Unsubscribe {
-        /// Parcel id or visible shop title.
-        target: String,
-        /// Stable list slug.
-        slug: String,
-    },
-    /// Post a group-chat message to an active shop mailing list.
-    Chat {
-        /// Parcel id or visible shop title.
-        target: String,
-        /// Stable list slug.
-        slug: String,
-        /// Message body.
-        body: String,
-    },
-    /// List the current player's active subscriptions.
-    List,
-}
-
 /// Maximum mailing-list slug length, counted in Unicode scalar values.
-pub const SHOP_MAILING_LIST_SLUG_MAX_CHARS: usize = 32;
+pub const PARCEL_MAILING_LIST_SLUG_MAX_CHARS: usize = 32;
 
 /// Maximum mailing-list title length, counted in Unicode scalar values.
-pub const SHOP_MAILING_LIST_TITLE_MAX_CHARS: usize = 80;
+pub const PARCEL_MAILING_LIST_TITLE_MAX_CHARS: usize = 80;
 
 /// Maximum mailing-list subject length, counted in Unicode scalar values.
-pub const SHOP_MAILING_LIST_SUBJECT_MAX_CHARS: usize = 120;
+pub const PARCEL_MAILING_LIST_SUBJECT_MAX_CHARS: usize = 120;
 
 /// Maximum mailing-list post body length, counted in Unicode scalar values.
-pub const SHOP_MAILING_LIST_BODY_MAX_CHARS: usize = 2_000;
+pub const PARCEL_MAILING_LIST_BODY_MAX_CHARS: usize = 2_000;
 
-/// Maximum number of mailing lists a single shop parcel can own.
-pub const SHOP_MAILING_LISTS_PER_PARCEL_MAX: usize = 10;
+/// Maximum number of mailing lists a single parcel can own.
+pub const PARCEL_MAILING_LISTS_PER_PARCEL_MAX: usize = 10;
 
 /// Maximum work-desk slug length, counted in Unicode scalar values.
-pub const SHOP_WORK_DESK_SLUG_MAX_CHARS: usize = SHOP_MAILING_LIST_SLUG_MAX_CHARS;
+pub const PARCEL_WORK_DESK_SLUG_MAX_CHARS: usize = PARCEL_MAILING_LIST_SLUG_MAX_CHARS;
 
 /// Maximum work-desk title length, counted in Unicode scalar values.
-pub const SHOP_WORK_DESK_TITLE_MAX_CHARS: usize = SHOP_MAILING_LIST_TITLE_MAX_CHARS;
+pub const PARCEL_WORK_DESK_TITLE_MAX_CHARS: usize = PARCEL_MAILING_LIST_TITLE_MAX_CHARS;
 
-/// Maximum number of work desks a single shop parcel can own.
-pub const SHOP_WORK_DESKS_PER_PARCEL_MAX: usize = 20;
+/// Maximum number of work desks a single parcel can own.
+pub const PARCEL_WORK_DESKS_PER_PARCEL_MAX: usize = 20;
 
 /// Maximum work result length, counted in Unicode scalar values.
-pub const SHOP_WORK_RESULT_MAX_CHARS: usize = 2_000;
+pub const PARCEL_WORK_RESULT_MAX_CHARS: usize = 2_000;
 
-/// Maximum shop route command-prefix length, counted in Unicode scalar values.
-pub const SHOP_COMMAND_ROUTE_PREFIX_MAX_CHARS: usize = 120;
+/// Maximum parcel route command-prefix length, counted in Unicode scalar values.
+pub const PARCEL_COMMAND_ROUTE_PREFIX_MAX_CHARS: usize = 120;
 
 /// Maximum badge slug length, counted in Unicode scalar values.
-pub const SHOP_BADGE_SLUG_MAX_CHARS: usize = 32;
+pub const PARCEL_BADGE_SLUG_MAX_CHARS: usize = 32;
 
 /// Maximum badge title length, counted in Unicode scalar values.
-pub const SHOP_BADGE_TITLE_MAX_CHARS: usize = 80;
+pub const PARCEL_BADGE_TITLE_MAX_CHARS: usize = 80;
 
 /// Maximum badge description length, counted in Unicode scalar values.
-pub const SHOP_BADGE_DESCRIPTION_MAX_CHARS: usize = 240;
+pub const PARCEL_BADGE_DESCRIPTION_MAX_CHARS: usize = 240;
 
 /// Maximum badge award note length, counted in Unicode scalar values.
-pub const SHOP_BADGE_NOTE_MAX_CHARS: usize = 240;
+pub const PARCEL_BADGE_NOTE_MAX_CHARS: usize = 240;
 
-/// Maximum number of badge definitions a single shop parcel can own.
-pub const SHOP_BADGES_PER_PARCEL_MAX: usize = 50;
+/// Maximum number of badge definitions a single parcel can own.
+pub const PARCEL_BADGES_PER_PARCEL_MAX: usize = 50;
 
 /// Returns true when a mailing-list slug is admissible.
 #[must_use]
-pub fn shop_mailing_list_slug_is_valid(slug: &str) -> bool {
+pub fn parcel_mailing_list_slug_is_valid(slug: &str) -> bool {
     let slug = slug.trim();
     !slug.is_empty()
-        && slug.chars().count() <= SHOP_MAILING_LIST_SLUG_MAX_CHARS
+        && slug.chars().count() <= PARCEL_MAILING_LIST_SLUG_MAX_CHARS
         && slug.chars().all(|character| {
             character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
         })
@@ -940,84 +918,84 @@ pub fn shop_mailing_list_slug_is_valid(slug: &str) -> bool {
 
 /// Returns true when a mailing-list title is admissible.
 #[must_use]
-pub fn shop_mailing_list_title_is_valid(title: &str) -> bool {
+pub fn parcel_mailing_list_title_is_valid(title: &str) -> bool {
     let title = title.trim();
     !title.is_empty()
-        && title.chars().count() <= SHOP_MAILING_LIST_TITLE_MAX_CHARS
+        && title.chars().count() <= PARCEL_MAILING_LIST_TITLE_MAX_CHARS
         && !contains_line_break(title)
 }
 
-/// Returns true when a shop work-desk slug is admissible.
+/// Returns true when a parcel work-desk slug is admissible.
 #[must_use]
-pub fn shop_work_desk_slug_is_valid(slug: &str) -> bool {
-    shop_mailing_list_slug_is_valid(slug)
+pub fn parcel_work_desk_slug_is_valid(slug: &str) -> bool {
+    parcel_mailing_list_slug_is_valid(slug)
 }
 
-/// Returns true when a shop work-desk title is admissible.
+/// Returns true when a parcel work-desk title is admissible.
 #[must_use]
-pub fn shop_work_desk_title_is_valid(title: &str) -> bool {
-    shop_mailing_list_title_is_valid(title)
+pub fn parcel_work_desk_title_is_valid(title: &str) -> bool {
+    parcel_mailing_list_title_is_valid(title)
 }
 
-/// Returns true when a shop work result is admissible.
+/// Returns true when a parcel work result is admissible.
 #[must_use]
-pub fn shop_work_result_is_valid(result: &str) -> bool {
+pub fn parcel_work_result_is_valid(result: &str) -> bool {
     let result = result.trim();
-    !result.is_empty() && result.chars().count() <= SHOP_WORK_RESULT_MAX_CHARS
+    !result.is_empty() && result.chars().count() <= PARCEL_WORK_RESULT_MAX_CHARS
 }
 
 /// Returns true when a mailing-list subject is admissible.
 #[must_use]
-pub fn shop_mailing_list_subject_is_valid(subject: &str) -> bool {
+pub fn parcel_mailing_list_subject_is_valid(subject: &str) -> bool {
     let subject = subject.trim();
     !subject.is_empty()
-        && subject.chars().count() <= SHOP_MAILING_LIST_SUBJECT_MAX_CHARS
+        && subject.chars().count() <= PARCEL_MAILING_LIST_SUBJECT_MAX_CHARS
         && !contains_line_break(subject)
 }
 
 /// Returns true when a mailing-list body is admissible.
 #[must_use]
-pub fn shop_mailing_list_body_is_valid(body: &str) -> bool {
+pub fn parcel_mailing_list_body_is_valid(body: &str) -> bool {
     let body = body.trim();
-    !body.is_empty() && body.chars().count() <= SHOP_MAILING_LIST_BODY_MAX_CHARS
+    !body.is_empty() && body.chars().count() <= PARCEL_MAILING_LIST_BODY_MAX_CHARS
 }
 
-/// Returns true when a shop command route prefix is admissible.
+/// Returns true when a parcel command route prefix is admissible.
 #[must_use]
-pub fn shop_command_route_prefix_is_valid(command_prefix: &str) -> bool {
+pub fn parcel_command_route_prefix_is_valid(command_prefix: &str) -> bool {
     let command_prefix = command_prefix.trim();
     command_prefix.starts_with('/')
-        && command_prefix.chars().count() <= SHOP_COMMAND_ROUTE_PREFIX_MAX_CHARS
+        && command_prefix.chars().count() <= PARCEL_COMMAND_ROUTE_PREFIX_MAX_CHARS
         && !contains_line_break(command_prefix)
         && command_prefix.split_whitespace().next().is_some()
 }
 
 /// Returns true when a badge slug is admissible.
 #[must_use]
-pub fn shop_badge_slug_is_valid(slug: &str) -> bool {
-    shop_mailing_list_slug_is_valid(slug)
+pub fn parcel_badge_slug_is_valid(slug: &str) -> bool {
+    parcel_mailing_list_slug_is_valid(slug)
 }
 
 /// Returns true when a badge title is admissible.
 #[must_use]
-pub fn shop_badge_title_is_valid(title: &str) -> bool {
+pub fn parcel_badge_title_is_valid(title: &str) -> bool {
     let title = title.trim();
     !title.is_empty()
-        && title.chars().count() <= SHOP_BADGE_TITLE_MAX_CHARS
+        && title.chars().count() <= PARCEL_BADGE_TITLE_MAX_CHARS
         && !contains_line_break(title)
 }
 
 /// Returns true when a badge description is admissible.
 #[must_use]
-pub fn shop_badge_description_is_valid(description: &str) -> bool {
+pub fn parcel_badge_description_is_valid(description: &str) -> bool {
     let description = description.trim();
-    description.chars().count() <= SHOP_BADGE_DESCRIPTION_MAX_CHARS
+    description.chars().count() <= PARCEL_BADGE_DESCRIPTION_MAX_CHARS
         && !contains_line_break(description)
 }
 
 /// Returns true when a badge award note is admissible.
 #[must_use]
-pub fn shop_badge_note_is_valid(note: &str) -> bool {
+pub fn parcel_badge_note_is_valid(note: &str) -> bool {
     let note = note.trim();
-    note.chars().count() <= SHOP_BADGE_NOTE_MAX_CHARS && !contains_line_break(note)
+    note.chars().count() <= PARCEL_BADGE_NOTE_MAX_CHARS && !contains_line_break(note)
 }

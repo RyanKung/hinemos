@@ -1,27 +1,29 @@
 use crate::*;
 
 use super::events::{commercial_parcel_cache_event, text_events};
-use super::route::{BuildAppRequest, LandAppRequest, ShopAppRequest};
+use super::route::{ParcelBuildAppRequest, ParcelOperationAppRequest, ParcelRegistryAppRequest};
 
 impl<S, E> AppService<S>
 where
     S: LandStore<Error = E> + ParcelStore<Error = E>,
 {
-    pub(super) async fn handle_land_request(
+    pub(super) async fn handle_parcel_registry_request(
         &self,
         identity: &AppIdentity,
-        request: LandAppRequest<'_>,
+        request: ParcelRegistryAppRequest<'_>,
     ) -> Result<Vec<UiEvent>, E> {
         let (text, cache) = match request {
-            LandAppRequest::List => (self.land_list().await?.text, None),
-            LandAppRequest::Info { parcel_id } => (self.land_info(parcel_id).await?.text, None),
-            LandAppRequest::Claim { parcel_id, token } => {
+            ParcelRegistryAppRequest::List => (self.land_list().await?.text, None),
+            ParcelRegistryAppRequest::Info { parcel_id } => {
+                (self.land_info(parcel_id).await?.text, None)
+            }
+            ParcelRegistryAppRequest::Claim { parcel_id, token } => {
                 let result = self
                     .claim_land(parcel_id, &identity.user, &identity.player_id, token)
                     .await?;
                 (result.text, result.invalidate)
             }
-            LandAppRequest::Transfer {
+            ParcelRegistryAppRequest::Transfer {
                 parcel_id,
                 target,
                 token,
@@ -31,7 +33,7 @@ where
                     .await?;
                 (result.text, result.invalidate)
             }
-            LandAppRequest::RotateToken { parcel_id, token } => {
+            ParcelRegistryAppRequest::RotateToken { parcel_id, token } => {
                 let result = self
                     .rotate_land_token(parcel_id, &identity.player_id, token)
                     .await?;
@@ -46,23 +48,23 @@ impl<S, E> AppService<S>
 where
     S: BuildStore<Error = E> + ShopStore<Error = E>,
 {
-    pub(super) async fn handle_build_request(
+    pub(super) async fn handle_parcel_build_request(
         &self,
         identity: &AppIdentity,
-        request: BuildAppRequest<'_>,
+        request: ParcelBuildAppRequest<'_>,
     ) -> Result<Vec<UiEvent>, E> {
         let result = match request {
-            BuildAppRequest::Help => {
+            ParcelBuildAppRequest::Help => {
                 return Ok(text_events(self.build_help_text().to_owned(), None));
             }
-            BuildAppRequest::Apply {
+            ParcelBuildAppRequest::Apply {
                 current_view,
                 sheet,
             } => {
                 self.apply_build_sheet(current_view, &identity.player_id, sheet)
                     .await?
             }
-            BuildAppRequest::Set {
+            ParcelBuildAppRequest::Set {
                 current_view,
                 field,
                 value,
@@ -70,7 +72,7 @@ where
                 self.set_build_field(current_view, &identity.player_id, field, value)
                     .await?
             }
-            BuildAppRequest::Publish { current_view } => {
+            ParcelBuildAppRequest::Publish { current_view } => {
                 self.publish_build(current_view, &identity.player_id)
                     .await?
             }
@@ -87,17 +89,17 @@ where
     S: ShopStore<Error = E> + LandStore<Error = E>,
     E: FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
 {
-    pub(super) async fn handle_shop_request(
+    pub(super) async fn handle_parcel_operation_request(
         &self,
         identity: &AppIdentity,
-        request: ShopAppRequest<'_>,
+        request: ParcelOperationAppRequest<'_>,
     ) -> Result<Vec<UiEvent>, E> {
         match request {
-            ShopAppRequest::Inbox => Ok(text_events(
+            ParcelOperationAppRequest::Inbox => Ok(text_events(
                 self.shop_inbox(&identity.player_id).await?.text,
                 None,
             )),
-            ShopAppRequest::RequestPayment {
+            ParcelOperationAppRequest::RequestPayment {
                 current_view,
                 command_id,
                 amount,
@@ -120,7 +122,7 @@ where
                     },
                 ])
             }
-            ShopAppRequest::MailingListCreate {
+            ParcelOperationAppRequest::MailingListCreate {
                 current_view,
                 parcel_id,
                 slug,
@@ -141,7 +143,7 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::MailingListList {
+            ParcelOperationAppRequest::MailingListList {
                 current_view,
                 parcel_id,
             } => Ok(text_events(
@@ -150,7 +152,7 @@ where
                     .text,
                 None,
             )),
-            ShopAppRequest::MailingListSubscribers {
+            ParcelOperationAppRequest::MailingListSubscribers {
                 current_view,
                 parcel_id,
                 slug,
@@ -165,7 +167,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::MailingListSend {
+            ParcelOperationAppRequest::MailingListSend {
                 current_view,
                 parcel_id,
                 slug,
@@ -184,7 +186,7 @@ where
                     })
                     .await?;
                 let mut events = vec![UiEvent::Text(format!(
-                    "Sent shop chat post #{} to {} member(s): {}.\r\n",
+                    "Sent parcel chat post #{} to {} member(s): {}.\r\n",
                     result.post.id(),
                     result.post.recipient_count(),
                     result.post.subject()
@@ -197,7 +199,7 @@ where
                 }));
                 Ok(events)
             }
-            ShopAppRequest::MailingListChat {
+            ParcelOperationAppRequest::MailingListChat {
                 current_view,
                 target,
                 slug,
@@ -214,7 +216,7 @@ where
                     )
                     .await?;
                 let mut events = vec![UiEvent::Text(format!(
-                    "Posted shop chat message #{} to {} member(s): {}.\r\n",
+                    "Posted parcel chat message #{} to {} member(s): {}.\r\n",
                     result.post.id(),
                     result.post.recipient_count(),
                     result.post.subject()
@@ -227,7 +229,7 @@ where
                 }));
                 Ok(events)
             }
-            ShopAppRequest::MailingListClose {
+            ParcelOperationAppRequest::MailingListClose {
                 current_view,
                 parcel_id,
                 slug,
@@ -241,7 +243,7 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::MailingListSubscribe {
+            ParcelOperationAppRequest::MailingListSubscribe {
                 current_view,
                 target,
                 slug,
@@ -257,7 +259,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::MailingListUnsubscribe {
+            ParcelOperationAppRequest::MailingListUnsubscribe {
                 current_view,
                 target,
                 slug,
@@ -273,13 +275,13 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::MailingListSubscriptions => Ok(text_events(
+            ParcelOperationAppRequest::MailingListSubscriptions => Ok(text_events(
                 self.shop_mailing_list_subscriptions(&identity.player_id)
                     .await?
                     .text,
                 None,
             )),
-            ShopAppRequest::DeskCreate {
+            ParcelOperationAppRequest::DeskCreate {
                 current_view,
                 parcel_id,
                 slug,
@@ -300,7 +302,7 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::DeskList {
+            ParcelOperationAppRequest::DeskList {
                 current_view,
                 parcel_id,
             } => Ok(text_events(
@@ -309,7 +311,7 @@ where
                     .text,
                 None,
             )),
-            ShopAppRequest::StaffAdd {
+            ParcelOperationAppRequest::StaffAdd {
                 current_view,
                 parcel_id,
                 slug,
@@ -320,7 +322,7 @@ where
                     .text,
                 None,
             )),
-            ShopAppRequest::StaffList {
+            ParcelOperationAppRequest::StaffList {
                 current_view,
                 parcel_id,
                 slug,
@@ -330,7 +332,7 @@ where
                     .text,
                 None,
             )),
-            ShopAppRequest::StaffRemove {
+            ParcelOperationAppRequest::StaffRemove {
                 current_view,
                 parcel_id,
                 slug,
@@ -347,7 +349,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::ShiftStart {
+            ParcelOperationAppRequest::ShiftStart {
                 current_view,
                 parcel_id,
                 slug,
@@ -363,7 +365,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::ShiftEnd {
+            ParcelOperationAppRequest::ShiftEnd {
                 current_view,
                 parcel_id,
                 slug,
@@ -379,7 +381,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::WorkList {
+            ParcelOperationAppRequest::WorkList {
                 current_view,
                 parcel_id,
                 slug,
@@ -395,7 +397,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::WorkClaim {
+            ParcelOperationAppRequest::WorkClaim {
                 current_view,
                 parcel_id,
                 work_id,
@@ -411,7 +413,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::WorkDone {
+            ParcelOperationAppRequest::WorkDone {
                 current_view,
                 parcel_id,
                 work_id,
@@ -429,7 +431,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::RouteAdd {
+            ParcelOperationAppRequest::RouteAdd {
                 current_view,
                 parcel_id,
                 slug,
@@ -450,7 +452,7 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::RouteList {
+            ParcelOperationAppRequest::RouteList {
                 current_view,
                 parcel_id,
             } => Ok(text_events(
@@ -459,7 +461,7 @@ where
                     .text,
                 None,
             )),
-            ShopAppRequest::RouteRemove {
+            ParcelOperationAppRequest::RouteRemove {
                 current_view,
                 parcel_id,
                 slug,
@@ -480,7 +482,7 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::BadgeList {
+            ParcelOperationAppRequest::BadgeList {
                 current_view,
                 parcel_id,
             } => Ok(text_events(
@@ -489,7 +491,7 @@ where
                     .text,
                 None,
             )),
-            ShopAppRequest::BadgeCreate {
+            ParcelOperationAppRequest::BadgeCreate {
                 current_view,
                 parcel_id,
                 slug,
@@ -508,7 +510,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::BadgeAward {
+            ParcelOperationAppRequest::BadgeAward {
                 current_view,
                 parcel_id,
                 slug,
@@ -528,7 +530,7 @@ where
                 .text,
                 None,
             )),
-            ShopAppRequest::BadgeRevoke {
+            ParcelOperationAppRequest::BadgeRevoke {
                 current_view,
                 parcel_id,
                 slug,
@@ -539,13 +541,13 @@ where
                     .text,
                 None,
             )),
-            ShopAppRequest::BadgesMine => Ok(text_events(
+            ParcelOperationAppRequest::BadgesMine => Ok(text_events(
                 self.player_badges(&identity.user, &identity.player_id)
                     .await?
                     .text,
                 None,
             )),
-            ShopAppRequest::BadgesUser { target } => {
+            ParcelOperationAppRequest::BadgesUser { target } => {
                 Ok(text_events(self.target_badges(target).await?.text, None))
             }
         }

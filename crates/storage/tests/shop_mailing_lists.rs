@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hinemos_core::{
-    PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT,
-    SHOP_MAILING_LISTS_PER_PARCEL_MAX,
+    PARCEL_MAILING_LISTS_PER_PARCEL_MAX, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED,
+    PARCEL_STATUS_VACANT,
 };
 use hinemos_storage::{PgStorage, StorageError};
 
@@ -115,7 +115,9 @@ fn skip_without_database() -> bool {
     if maybe_database_url().is_some() {
         false
     } else {
-        eprintln!("skipping shop mailing-list storage test because DATABASE_URL is not configured");
+        eprintln!(
+            "skipping parcel mailing-list storage test because DATABASE_URL is not configured"
+        );
         true
     }
 }
@@ -389,7 +391,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
             "select count(*)
              from inbox_items
              where kind = 'mail'
-               and source_kind = 'shop_mailing_list_post'
+               and source_kind = 'parcel_mailing_list_post'
                and source_id = (select max(id) from shop_mailing_list_posts)"
         ),
         "1"
@@ -414,7 +416,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
             "updates",
             "customer",
             "player:customer",
-            "Shop chat: updates",
+            "Parcel chat: updates",
             "Hello from a member",
         )
         .await
@@ -425,10 +427,10 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
             "select count(*)
              from inbox_items
              where kind = 'mail'
-               and source_kind = 'shop_mailing_list_post'
+               and source_kind = 'parcel_mailing_list_post'
                and sender_user = 'customer'
-               and subject = 'Shop chat: updates'
-               and body like '%Reply: /chat E1-C0-01 updates -- <message>%'"
+               and subject = 'Parcel chat: updates'
+               and body like '%Reply: /parcel chat E1-C0-01 updates -- <message>%'"
         ),
         "1",
         "member chat delivery should include a reply command"
@@ -443,7 +445,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
             "select count(*)
              from inbox_items
              where kind = 'mail'
-               and source_kind = 'shop_mailing_list_post'
+               and source_kind = 'parcel_mailing_list_post'
                and source_id = (select max(id) from shop_mailing_list_posts)"
         ),
         "1",
@@ -547,7 +549,7 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
         db.query_value(
             "select count(*)
              from inbox_items
-             where source_kind = 'shop_mailing_list_post'"
+             where source_kind = 'parcel_mailing_list_post'"
         ),
         "0"
     );
@@ -740,7 +742,7 @@ async fn mailing_list_count_is_limited_per_parcel() {
     }
     let (_db, storage) = storage_with_built_shop().await;
 
-    for index in 0..SHOP_MAILING_LISTS_PER_PARCEL_MAX {
+    for index in 0..PARCEL_MAILING_LISTS_PER_PARCEL_MAX {
         storage
             .create_shop_mailing_list(
                 "E1-C0-01",

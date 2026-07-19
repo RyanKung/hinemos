@@ -2,7 +2,9 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use hinemos_storage::{PgStorage, SHOP_BADGE_AWARD_ACTIVE, SHOP_BADGE_AWARD_REVOKED, StorageError};
+use hinemos_storage::{
+    PARCEL_BADGE_AWARD_ACTIVE, PARCEL_BADGE_AWARD_REVOKED, PgStorage, StorageError,
+};
 
 static TEST_DATABASE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -111,7 +113,7 @@ fn skip_without_database() -> bool {
     if maybe_database_url().is_some() {
         false
     } else {
-        eprintln!("skipping shop badge storage test because DATABASE_URL is not configured");
+        eprintln!("skipping parcel badge storage test because DATABASE_URL is not configured");
         true
     }
 }
@@ -244,7 +246,7 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
         .expect("award badge");
     assert_eq!(award.recipient_user, "customer");
     assert_eq!(award.badge_title, "Great Patron");
-    assert_eq!(award.status, SHOP_BADGE_AWARD_ACTIVE);
+    assert_eq!(award.status, PARCEL_BADGE_AWARD_ACTIVE);
 
     let duplicate = storage
         .award_shop_badge(
@@ -275,7 +277,7 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
         .revoke_shop_badge("E1-C0-01", "patron", "player:owner", "customer")
         .await
         .expect("revoke badge");
-    assert_eq!(revoked.status, SHOP_BADGE_AWARD_REVOKED);
+    assert_eq!(revoked.status, PARCEL_BADGE_AWARD_REVOKED);
     assert_eq!(
         storage
             .shop_badges_for_player("player:customer", 10)
@@ -300,7 +302,7 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
         reawarded.id, award.id,
         "re-awarding after revoke should append a new audit row"
     );
-    assert_eq!(reawarded.status, SHOP_BADGE_AWARD_ACTIVE);
+    assert_eq!(reawarded.status, PARCEL_BADGE_AWARD_ACTIVE);
     assert_eq!(
         db.query_value("select count(*) from shop_badge_awards where recipient_user = 'customer'"),
         "2"

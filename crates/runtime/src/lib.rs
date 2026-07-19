@@ -310,29 +310,14 @@ impl GameRuntime {
                     "Payments are available in SSH sessions.".to_owned(),
                 )]
             }
-            SemanticCommand::Land { .. } => {
+            SemanticCommand::Parcel { .. } => {
                 vec![message(
-                    "Land tools are available in SSH sessions.".to_owned(),
-                )]
-            }
-            SemanticCommand::Build { .. } => {
-                vec![message(
-                    "Build tools are available in SSH sessions.".to_owned(),
-                )]
-            }
-            SemanticCommand::Shop { .. } => {
-                vec![message(
-                    "Shop tools are available in SSH sessions.".to_owned(),
+                    "Parcel tools are available in SSH sessions.".to_owned(),
                 )]
             }
             SemanticCommand::Badges { .. } => {
                 vec![message(
-                    "Shop badges are available in SSH sessions.".to_owned(),
-                )]
-            }
-            SemanticCommand::Subscription { .. } => {
-                vec![message(
-                    "Shop mailing-list subscriptions are available in SSH sessions.".to_owned(),
+                    "Parcel badges are available in SSH sessions.".to_owned(),
                 )]
             }
             SemanticCommand::Extension { .. } => {

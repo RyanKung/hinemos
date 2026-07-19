@@ -7,14 +7,14 @@ pub(super) fn non_empty(value: Option<&str>) -> Option<&str> {
 }
 
 pub(crate) fn render_parcel_list(parcels: &[impl ParcelView]) -> String {
-    let mut lines = vec!["Commercial Parcels".to_owned()];
+    let mut lines = vec!["Parcels".to_owned()];
     let mut vacant_count = 0_u32;
     for parcel in parcels {
         match parcel.status() {
             PARCEL_STATUS_BUILT => lines.push(format!(
                 "- {}: {}. Owner: {}. Enter from street: /enter {}.",
                 parcel.parcel_id(),
-                parcel.title().unwrap_or("built shop"),
+                parcel.title().unwrap_or("built parcel"),
                 parcel.owner_user().unwrap_or("unknown"),
                 parcel.parcel_id()
             )),
@@ -26,7 +26,7 @@ pub(crate) fn render_parcel_list(parcels: &[impl ParcelView]) -> String {
             _ => {
                 vacant_count += 1;
                 lines.push(format!(
-                    "- {}: vacant. Claim: /land claim {}.",
+                    "- {}: vacant. Claim: /parcel claim {}.",
                     parcel.parcel_id(),
                     parcel.parcel_id()
                 ));
@@ -34,10 +34,11 @@ pub(crate) fn render_parcel_list(parcels: &[impl ParcelView]) -> String {
         }
     }
     if vacant_count == 0 {
-        lines.push("No vacant parcels right now. Use /land info <parcel> for details.".to_owned());
+        lines
+            .push("No vacant parcels right now. Use /parcel info <parcel> for details.".to_owned());
     } else {
         lines.push(format!(
-            "{vacant_count} vacant parcel(s). Use /land claim <parcel>, /land token <parcel>, /land info <parcel>, or /land transfer <parcel> <user>."
+            "{vacant_count} vacant parcel(s). Use /parcel claim <parcel>, /parcel token <parcel>, /parcel info <parcel>, or /parcel transfer <parcel> <user>."
         ));
     }
     lines.push(String::new());

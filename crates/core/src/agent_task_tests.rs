@@ -428,16 +428,16 @@ fn pay_direct_template_authorizes_direct_payment_placeholders() {
 fn shop_inbox_template_does_not_authorize_payment_request() {
     let task = TaskMode::new("check shop inbox").expect("task");
     let snapshot = task.snapshot(
-        &observation(vec![SemanticCommand::Shop {
-            action: ShopAction::Inbox,
+        &observation(vec![SemanticCommand::Parcel {
+            action: ParcelAction::Inbox,
         }]),
         ObservedTaskState::default(),
     );
 
     let request = task.validate_command(
         &snapshot,
-        SemanticCommand::Shop {
-            action: ShopAction::RequestPayment {
+        SemanticCommand::Parcel {
+            action: ParcelAction::RequestPayment {
                 command_id: 1,
                 amount: 10,
                 delivery: "done".to_owned(),
@@ -452,16 +452,16 @@ fn shop_inbox_template_does_not_authorize_payment_request() {
 fn subscription_list_template_does_not_authorize_chat() {
     let task = TaskMode::new("read subscriptions").expect("task");
     let snapshot = task.snapshot(
-        &observation(vec![SemanticCommand::Subscription {
-            action: SubscriptionAction::List,
+        &observation(vec![SemanticCommand::Parcel {
+            action: ParcelAction::Subscriptions,
         }]),
         ObservedTaskState::default(),
     );
 
     let chat = task.validate_command(
         &snapshot,
-        SemanticCommand::Subscription {
-            action: SubscriptionAction::Chat {
+        SemanticCommand::Parcel {
+            action: ParcelAction::Chat {
                 target: "P1".to_owned(),
                 slug: "news".to_owned(),
                 body: "hello".to_owned(),

@@ -16,12 +16,12 @@ use super::results::{
 };
 use crate::{
     AppIdentity, AppService, BuildSheet, LiveInboxNotice, MailAuthTokenView, OperatorCommandView,
-    PARCEL_STATUS_BUILT, RoomBindingKindView, UiEvent, shop_badge_description_is_valid,
-    shop_badge_note_is_valid, shop_badge_slug_is_valid, shop_badge_title_is_valid,
-    shop_command_route_prefix_is_valid, shop_mailing_list_body_is_valid,
-    shop_mailing_list_slug_is_valid, shop_mailing_list_subject_is_valid,
-    shop_mailing_list_title_is_valid, shop_work_desk_slug_is_valid, shop_work_desk_title_is_valid,
-    shop_work_result_is_valid,
+    PARCEL_STATUS_BUILT, RoomBindingKindView, UiEvent, parcel_badge_description_is_valid,
+    parcel_badge_note_is_valid, parcel_badge_slug_is_valid, parcel_badge_title_is_valid,
+    parcel_command_route_prefix_is_valid, parcel_mailing_list_body_is_valid,
+    parcel_mailing_list_slug_is_valid, parcel_mailing_list_subject_is_valid,
+    parcel_mailing_list_title_is_valid, parcel_work_desk_slug_is_valid,
+    parcel_work_desk_title_is_valid, parcel_work_result_is_valid,
 };
 
 impl<S, E> AppService<S>
@@ -29,7 +29,7 @@ where
     S: ShopStore<Error = E> + LandStore<Error = E>,
     E: FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
 {
-    /// Returns true when a commercial parcel will consume this raw input line.
+    /// Returns true when a parcel will consume this raw input line.
     #[must_use]
     pub fn commercial_parcel_consumes_input<P>(&self, binding: &P, raw_line: &str) -> bool
     where
@@ -41,15 +41,15 @@ where
             && is_custom_command_input(binding, raw_line)
     }
 
-    /// Builds the shop operator inbox text.
+    /// Builds the parcel operator inbox text.
     pub async fn shop_inbox(&self, owner_player_id: &str) -> Result<BusinessListResult, E> {
         let commands = self
             .store
             .recent_operator_commands(owner_player_id, 20)
             .await?;
-        let mut lines = vec![String::new(), "Shop Inbox".to_owned()];
+        let mut lines = vec![String::new(), "Parcel Inbox".to_owned()];
         if commands.is_empty() {
-            lines.push("No shop commands.".to_owned());
+            lines.push("No parcel commands.".to_owned());
         } else {
             for command in commands.iter().rev() {
                 lines.push(format!(
@@ -69,7 +69,7 @@ where
         })
     }
 
-    /// Creates a payment request for a shop command.
+    /// Creates a payment request for a parcel command.
     pub async fn request_shop_payment(
         &self,
         current_view: &str,
@@ -102,7 +102,7 @@ where
         })
     }
 
-    /// Creates a mailing list for an owned shop parcel.
+    /// Creates a mailing list for an owned parcel.
     pub async fn create_shop_mailing_list(
         &self,
         current_view: &str,
@@ -120,7 +120,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Created shop chat {} for parcel {}: {}.\r\nJoin: /subscribe {} {}\r\nPost: /chat {} {} -- <message>\r\n",
+                "Created parcel chat {} for parcel {}: {}.\r\nJoin: /parcel subscribe {} {}\r\nPost: /parcel chat {} {} -- <message>\r\n",
                 list.slug(),
                 list.parcel_id(),
                 list.title(),
@@ -132,7 +132,7 @@ where
         })
     }
 
-    /// Lists mailing lists for an owned shop parcel.
+    /// Lists mailing lists for an owned parcel.
     pub async fn list_shop_mailing_lists(
         &self,
         current_view: &str,
@@ -188,14 +188,14 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Closed shop chat {} for parcel {}. Existing members remain recorded and can unsubscribe.\r\n",
+                "Closed parcel chat {} for parcel {}. Existing members remain recorded and can unsubscribe.\r\n",
                 list.slug(),
                 list.parcel_id()
             ),
         })
     }
 
-    /// Subscribes the current player to a shop mailing list.
+    /// Subscribes the current player to a parcel mailing list.
     pub async fn subscribe_shop_mailing_list(
         &self,
         current_view: &str,
@@ -212,7 +212,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Joined shop chat {} ({}) at {}.\r\nPost: /chat {} {} -- <message>\r\nUnsubscribe: /unsubscribe {} {}\r\n",
+                "Joined parcel chat {} ({}) at {}.\r\nPost: /parcel chat {} {} -- <message>\r\nUnsubscribe: /parcel unsubscribe {} {}\r\n",
                 subscription.list_title(),
                 subscription.slug(),
                 subscription.parcel_id(),
@@ -224,7 +224,7 @@ where
         })
     }
 
-    /// Unsubscribes the current player from a shop mailing list.
+    /// Unsubscribes the current player from a parcel mailing list.
     pub async fn unsubscribe_shop_mailing_list(
         &self,
         current_view: &str,
@@ -241,7 +241,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Left shop chat {} ({}) at {}.\r\n",
+                "Left parcel chat {} ({}) at {}.\r\n",
                 subscription.list_title(),
                 subscription.slug(),
                 subscription.parcel_id()
@@ -285,7 +285,7 @@ where
             .await
     }
 
-    /// Posts a group-chat message to a shop mailing list.
+    /// Posts a group-chat message to a parcel mailing list.
     pub async fn post_shop_mailing_list_chat(
         &self,
         current_view: &str,
@@ -299,7 +299,7 @@ where
         validate_mailing_list_body(body)?;
         self.ensure_inside_shop_mailing_list_target(current_view, target, slug)
             .await?;
-        let subject = format!("Shop chat: {slug}");
+        let subject = format!("Parcel chat: {slug}");
         self.store
             .send_shop_mailing_list_post(
                 target,
@@ -312,7 +312,7 @@ where
             .await
     }
 
-    /// Creates a shop-local work desk.
+    /// Creates a parcel-local work desk.
     pub async fn create_shop_work_desk(
         &self,
         current_view: &str,
@@ -330,7 +330,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Created shop work desk {} for parcel {}: {}.\r\nRoute commands: /shop route add {} {} <command-prefix>\r\nAssign staff: /shop staff add {} {} <username>\r\n",
+                "Created parcel work desk {} for parcel {}: {}.\r\nRoute commands: /parcel route add {} {} <command-prefix>\r\nAssign staff: /parcel staff add {} {} <username>\r\n",
                 desk.slug(),
                 desk.parcel_id(),
                 desk.title(),
@@ -342,7 +342,7 @@ where
         })
     }
 
-    /// Lists shop-local work desks for an owned shop parcel.
+    /// Lists parcel-local work desks for an owned parcel.
     pub async fn list_shop_work_desks(
         &self,
         current_view: &str,
@@ -359,7 +359,7 @@ where
         })
     }
 
-    /// Adds a worker to one shop-local work desk.
+    /// Adds a worker to one parcel-local work desk.
     pub async fn add_shop_staff(
         &self,
         current_view: &str,
@@ -376,7 +376,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Added shop staff {} to {} for parcel {}.\r\nThey must enter the shop and run /shop shift start {} {} before consuming work.\r\n",
+                "Added parcel staff {} to {} for parcel {}.\r\nThey must enter the shop and run /parcel shift start {} {} before consuming work.\r\n",
                 staff.staff_user(),
                 slug,
                 parcel_id,
@@ -386,7 +386,7 @@ where
         })
     }
 
-    /// Lists workers assigned to one shop-local work desk.
+    /// Lists workers assigned to one parcel-local work desk.
     pub async fn list_shop_staff(
         &self,
         current_view: &str,
@@ -405,7 +405,7 @@ where
         })
     }
 
-    /// Removes a worker from one shop-local work desk.
+    /// Removes a worker from one parcel-local work desk.
     pub async fn remove_shop_staff(
         &self,
         current_view: &str,
@@ -422,7 +422,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Removed shop staff {} from {} for parcel {}. Status: {}.\r\n",
+                "Removed parcel staff {} from {} for parcel {}. Status: {}.\r\n",
                 staff.staff_user(),
                 slug,
                 parcel_id,
@@ -431,7 +431,7 @@ where
         })
     }
 
-    /// Starts a worker shift inside the target shop.
+    /// Starts a worker shift inside the target parcel.
     pub async fn start_shop_shift(
         &self,
         current_view: &str,
@@ -448,7 +448,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Started shop shift #{} at {} for parcel {}. Work list: /shop work list {} {}\r\n",
+                "Started parcel shift #{} at {} for parcel {}. Work list: /parcel work list {} {}\r\n",
                 shift.id(),
                 shift.slug(),
                 shift.parcel_id(),
@@ -458,7 +458,7 @@ where
         })
     }
 
-    /// Ends a worker shift inside the target shop.
+    /// Ends a worker shift inside the target parcel.
     pub async fn end_shop_shift(
         &self,
         current_view: &str,
@@ -475,7 +475,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Ended shop shift #{} at {} for parcel {}.\r\n",
+                "Ended parcel shift #{} at {} for parcel {}.\r\n",
                 shift.id(),
                 shift.slug(),
                 shift.parcel_id()
@@ -483,7 +483,7 @@ where
         })
     }
 
-    /// Lists work items for an active in-shop worker.
+    /// Lists work items for an active in-parcel worker.
     pub async fn list_shop_work(
         &self,
         current_view: &str,
@@ -505,7 +505,7 @@ where
         })
     }
 
-    /// Claims one work item for an active in-shop worker.
+    /// Claims one work item for an active in-parcel worker.
     pub async fn claim_shop_work(
         &self,
         current_view: &str,
@@ -521,7 +521,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Claimed shop work #{} at {} for parcel {}.\r\nCommand #{} from {}: {}\r\nComplete: /shop work done {} {} -- <result>\r\n",
+                "Claimed parcel work #{} at {} for parcel {}.\r\nCommand #{} from {}: {}\r\nComplete: /parcel work done {} {} -- <result>\r\n",
                 item.id(),
                 item.slug(),
                 item.parcel_id(),
@@ -534,7 +534,7 @@ where
         })
     }
 
-    /// Completes one claimed work item for an active in-shop worker.
+    /// Completes one claimed work item for an active in-parcel worker.
     pub async fn finish_shop_work(
         &self,
         current_view: &str,
@@ -552,7 +552,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Completed shop work #{} at {} for parcel {}.\r\n",
+                "Completed parcel work #{} at {} for parcel {}.\r\n",
                 item.id(),
                 item.slug(),
                 item.parcel_id()
@@ -560,7 +560,7 @@ where
         })
     }
 
-    /// Adds a command route from a shop command prefix into a shop-local work desk.
+    /// Adds a command route from a parcel command prefix into a parcel-local work desk.
     pub async fn add_shop_command_route(
         &self,
         current_view: &str,
@@ -578,7 +578,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Routed shop commands matching {} to work desk {} ({}) for parcel {}.\r\nWorkers must enter the shop and start a shift before listing or claiming routed work.\r\n",
+                "Routed parcel commands matching {} to work desk {} ({}) for parcel {}.\r\nWorkers must enter the shop and start a shift before listing or claiming routed work.\r\n",
                 route.command_prefix(),
                 route.desk_title(),
                 route.slug(),
@@ -587,7 +587,7 @@ where
         })
     }
 
-    /// Lists command routes for an owned shop parcel.
+    /// Lists command routes for an owned parcel.
     pub async fn list_shop_command_routes(
         &self,
         current_view: &str,
@@ -604,7 +604,7 @@ where
         })
     }
 
-    /// Removes a command route from a shop-chat stream.
+    /// Removes a command route from a parcel-chat stream.
     pub async fn remove_shop_command_route(
         &self,
         current_view: &str,
@@ -622,7 +622,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Removed shop command route {} -> {} for parcel {}.\r\n",
+                "Removed parcel command route {} -> {} for parcel {}.\r\n",
                 route.command_prefix(),
                 route.slug(),
                 route.parcel_id()
@@ -630,7 +630,7 @@ where
         })
     }
 
-    /// Creates or updates a badge definition for an owned shop parcel.
+    /// Creates or updates a badge definition for an owned parcel.
     pub async fn create_shop_badge(
         &self,
         current_view: &str,
@@ -650,7 +650,7 @@ where
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Saved badge {} for parcel {}: {}.\r\nAward command: /shop badge award {} {} <user> [note]\r\n",
+                "Saved badge {} for parcel {}: {}.\r\nAward command: /parcel badge award {} {} <user> [note]\r\n",
                 badge.slug(),
                 badge.parcel_id(),
                 badge.title(),
@@ -660,7 +660,7 @@ where
         })
     }
 
-    /// Lists badge definitions for an owned shop parcel.
+    /// Lists badge definitions for an owned parcel.
     pub async fn list_shop_badges(
         &self,
         current_view: &str,
@@ -674,7 +674,7 @@ where
         })
     }
 
-    /// Awards a shop badge to a target player.
+    /// Awards a parcel badge to a target player.
     pub async fn award_shop_badge(
         &self,
         input: ShopBadgeAwardInput<'_>,
@@ -707,7 +707,7 @@ where
         })
     }
 
-    /// Revokes an active shop badge award.
+    /// Revokes an active parcel badge award.
     pub async fn revoke_shop_badge(
         &self,
         current_view: &str,
@@ -758,7 +758,7 @@ where
             Ok(())
         } else {
             Err(E::invalid_shop_work(
-                "shop actions can only happen while inside that shop",
+                "parcel actions can only happen while inside that parcel",
             ))
         }
     }
@@ -774,7 +774,7 @@ where
             .await
     }
 
-    /// Handles a raw or slash-prefixed input line inside a commercial parcel room.
+    /// Handles a raw or slash-prefixed input line inside a parcel room.
     pub async fn handle_commercial_parcel_input<P>(
         &self,
         identity: &AppIdentity,
@@ -793,7 +793,7 @@ where
         if owner_player_id == identity.player_id.as_str() {
             if is_custom_command_input(binding, raw_line) {
                 return Ok(Some(vec![UiEvent::Text(format!(
-                    "You own this shop. Visitors use {} here; their requests arrive in your inbox and /shop inbox.\r\n",
+                    "You own this parcel. Visitors use {} here; their requests arrive in your inbox and /parcel inbox.\r\n",
                     raw_line.split_whitespace().next().unwrap_or("this command")
                 ))]));
             }
@@ -821,11 +821,11 @@ where
             String::new()
         } else {
             format!(
-                "Queued {queued_work_items} shop work item(s). Workers must be inside the shop with an active shift to list, claim, or complete them.\r\n"
+                "Queued {queued_work_items} parcel work item(s). Workers must be inside the parcel with an active shift to list, claim, or complete them.\r\n"
             )
         };
         let mut events = vec![UiEvent::Text(format!(
-            "Shop request #{} sent to owner {} for parcel {}.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\n{}{}",
+            "Parcel request #{} sent to owner {} for parcel {}.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\n{}{}",
             command.id(),
             command.owner_user(),
             command.parcel_id(),
@@ -842,7 +842,7 @@ where
             events.push(UiEvent::LiveViewMessage {
                 view_id: ParcelView::view_id(binding).to_owned(),
                 text: format!(
-                    "[shop work] {queued_work_items} new item(s) queued for parcel {}.",
+                    "[parcel work] {queued_work_items} new item(s) queued for parcel {}.",
                     binding.parcel_id()
                 ),
             });
@@ -855,7 +855,7 @@ fn validate_mailing_list_slug<E>(slug: &str) -> Result<(), E>
 where
     E: FromMailingListValidation,
 {
-    if shop_mailing_list_slug_is_valid(slug) {
+    if parcel_mailing_list_slug_is_valid(slug) {
         Ok(())
     } else {
         Err(E::invalid_mailing_list("invalid mailing-list slug"))
@@ -866,7 +866,7 @@ fn validate_mailing_list_title<E>(title: &str) -> Result<(), E>
 where
     E: FromMailingListValidation,
 {
-    if shop_mailing_list_title_is_valid(title) {
+    if parcel_mailing_list_title_is_valid(title) {
         Ok(())
     } else {
         Err(E::invalid_mailing_list("invalid mailing-list title"))
@@ -877,7 +877,7 @@ fn validate_mailing_list_subject<E>(subject: &str) -> Result<(), E>
 where
     E: FromMailingListValidation,
 {
-    if shop_mailing_list_subject_is_valid(subject) {
+    if parcel_mailing_list_subject_is_valid(subject) {
         Ok(())
     } else {
         Err(E::invalid_mailing_list("invalid mailing-list subject"))
@@ -888,7 +888,7 @@ fn validate_mailing_list_body<E>(body: &str) -> Result<(), E>
 where
     E: FromMailingListValidation,
 {
-    if shop_mailing_list_body_is_valid(body) {
+    if parcel_mailing_list_body_is_valid(body) {
         Ok(())
     } else {
         Err(E::invalid_mailing_list("invalid mailing-list body"))
@@ -899,10 +899,10 @@ fn validate_work_desk_slug<E>(slug: &str) -> Result<(), E>
 where
     E: FromShopWorkValidation,
 {
-    if shop_work_desk_slug_is_valid(slug) {
+    if parcel_work_desk_slug_is_valid(slug) {
         Ok(())
     } else {
-        Err(E::invalid_shop_work("invalid shop work desk slug"))
+        Err(E::invalid_shop_work("invalid parcel work desk slug"))
     }
 }
 
@@ -910,10 +910,10 @@ fn validate_work_desk_title<E>(title: &str) -> Result<(), E>
 where
     E: FromShopWorkValidation,
 {
-    if shop_work_desk_title_is_valid(title) {
+    if parcel_work_desk_title_is_valid(title) {
         Ok(())
     } else {
-        Err(E::invalid_shop_work("invalid shop work desk title"))
+        Err(E::invalid_shop_work("invalid parcel work desk title"))
     }
 }
 
@@ -921,10 +921,10 @@ fn validate_work_result<E>(result: &str) -> Result<(), E>
 where
     E: FromShopWorkValidation,
 {
-    if shop_work_result_is_valid(result) {
+    if parcel_work_result_is_valid(result) {
         Ok(())
     } else {
-        Err(E::invalid_shop_work("invalid shop work result"))
+        Err(E::invalid_shop_work("invalid parcel work result"))
     }
 }
 
@@ -932,10 +932,10 @@ fn validate_command_route_prefix<E>(command_prefix: &str) -> Result<(), E>
 where
     E: FromShopWorkValidation,
 {
-    if shop_command_route_prefix_is_valid(command_prefix) {
+    if parcel_command_route_prefix_is_valid(command_prefix) {
         Ok(())
     } else {
-        Err(E::invalid_shop_work("invalid shop command route prefix"))
+        Err(E::invalid_shop_work("invalid parcel command route prefix"))
     }
 }
 
@@ -943,7 +943,7 @@ fn validate_badge_slug<E>(slug: &str) -> Result<(), E>
 where
     E: FromShopBadgeValidation,
 {
-    if shop_badge_slug_is_valid(slug) {
+    if parcel_badge_slug_is_valid(slug) {
         Ok(())
     } else {
         Err(E::invalid_shop_badge("invalid badge slug"))
@@ -954,7 +954,7 @@ fn validate_badge_title<E>(title: &str) -> Result<(), E>
 where
     E: FromShopBadgeValidation,
 {
-    if shop_badge_title_is_valid(title) {
+    if parcel_badge_title_is_valid(title) {
         Ok(())
     } else {
         Err(E::invalid_shop_badge("invalid badge title"))
@@ -965,7 +965,7 @@ fn validate_badge_description<E>(description: Option<&str>) -> Result<(), E>
 where
     E: FromShopBadgeValidation,
 {
-    if description.is_none_or(shop_badge_description_is_valid) {
+    if description.is_none_or(parcel_badge_description_is_valid) {
         Ok(())
     } else {
         Err(E::invalid_shop_badge("invalid badge description"))
@@ -976,7 +976,7 @@ fn validate_badge_note<E>(note: Option<&str>) -> Result<(), E>
 where
     E: FromShopBadgeValidation,
 {
-    if note.is_none_or(shop_badge_note_is_valid) {
+    if note.is_none_or(parcel_badge_note_is_valid) {
         Ok(())
     } else {
         Err(E::invalid_shop_badge("invalid badge note"))
@@ -984,16 +984,16 @@ where
 }
 
 fn render_shop_mailing_lists(parcel_id: &str, lists: &[impl ShopMailingListView]) -> String {
-    let mut lines = vec![format!("Shop Chats for {parcel_id}")];
+    let mut lines = vec![format!("Parcel Chats for {parcel_id}")];
     if lists.is_empty() {
         lines.push(
-            "No shop chats. Create one with /shop mailing-list create <parcel> <slug> <title>."
+            "No parcel chats. Create one with /parcel mailing-list create <parcel> <slug> <title>."
                 .to_owned(),
         );
     } else {
         for list in lists {
             lines.push(format!(
-                "- {} [{}] {} members={} created={}. Join: /subscribe {} {}. Post: /chat {} {} -- <message>",
+                "- {} [{}] {} members={} created={}. Join: /parcel subscribe {} {}. Post: /parcel chat {} {} -- <message>",
                 list.slug(),
                 list.status(),
                 list.title(),
@@ -1017,7 +1017,7 @@ fn render_shop_mailing_list_subscribers(
     subscribers: &[impl ShopMailingListSubscriberView],
 ) -> String {
     let mut lines = vec![format!(
-        "Shop Chat Members for {parcel_id} {slug}: {total} active"
+        "Parcel Chat Members for {parcel_id} {slug}: {total} active"
     )];
     if subscribers.is_empty() {
         lines.push("No active members.".to_owned());
@@ -1038,16 +1038,16 @@ fn render_shop_mailing_list_subscribers(
 fn render_shop_mailing_list_subscriptions(
     subscriptions: &[impl ShopMailingListSubscriptionView],
 ) -> String {
-    let mut lines = vec!["Shop Chat Memberships".to_owned()];
+    let mut lines = vec!["Parcel Chat Memberships".to_owned()];
     if subscriptions.is_empty() {
-        lines.push("No active shop chats.".to_owned());
+        lines.push("No active parcel chats.".to_owned());
     } else {
         for subscription in subscriptions {
             let shop = subscription
                 .shop_title()
                 .unwrap_or(subscription.parcel_id());
             lines.push(format!(
-                "- {} / {} ({}) status={} updated={}. Post: /chat {} {} -- <message>. Unsubscribe: /unsubscribe {} {}",
+                "- {} / {} ({}) status={} updated={}. Post: /parcel chat {} {} -- <message>. Unsubscribe: /parcel unsubscribe {} {}",
                 shop,
                 subscription.list_title(),
                 subscription.slug(),
@@ -1065,15 +1065,16 @@ fn render_shop_mailing_list_subscriptions(
 }
 
 fn render_shop_work_desks(parcel_id: &str, desks: &[impl ShopWorkDeskView]) -> String {
-    let mut lines = vec![format!("Shop Work Desks for {parcel_id}")];
+    let mut lines = vec![format!("Parcel Work Desks for {parcel_id}")];
     if desks.is_empty() {
         lines.push(
-            "No work desks. Create one with /shop desk create <parcel> <slug> <title>.".to_owned(),
+            "No work desks. Create one with /parcel desk create <parcel> <slug> <title>."
+                .to_owned(),
         );
     } else {
         for desk in desks {
             lines.push(format!(
-                "- {} [{}] {} queued={} active_workers={} created={}. Route: /shop route add {} {} <command-prefix>",
+                "- {} [{}] {} queued={} active_workers={} created={}. Route: /parcel route add {} {} <command-prefix>",
                 desk.slug(),
                 desk.status(),
                 desk.title(),
@@ -1090,10 +1091,10 @@ fn render_shop_work_desks(parcel_id: &str, desks: &[impl ShopWorkDeskView]) -> S
 }
 
 fn render_shop_staff(parcel_id: &str, slug: &str, staff: &[impl ShopStaffView]) -> String {
-    let mut lines = vec![format!("Shop Staff for {parcel_id} {slug}")];
+    let mut lines = vec![format!("Parcel Staff for {parcel_id} {slug}")];
     if staff.is_empty() {
         lines.push(
-            "No assigned staff. Add one with /shop staff add <parcel> <slug> <username>."
+            "No assigned staff. Add one with /parcel staff add <parcel> <slug> <username>."
                 .to_owned(),
         );
     } else {
@@ -1118,10 +1119,11 @@ fn render_shop_work_items(
     let scope = slug
         .map(|slug| format!("{parcel_id} {slug}"))
         .unwrap_or_else(|| parcel_id.to_owned());
-    let mut lines = vec![format!("Shop Work for {scope}")];
+    let mut lines = vec![format!("Parcel Work for {scope}")];
     if items.is_empty() {
         lines.push(
-            "No visible work. Start a shift in the shop, then wait for routed commands.".to_owned(),
+            "No visible work. Start a shift in the parcel, then wait for routed commands."
+                .to_owned(),
         );
     } else {
         for item in items {
@@ -1135,7 +1137,7 @@ fn render_shop_work_items(
                 .map(|value| format!(" result={value}"))
                 .unwrap_or_default();
             lines.push(format!(
-                "- #{} [{}] {} ({}) command=#{} prefix={} from={}{}{} updated={}. Claim: /shop work claim {} {}",
+                "- #{} [{}] {} ({}) command=#{} prefix={} from={}{}{} updated={}. Claim: /parcel work claim {} {}",
                 item.id(),
                 item.status(),
                 item.slug(),
@@ -1157,10 +1159,10 @@ fn render_shop_work_items(
 }
 
 fn render_shop_command_routes(parcel_id: &str, routes: &[impl ShopCommandRouteView]) -> String {
-    let mut lines = vec![format!("Shop Command Routes for {parcel_id}")];
+    let mut lines = vec![format!("Parcel Command Routes for {parcel_id}")];
     if routes.is_empty() {
         lines.push(
-            "No command routes. Create one with /shop route add <parcel> <desk-slug> <command-prefix>."
+            "No command routes. Create one with /parcel route add <parcel> <desk-slug> <command-prefix>."
                 .to_owned(),
         );
     } else {
@@ -1179,10 +1181,10 @@ fn render_shop_command_routes(parcel_id: &str, routes: &[impl ShopCommandRouteVi
 }
 
 fn render_shop_badges(parcel_id: &str, badges: &[impl ShopBadgeDefinitionView]) -> String {
-    let mut lines = vec![format!("Shop Badges for {parcel_id}")];
+    let mut lines = vec![format!("Parcel Badges for {parcel_id}")];
     if badges.is_empty() {
         lines.push(
-            "No badges. Create one with /shop badge create <parcel> <slug> <title> [-- description]."
+            "No badges. Create one with /parcel badge create <parcel> <slug> <title> [-- description]."
                 .to_owned(),
         );
     } else {
@@ -1238,7 +1240,7 @@ impl<S, E> AppService<S>
 where
     S: ParcelStore<Error = E>,
 {
-    /// Builds the commercial parcel list text.
+    /// Builds the parcel list text.
     pub async fn land_list(&self) -> Result<BusinessListResult, E> {
         let parcels = self.store.list_commercial_parcels().await?;
         Ok(BusinessListResult {
@@ -1251,7 +1253,7 @@ impl<S, E> AppService<S>
 where
     S: LandStore<Error = E>,
 {
-    /// Builds the commercial parcel detail text.
+    /// Builds the parcel detail text.
     pub async fn land_info(&self, parcel_id: &str) -> Result<BusinessListResult, E> {
         let parcel = self.store.commercial_parcel(parcel_id).await?;
         Ok(BusinessListResult {
@@ -1277,7 +1279,7 @@ where
             .await?;
         Ok(LandCommandResult {
             text: format!(
-                "Claimed parcel {}. Room mail account: {}. Token: {}\r\nUse this token from the room owner process with SMTP/IMAP. You can rotate it later with /land token {}.\r\nBuild here with /build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /build publish. From the street, enter with /enter {}. Custom commands are auto-filled if omitted.\r\n",
+                "Claimed parcel {}. Room mail account: {}. Token: {}\r\nUse this token from the room owner process with SMTP/IMAP. You can rotate it later with /parcel token {}.\r\nBuild here with /parcel build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /parcel build publish. From the street, enter with /enter {}. Custom commands are auto-filled if omitted.\r\n",
                 parcel.parcel_id(),
                 mail.username(),
                 token,
@@ -1336,7 +1338,7 @@ where
             .await?;
         Ok(LandCommandResult {
             text: format!(
-                "Room mail account for {}: {}\r\nToken: {}\r\nUse SMTP/IMAP with this username/token. This token is shown once; run /land token {} again to rotate it.\r\n",
+                "Room mail account for {}: {}\r\nToken: {}\r\nUse SMTP/IMAP with this username/token. This token is shown once; run /parcel token {} again to rotate it.\r\n",
                 parcel_id,
                 mail.username(),
                 token,
@@ -1443,7 +1445,7 @@ where
             .await?;
         Ok(BuildCommandResult {
             text: format!(
-                "Published parcel {} as a built shop.\r\n",
+                "Published parcel {} as a built parcel.\r\n",
                 parcel.parcel_id()
             ),
             invalidate: Some(CommercialParcelCacheInvalidation {
@@ -1473,7 +1475,7 @@ where
         } else {
             for request in requests.iter().rev() {
                 lines.push(format!(
-                    "\n=== Payment Request #{} ===\nShop: {} ({})\nAmount: {} {}\nFor: shop command #{}\nDelivery: locked until payment\nAccept: /pay accept {}\nReject: ignore this request\n==========================",
+                    "\n=== Payment Request #{} ===\nParcel: {} ({})\nAmount: {} {}\nFor: parcel command #{}\nDelivery: locked until payment\nAccept: /pay accept {}\nReject: ignore this request\n==========================",
                     request.id(),
                     request.parcel_id(),
                     request.payee_user(),

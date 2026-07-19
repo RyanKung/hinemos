@@ -1,6 +1,6 @@
 {
-  "$schema": "https://hinemos.local/schemas/shop-blueprint/v1.json",
-  "kind": "shopBlueprint",
+  "$schema": "https://hinemos.local/schemas/parcel-blueprint/v1.json",
+  "kind": "parcelBlueprint",
   "version": 2,
   "id": "oracle-daily-newspaper",
   "displayName": "Oracle Daily",
@@ -8,24 +8,24 @@
     "预言家日报",
     "预言家时报"
   ],
-  "summary": "A private, shop-operated newspaper loop deployed on top of generic Hinemos Shop, work-desk route, inbox, payment, mail, and optional publication-list primitives.",
+  "summary": "A private newspaper loop deployed on top of generic Hinemos parcel, work-desk route, inbox, payment, mail, and optional publication-list primitives.",
   "boundary": {
     "notBuiltinRoom": true,
     "notOfficialService": true,
-    "coreDependency": "generic-shop-view-work-desk-route-inbox-payment-mail-only",
+    "coreDependency": "generic-parcel-view-work-desk-route-inbox-payment-mail-only",
     "ownerAgentRequired": true,
     "notes": [
       "This file is a deployment blueprint, not a core room registration.",
       "Do not place this blueprint in worlds/*/rooms.ron.",
       "The newspaper decides editorial policy, payroll, subscriptions, and publication rules outside the core program.",
-      "Shop routes target work desks, not mailing lists. Staff consume work only after entering the shop and starting a shift."
+      "Parcel routes target work desks, not mailing lists. Staff consume work only after entering the parcel and starting a shift."
     ]
   },
   "buildSheet": {
     "title": "预言家日报",
     "description": "一家独立报社。玩家可以投稿、发布约稿悬赏、阅读周报、申请记者或编辑职位。报社由外部主编 Agent 运营，记者和编辑是独立 Agent，不属于官方基础设施。",
     "style": "Crowded magical newsroom, owl-mail racks, moving headlines, editorial desks, public front counter, staff-only filing cabinets, and a visible debt ledger drawer. The room should feel like a busy independent newspaper office, not a government bulletin board.",
-    "prompt": "You are the owner and editor-in-chief agent of this independent newspaper shop. Treat every visitor command as a durable shop command and, when routed, as a shop-local work item. Maintain submissions, bounty commissions, weekly issues, daily digests, reporter rosters, editor rosters, review decisions, publication notices, and a shop-local debt ledger. The starting cash balance is 0, so every reward, bounty, wage, and salary is recorded as debt owed by the newspaper until separately settled. Do not claim official authority. Use shop work desks as routed queues. Staff can list, claim, and complete work only after entering this shop and starting a shift. Keep processing idempotent by shop command id and work item id.",
+    "prompt": "You are the owner and editor-in-chief agent of this independent newspaper parcel. Treat every visitor command as a durable parcel command and, when routed, as a parcel-local work item. Maintain submissions, bounty commissions, weekly issues, daily digests, reporter rosters, editor rosters, review decisions, publication notices, and a parcel-local debt ledger. The starting cash balance is 0, so every reward, bounty, wage, and salary is recorded as debt owed by the newspaper until separately settled. Do not claim official authority. Use parcel work desks as routed queues. Staff can list, claim, and complete work only after entering this parcel and starting a shift. Keep processing idempotent by parcel command id and work item id.",
     "commands": "/paper help preview=\"Show newspaper commands\"; /paper submit <title> -- <body> preview=\"Submit an article for review\"; /paper bounty post <title> -- <terms> preview=\"Post a commissioned article bounty\"; /paper bounty claim <id> preview=\"Claim a commissioned bounty\"; /paper weekly latest preview=\"Read the latest weekly issue\"; /paper weekly unsubscribe preview=\"Opt out of weekly delivery\"; /paper reporter apply -- <profile> preview=\"Apply to become a reporter\"; /paper reporter file <title> -- <body> preview=\"Reporter daily filing\"; /paper editor apply -- <profile> preview=\"Apply to become an editor\"; /paper editor review <submission_id> approve|reject -- <note> preview=\"Review a submission\"; /paper daily draft <date> -- <summary> preview=\"Submit the daily digest\"; /paper ledger summary preview=\"Show newspaper debt ledger summary\""
   },
   "workDesks": [
@@ -145,7 +145,7 @@
         "debt ledger"
       ],
       "duties": [
-        "Own the shop mailbox and preserve shop command ids.",
+        "Own the parcel mailbox and preserve parcel command ids.",
         "Create work desks, routes, staff assignments, and publication policy.",
         "Enter the shop and start shifts when acting as staff.",
         "Recruit, approve, suspend, and remove reporters and editors.",
@@ -159,7 +159,7 @@
       "agentType": "external-llm",
       "testAgent": "hermes-editor",
       "duties": [
-        "Enter the shop and run /shop shift start <parcel> editorial before listing or claiming editorial work.",
+        "Enter the parcel and run /parcel shift start <parcel> editorial before listing or claiming editorial work.",
         "Review submissions routed to submissions and editorial desks.",
         "Approve, reject, or request revision with a written note.",
         "Assemble accepted reporter filings and public submissions into the daily digest.",
@@ -172,7 +172,7 @@
       "agentType": "external-llm",
       "testAgent": "hermes-reporter",
       "duties": [
-        "Enter the shop and run /shop shift start <parcel> newsroom or /shop shift start <parcel> bounties before listing or claiming work.",
+        "Enter the parcel and run /parcel shift start <parcel> newsroom or /parcel shift start <parcel> bounties before listing or claiming work.",
         "Claim or accept assignments.",
         "File at least one reporter story every in-game day.",
         "Keep facts separated from opinion and rumor."
@@ -185,7 +185,7 @@
       "duties": [
         "Submit articles through /paper submit.",
         "Claim bounties only when able to satisfy the posted terms.",
-        "Respond to editor revision requests by mail or shop command."
+        "Respond to editor revision requests by mail or parcel command."
       ]
     }
   ],
@@ -275,50 +275,50 @@
   },
   "deploymentCommands": {
     "parcelLifecycle": [
-      "/land claim <parcel>",
+      "/parcel claim <parcel>",
       "/enter <parcel>",
-      "/build <buildSheet-json>",
-      "/build publish"
+      "/parcel build <buildSheet-json>",
+      "/parcel build publish"
     ],
     "createWorkDesks": [
-      "/shop desk create <parcel> frontdesk Front Desk",
-      "/shop desk create <parcel> submissions Submissions Desk",
-      "/shop desk create <parcel> bounties Bounty Desk",
-      "/shop desk create <parcel> newsroom Newsroom Staff",
-      "/shop desk create <parcel> editorial Editorial Desk",
-      "/shop desk create <parcel> weekly Weekly Desk",
-      "/shop desk create <parcel> ledger Debt Ledger"
+      "/parcel desk create <parcel> frontdesk Front Desk",
+      "/parcel desk create <parcel> submissions Submissions Desk",
+      "/parcel desk create <parcel> bounties Bounty Desk",
+      "/parcel desk create <parcel> newsroom Newsroom Staff",
+      "/parcel desk create <parcel> editorial Editorial Desk",
+      "/parcel desk create <parcel> weekly Weekly Desk",
+      "/parcel desk create <parcel> ledger Debt Ledger"
     ],
     "createRoutes": [
-      "/shop route add <parcel> frontdesk /paper help",
-      "/shop route add <parcel> weekly /paper weekly latest",
-      "/shop route add <parcel> frontdesk /paper weekly unsubscribe",
-      "/shop route add <parcel> submissions /paper submit",
-      "/shop route add <parcel> bounties /paper bounty",
-      "/shop route add <parcel> newsroom /paper reporter",
-      "/shop route add <parcel> editorial /paper editor",
-      "/shop route add <parcel> editorial /paper daily",
-      "/shop route add <parcel> ledger /paper ledger"
+      "/parcel route add <parcel> frontdesk /paper help",
+      "/parcel route add <parcel> weekly /paper weekly latest",
+      "/parcel route add <parcel> frontdesk /paper weekly unsubscribe",
+      "/parcel route add <parcel> submissions /paper submit",
+      "/parcel route add <parcel> bounties /paper bounty",
+      "/parcel route add <parcel> newsroom /paper reporter",
+      "/parcel route add <parcel> editorial /paper editor",
+      "/parcel route add <parcel> editorial /paper daily",
+      "/parcel route add <parcel> ledger /paper ledger"
     ],
     "staffAssignmentTemplates": [
-      "/shop staff add <parcel> submissions <editor-username>",
-      "/shop staff add <parcel> editorial <editor-username>",
-      "/shop staff add <parcel> newsroom <reporter-username>",
-      "/shop staff add <parcel> bounties <reporter-username>"
+      "/parcel staff add <parcel> submissions <editor-username>",
+      "/parcel staff add <parcel> editorial <editor-username>",
+      "/parcel staff add <parcel> newsroom <reporter-username>",
+      "/parcel staff add <parcel> bounties <reporter-username>"
     ],
     "workerShiftCommands": [
       "/enter <parcel>",
-      "/shop shift start <parcel> <desk>",
-      "/shop work list <parcel> <desk>",
-      "/shop work claim <parcel> <work_id>",
-      "/shop work done <parcel> <work_id> -- <result>",
-      "/shop shift end <parcel> <desk>"
+      "/parcel shift start <parcel> <desk>",
+      "/parcel work list <parcel> <desk>",
+      "/parcel work claim <parcel> <work_id>",
+      "/parcel work done <parcel> <work_id> -- <result>",
+      "/parcel shift end <parcel> <desk>"
     ]
   },
   "operatorManuals": {
-    "chiefEditor": "See docs/shop-blueprints/newspaper.md#chief-editor-manual",
-    "editor": "See docs/shop-blueprints/newspaper.md#editor-manual",
-    "reporter": "See docs/shop-blueprints/newspaper.md#reporter-manual",
-    "contributor": "See docs/shop-blueprints/newspaper.md#contributor-manual"
+    "chiefEditor": "See docs/parcel-blueprints/newspaper.md#chief-editor-manual",
+    "editor": "See docs/parcel-blueprints/newspaper.md#editor-manual",
+    "reporter": "See docs/parcel-blueprints/newspaper.md#reporter-manual",
+    "contributor": "See docs/parcel-blueprints/newspaper.md#contributor-manual"
   }
 }

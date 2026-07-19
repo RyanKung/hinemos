@@ -685,7 +685,7 @@ fn business_command_errors_do_not_close_ssh_session() {
     session.write_line("/look");
     session.wait_for_stdout("Harbor Square", Duration::from_secs(10));
 
-    session.write_line("/land info missing_parcel");
+    session.write_line("/parcel info missing_parcel");
     session.wait_for_stdout(
         "The Guild has no parcel record named missing_parcel.",
         Duration::from_secs(10),
@@ -693,7 +693,7 @@ fn business_command_errors_do_not_close_ssh_session() {
     session.write_line("/look");
     session.wait_for_stdout("Harbor Square", Duration::from_secs(10));
 
-    session.write_line("/build title Should not disconnect");
+    session.write_line("/parcel build title Should not disconnect");
     session.wait_for_stdout(
         "The Guild will not accept that parcel action; you do not own this parcel.",
         Duration::from_secs(10),
@@ -701,9 +701,9 @@ fn business_command_errors_do_not_close_ssh_session() {
     session.write_line("/look");
     session.wait_for_stdout("Harbor Square", Duration::from_secs(10));
 
-    session.write_line("/shop request-payment 999999 1 hello");
+    session.write_line("/parcel request-payment 999999 1 hello");
     session.wait_for_stdout(
-        "No shop notice #999999 is waiting here.",
+        "No parcel notice #999999 is waiting here.",
         Duration::from_secs(10),
     );
     session.write_line("/look");
@@ -733,8 +733,8 @@ fn business_command_errors_do_not_close_ssh_session() {
     );
     assert_contains(
         &output,
-        "No shop notice #999999 is waiting here.",
-        "unknown shop command error",
+        "No parcel notice #999999 is waiting here.",
+        "unknown parcel command error",
     );
     assert_contains(
         &output,

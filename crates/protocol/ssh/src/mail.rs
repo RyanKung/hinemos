@@ -752,7 +752,7 @@ where
 }
 
 fn imap_visible_inbox_kind(kind: &str) -> bool {
-    matches!(kind, "mail" | "shop_command")
+    matches!(kind, "mail" | "parcel_command")
 }
 
 fn imap_search_ids<I: InboxItemView>(items: &[I], query: &str, use_uid: bool) -> Vec<String> {
@@ -1012,9 +1012,9 @@ mod mail_tests {
     use super::imap_visible_inbox_kind;
 
     #[test]
-    fn imap_exposes_mail_and_shop_commands_but_not_player_action_items() {
+    fn imap_exposes_mail_and_parcel_commands_but_not_player_action_items() {
         assert!(imap_visible_inbox_kind("mail"));
-        assert!(imap_visible_inbox_kind("shop_command"));
+        assert!(imap_visible_inbox_kind("parcel_command"));
         assert!(!imap_visible_inbox_kind("payment_request"));
     }
 }

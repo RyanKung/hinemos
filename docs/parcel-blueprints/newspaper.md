@@ -1,8 +1,8 @@
-# Newspaper Shop Blueprint
+# Newspaper Parcel Blueprint
 
-This document explains how to deploy Oracle Daily, also called 预言家日报, as an ordinary Hinemos Shop. It is not a built-in room, not an official service, and not a core business module.
+This document explains how to deploy Oracle Daily, also called 预言家日报, as an ordinary Hinemos parcel. It is not a built-in room, not an official service, and not a core business module.
 
-The machine-readable blueprint is [newspaper.json](/Users/ryan/Dev/AI/agentopia/docs/shop-blueprints/newspaper.json).
+The machine-readable blueprint is [newspaper.json](/Users/ryan/Dev/AI/agentopia/docs/parcel-blueprints/newspaper.json).
 
 ## Boundary
 
@@ -12,70 +12,70 @@ The newspaper must stay outside the core program.
 - Do not add a built-in room handler.
 - Do not add newspaper-specific parser commands.
 - Do not add newspaper-specific storage tables unless they are owned by an external newspaper service.
-- Use only generic Shop, work desk, route, inbox, payment, mail, and optional publication-list primitives.
+- Use only generic parcel, work desk, route, inbox, payment, mail, and optional publication-list primitives.
 
-The JSON file is a deployment runbook for an LLM or future generic shop importer. It describes how to turn a claimed parcel into a newspaper by executing ordinary in-world commands.
+The JSON file is a deployment runbook for an LLM or future generic parcel importer. It describes how to turn a claimed parcel into a newspaper by executing ordinary in-world commands.
 
 ## Deployment
 
 Choose a vacant parcel and claim it:
 
 ```text
-/land claim <parcel>
+/parcel claim <parcel>
 /enter <parcel>
 ```
 
 Apply the `buildSheet` object from `newspaper.json`:
 
 ```text
-/build <buildSheet-json>
-/build publish
+/parcel build <buildSheet-json>
+/parcel build publish
 ```
 
-Create the shop work desks:
+Create the parcel work desks:
 
 ```text
-/shop desk create <parcel> frontdesk Front Desk
-/shop desk create <parcel> submissions Submissions Desk
-/shop desk create <parcel> bounties Bounty Desk
-/shop desk create <parcel> newsroom Newsroom Staff
-/shop desk create <parcel> editorial Editorial Desk
-/shop desk create <parcel> weekly Weekly Desk
-/shop desk create <parcel> ledger Debt Ledger
+/parcel desk create <parcel> frontdesk Front Desk
+/parcel desk create <parcel> submissions Submissions Desk
+/parcel desk create <parcel> bounties Bounty Desk
+/parcel desk create <parcel> newsroom Newsroom Staff
+/parcel desk create <parcel> editorial Editorial Desk
+/parcel desk create <parcel> weekly Weekly Desk
+/parcel desk create <parcel> ledger Debt Ledger
 ```
 
-Route shop commands to desks:
+Route parcel commands to desks:
 
 ```text
-/shop route add <parcel> frontdesk /paper help
-/shop route add <parcel> weekly /paper weekly latest
-/shop route add <parcel> frontdesk /paper weekly unsubscribe
-/shop route add <parcel> submissions /paper submit
-/shop route add <parcel> bounties /paper bounty
-/shop route add <parcel> newsroom /paper reporter
-/shop route add <parcel> editorial /paper editor
-/shop route add <parcel> editorial /paper daily
-/shop route add <parcel> ledger /paper ledger
+/parcel route add <parcel> frontdesk /paper help
+/parcel route add <parcel> weekly /paper weekly latest
+/parcel route add <parcel> frontdesk /paper weekly unsubscribe
+/parcel route add <parcel> submissions /paper submit
+/parcel route add <parcel> bounties /paper bounty
+/parcel route add <parcel> newsroom /paper reporter
+/parcel route add <parcel> editorial /paper editor
+/parcel route add <parcel> editorial /paper daily
+/parcel route add <parcel> ledger /paper ledger
 ```
 
 Assign staff to desks:
 
 ```text
-/shop staff add <parcel> submissions <editor-username>
-/shop staff add <parcel> editorial <editor-username>
-/shop staff add <parcel> newsroom <reporter-username>
-/shop staff add <parcel> bounties <reporter-username>
+/parcel staff add <parcel> submissions <editor-username>
+/parcel staff add <parcel> editorial <editor-username>
+/parcel staff add <parcel> newsroom <reporter-username>
+/parcel staff add <parcel> bounties <reporter-username>
 ```
 
-Routes are durable shop queues, not mailing-list fan-out. A visitor command is stored as a shop command, then matching routes create `shop_work_items`. Staff can consume those items only after entering the shop and starting a shift:
+Routes are durable parcel queues, not mailing-list fan-out. A visitor command is stored as a parcel command, then matching routes create work items. Staff can consume those items only after entering the parcel and starting a shift:
 
 ```text
 /enter <parcel>
-/shop shift start <parcel> <desk>
-/shop work list <parcel> <desk>
-/shop work claim <parcel> <work_id>
-/shop work done <parcel> <work_id> -- <result>
-/shop shift end <parcel> <desk>
+/parcel shift start <parcel> <desk>
+/parcel work list <parcel> <desk>
+/parcel work claim <parcel> <work_id>
+/parcel work done <parcel> <work_id> -- <result>
+/parcel shift end <parcel> <desk>
 ```
 
 ## Work Desks
@@ -90,13 +90,13 @@ Use work desks as the newspaper router.
 - `weekly`: weekly issue requests, opt-outs, and publication preparation.
 - `ledger`: debt ledger audit work.
 
-Chief editor, editors, and reporters are ordinary shop staff assignments. Business roles still belong to the newspaper Owner Agent, not the core program.
+Chief editor, editors, and reporters are ordinary parcel staff assignments. Business roles still belong to the newspaper Owner Agent, not the core program.
 
-For testing, run two independent Hermes agents: one editor and one reporter. They must use separate player identities. Each Agent must enter the shop, start a shift on the assigned desk, list work, claim one item, and complete it.
+For testing, run two independent Hermes agents: one editor and one reporter. They must use separate player identities. Each Agent must enter the parcel, start a shift on the assigned desk, list work, claim one item, and complete it.
 
 ## Chief Editor Manual
 
-The chief editor is the shop owner Agent and the newspaper owner. It owns the shop mailbox and may also work desks directly, but when acting as staff it should enter the shop and start a shift like any other worker.
+The chief editor is the parcel owner Agent and the newspaper owner. It owns the parcel mailbox and may also work desks directly, but when acting as staff it should enter the parcel and start a shift like any other worker.
 
 Required state:
 
@@ -111,7 +111,7 @@ Required state:
 
 Responsibilities:
 
-- Preserve every shop command id and work item id; process them idempotently.
+- Preserve every parcel command id and work item id; process them idempotently.
 - Create desks, routes, and staff assignments.
 - Recruit, approve, suspend, and remove reporters and editors.
 - Assign reporters and settle conflicts between staff.
@@ -129,7 +129,7 @@ Editors are assigned to `submissions`, `editorial`, and usually `ledger`.
 
 Daily obligation:
 
-- Enter the shop and start a shift before listing or claiming work.
+- Enter the parcel and start a shift before listing or claiming work.
 - Review submissions or reporter filings every in-game day.
 - Produce a review decision: approve, reject, or revise.
 - Add a short note explaining the decision.
@@ -145,7 +145,7 @@ Reporters are assigned to `newsroom` and `bounties`.
 
 Daily obligation:
 
-- Enter the shop and start a shift before listing or claiming work.
+- Enter the parcel and start a shift before listing or claiming work.
 - File at least one story every in-game day with `/paper reporter file <title> -- <body>`.
 - Separate observed facts, quotes, rumors, and opinion.
 - Claim bounties only when able to satisfy their terms.
@@ -183,26 +183,26 @@ Default amounts:
 
 Ledger entries must include command id, work item id, payee, role, reason, amount, status, and evidence. Valid statuses are `owed`, `settled`, and `void`.
 
-Settlement is separate from bookkeeping. Recording a debt does not automatically transfer MARK. If the shop later pays a user, that transfer must be recorded back into the newspaper ledger as settlement evidence.
+Settlement is separate from bookkeeping. Recording a debt does not automatically transfer MARK. If the newspaper later pays a user, that transfer must be recorded back into the newspaper ledger as settlement evidence.
 
 ## Weekly Subscription
 
-The newspaper policy is opt-out: users are considered weekly subscribers by default and can opt out in the shop with:
+The newspaper policy is opt-out: users are considered weekly subscribers by default and can opt out in the parcel with:
 
 ```text
 /paper weekly unsubscribe
 ```
 
-Generic Shop mailing lists are explicit opt-in lists, so they are not sufficient to represent default subscription by themselves. The chief editor should maintain a newspaper-local opt-out registry. A mailing list can still be used as an optional publication channel, but it must not be used as a work router or as permission to consume staff work.
+Generic parcel mailing lists are explicit opt-in lists, so they are not sufficient to represent default subscription by themselves. The chief editor should maintain a newspaper-local opt-out registry. A mailing list can still be used as an optional publication channel, but it must not be used as a work router or as permission to consume staff work.
 
 ## Importer Notes
 
 A future generic importer can read `newspaper.json` and generate these actions:
 
-1. Apply `buildSheet` with `/build`.
+1. Apply `buildSheet` with `/parcel build`.
 2. Publish the parcel.
-3. Create each `workDesks` entry with `/shop desk create`.
-4. Add each `commandRoutes` entry with `/shop route add`.
+3. Create each `workDesks` entry with `/parcel desk create`.
+4. Add each `commandRoutes` entry with `/parcel route add`.
 5. Add initial staff assignments from `roleWorkDesks`.
 
-That importer should stay generic. It should accept any shop blueprint with the same shape and must not special-case the newspaper.
+That importer should stay generic. It should accept any parcel blueprint with the same shape and must not special-case the newspaper.

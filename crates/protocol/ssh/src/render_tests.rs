@@ -1,7 +1,7 @@
 use hinemos_core::{
     ActionKind, DEFAULT_ADMISSION_VIEW_ID, EntityKind, EntityObservation, JsonObservation,
-    PARCEL_STATUS_BUILT, SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_STATUS_OPEN,
-    SemanticCommand, SubscriptionAction,
+    PARCEL_MAILING_LIST_STATUS_CLOSED, PARCEL_MAILING_LIST_STATUS_OPEN, PARCEL_STATUS_BUILT,
+    ParcelAction, SemanticCommand,
 };
 use hinemos_runtime::render_text_observation;
 use hinemos_storage::{
@@ -172,7 +172,7 @@ fn built_parcel_replaces_static_ascii_title_with_shop_title() {
 
     assert!(rendered.contains("Offline Tool Broker"));
     assert!(rendered.contains("[Offline Tool Broker]"));
-    assert!(rendered.contains("Shop commands: /hello - hello, price 25"));
+    assert!(rendered.contains("Parcel commands: /hello - hello, price 25"));
     assert!(!rendered.contains("Custom commands: /hello preview=hello price=25"));
     assert!(!rendered.contains("NORTH COMMERCIAL PARCEL 01"));
 }
@@ -182,7 +182,7 @@ fn built_parcel_advertises_only_open_mailing_lists() {
     let mut observation = JsonObservation {
         player_id: "player".to_owned(),
         view_id: "north_parcel_01".to_owned(),
-        title: "North Commercial Parcel 01".to_owned(),
+        title: "North Parcel 01".to_owned(),
         ascii_art: Vec::new(),
         description: "Static parcel description.".to_owned(),
         exits: Vec::new(),
@@ -216,7 +216,7 @@ fn built_parcel_advertises_only_open_mailing_lists() {
             owner_player_id: "player".to_owned(),
             slug: "updates".to_owned(),
             title: "Shop Updates".to_owned(),
-            status: SHOP_MAILING_LIST_STATUS_OPEN.to_owned(),
+            status: PARCEL_MAILING_LIST_STATUS_OPEN.to_owned(),
             subscriber_count: 0,
             created_at: "2026-06-27 00:00:00 UTC".to_owned(),
         },
@@ -226,7 +226,7 @@ fn built_parcel_advertises_only_open_mailing_lists() {
             owner_player_id: "player".to_owned(),
             slug: "archive".to_owned(),
             title: "Old News".to_owned(),
-            status: SHOP_MAILING_LIST_STATUS_CLOSED.to_owned(),
+            status: PARCEL_MAILING_LIST_STATUS_CLOSED.to_owned(),
             subscriber_count: 0,
             created_at: "2026-06-27 00:00:00 UTC".to_owned(),
         },
@@ -236,14 +236,14 @@ fn built_parcel_advertises_only_open_mailing_lists() {
     let rendered = render_text_observation(&observation);
 
     assert!(observation.description.contains(
-        "Shop Updates (updates) join: /subscribe north_01 updates; chat after joining: /chat north_01 updates -- <message>"
+        "Shop Updates (updates) join: /parcel subscribe north_01 updates; chat after joining: /parcel chat north_01 updates -- <message>"
     ));
     assert!(!rendered.contains("Old News"));
     assert!(
         observation
             .available_commands
-            .contains(&SemanticCommand::Subscription {
-                action: SubscriptionAction::Subscribe {
+            .contains(&SemanticCommand::Parcel {
+                action: ParcelAction::Subscribe {
                     target: "north_01".to_owned(),
                     slug: "updates".to_owned(),
                 }
@@ -252,8 +252,8 @@ fn built_parcel_advertises_only_open_mailing_lists() {
     assert!(
         !observation
             .available_commands
-            .contains(&SemanticCommand::Subscription {
-                action: SubscriptionAction::Subscribe {
+            .contains(&SemanticCommand::Parcel {
+                action: ParcelAction::Subscribe {
                     target: "north_01".to_owned(),
                     slug: "archive".to_owned(),
                 }

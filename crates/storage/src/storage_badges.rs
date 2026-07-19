@@ -1,7 +1,7 @@
 use hinemos_core::{
-    SHOP_BADGE_AWARD_ACTIVE, SHOP_BADGE_AWARD_REVOKED, SHOP_BADGES_PER_PARCEL_MAX,
-    shop_badge_description_is_valid, shop_badge_note_is_valid, shop_badge_slug_is_valid,
-    shop_badge_title_is_valid,
+    PARCEL_BADGE_AWARD_ACTIVE, PARCEL_BADGE_AWARD_REVOKED, PARCEL_BADGES_PER_PARCEL_MAX,
+    parcel_badge_description_is_valid, parcel_badge_note_is_valid, parcel_badge_slug_is_valid,
+    parcel_badge_title_is_valid,
 };
 
 use crate::accounts::{PaymentTarget, resolve_payment_target};
@@ -28,10 +28,10 @@ impl PgStorage {
             .is_none()
         {
             let badge_count = self.shop_badge_count(&parcel.parcel_id).await?;
-            if badge_count >= SHOP_BADGES_PER_PARCEL_MAX {
+            if badge_count >= PARCEL_BADGES_PER_PARCEL_MAX {
                 return Err(StorageError::InvalidShopBadge(format!(
                     "badge limit reached for parcel {}; maximum is {}",
-                    parcel.parcel_id, SHOP_BADGES_PER_PARCEL_MAX
+                    parcel.parcel_id, PARCEL_BADGES_PER_PARCEL_MAX
                 )));
             }
         }
@@ -60,7 +60,7 @@ impl PgStorage {
         .bind(slug)
         .bind(title.trim())
         .bind(description.map(str::trim).filter(|value| !value.is_empty()))
-        .bind(SHOP_BADGE_AWARD_ACTIVE)
+        .bind(PARCEL_BADGE_AWARD_ACTIVE)
         .fetch_one(&self.pool)
         .await?;
         Ok(row)
@@ -91,7 +91,7 @@ impl PgStorage {
             "#,
         )
         .bind(&parcel.parcel_id)
-        .bind(SHOP_BADGE_AWARD_ACTIVE)
+        .bind(PARCEL_BADGE_AWARD_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
@@ -119,7 +119,7 @@ impl PgStorage {
         ))
         .bind(badge.id)
         .bind(&recipient.player_id)
-        .bind(SHOP_BADGE_AWARD_ACTIVE)
+        .bind(PARCEL_BADGE_AWARD_ACTIVE)
         .fetch_optional(&mut *tx)
         .await?;
         if let Some(existing) = existing {
@@ -143,7 +143,7 @@ impl PgStorage {
         .bind(&recipient.username)
         .bind(&recipient.player_id)
         .bind(note.map(str::trim).filter(|value| !value.is_empty()))
-        .bind(SHOP_BADGE_AWARD_ACTIVE)
+        .bind(PARCEL_BADGE_AWARD_ACTIVE)
         .fetch_optional(&mut *tx)
         .await?;
         let row = match award_id {
@@ -154,7 +154,7 @@ impl PgStorage {
                 ))
                 .bind(badge.id)
                 .bind(&recipient.player_id)
-                .bind(SHOP_BADGE_AWARD_ACTIVE)
+                .bind(PARCEL_BADGE_AWARD_ACTIVE)
                 .fetch_one(&mut *tx)
                 .await?
             }
@@ -182,7 +182,7 @@ impl PgStorage {
         ))
         .bind(badge.id)
         .bind(&recipient.player_id)
-        .bind(SHOP_BADGE_AWARD_ACTIVE)
+        .bind(PARCEL_BADGE_AWARD_ACTIVE)
         .fetch_optional(&mut *tx)
         .await?;
         let existing = match existing {
@@ -220,7 +220,7 @@ impl PgStorage {
             "#,
         )
         .bind(existing.id)
-        .bind(SHOP_BADGE_AWARD_REVOKED)
+        .bind(PARCEL_BADGE_AWARD_REVOKED)
         .fetch_one(&mut *tx)
         .await?;
         let row = self.shop_badge_award_by_id_in_tx(&mut tx, award_id).await?;
@@ -238,7 +238,7 @@ impl PgStorage {
             "where a.recipient_player_id = $1 and a.status = $2 order by a.awarded_at desc, b.slug limit $3",
         ))
         .bind(player_id)
-        .bind(SHOP_BADGE_AWARD_ACTIVE)
+        .bind(PARCEL_BADGE_AWARD_ACTIVE)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
@@ -298,7 +298,7 @@ impl PgStorage {
         )
         .bind(parcel_id.as_ref())
         .bind(slug)
-        .bind(SHOP_BADGE_AWARD_ACTIVE)
+        .bind(PARCEL_BADGE_AWARD_ACTIVE)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row)
@@ -374,7 +374,7 @@ async fn resolve_badge_target(
 }
 
 fn validate_slug(slug: &str) -> Result<(), StorageError> {
-    if shop_badge_slug_is_valid(slug) {
+    if parcel_badge_slug_is_valid(slug) {
         Ok(())
     } else {
         Err(StorageError::InvalidShopBadge(
@@ -384,7 +384,7 @@ fn validate_slug(slug: &str) -> Result<(), StorageError> {
 }
 
 fn validate_title(title: &str) -> Result<(), StorageError> {
-    if shop_badge_title_is_valid(title) {
+    if parcel_badge_title_is_valid(title) {
         Ok(())
     } else {
         Err(StorageError::InvalidShopBadge(
@@ -394,7 +394,7 @@ fn validate_title(title: &str) -> Result<(), StorageError> {
 }
 
 fn validate_description(description: Option<&str>) -> Result<(), StorageError> {
-    if description.is_none_or(shop_badge_description_is_valid) {
+    if description.is_none_or(parcel_badge_description_is_valid) {
         Ok(())
     } else {
         Err(StorageError::InvalidShopBadge(
@@ -404,7 +404,7 @@ fn validate_description(description: Option<&str>) -> Result<(), StorageError> {
 }
 
 fn validate_note(note: Option<&str>) -> Result<(), StorageError> {
-    if note.is_none_or(shop_badge_note_is_valid) {
+    if note.is_none_or(parcel_badge_note_is_valid) {
         Ok(())
     } else {
         Err(StorageError::InvalidShopBadge(

@@ -24,7 +24,7 @@ fn commercial_parcel_input_routes_through_app() {
                 style: None,
                 operator_prompt: None,
                 custom_commands: Some(
-                    "/shop request-payment <command_id> <amount> <delivery> preview=hello world"
+                    "/parcel request-payment <command_id> <amount> <delivery> preview=hello world"
                         .to_owned(),
                 ),
             }),
@@ -48,7 +48,7 @@ fn commercial_parcel_input_routes_through_app() {
             style: None,
             operator_prompt: None,
             custom_commands: Some(
-                "/shop request-payment <command_id> <amount> <delivery> preview=hello world"
+                "/parcel request-payment <command_id> <amount> <delivery> preview=hello world"
                     .to_owned(),
             ),
         };
@@ -56,9 +56,9 @@ fn commercial_parcel_input_routes_through_app() {
         assert!(
             app.commercial_parcel_consumes_input(
                 &binding,
-                "/shop request-payment 7 25 hello world"
+                "/parcel request-payment 7 25 hello world"
             ),
-            "commercial parcels should consume matching shop commands"
+            "commercial parcels should consume matching parcel commands"
         );
         assert!(
             !app.commercial_parcel_consumes_input(&binding, "/balance"),
@@ -69,7 +69,7 @@ fn commercial_parcel_input_routes_through_app() {
             .handle_commercial_parcel_input(
                 &identity,
                 &binding,
-                "/shop request-payment 7 25 hello world",
+                "/parcel request-payment 7 25 hello world",
             )
             .await
             .expect("commercial parcel input")
@@ -79,14 +79,14 @@ fn commercial_parcel_input_routes_through_app() {
             events,
             vec![
                 UiEvent::Text(
-                    "Shop request #1 sent to owner owner for parcel P1.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\nQueued 1 shop work item(s). Workers must be inside the shop with an active shift to list, claim, or complete them.\r\nPreview: hello\r\n"
+                    "Parcel request #1 sent to owner owner for parcel P1.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\nQueued 1 parcel work item(s). Workers must be inside the parcel with an active shift to list, claim, or complete them.\r\nPreview: hello\r\n"
                         .to_owned()
                 ),
                 UiEvent::LiveInboxNotice {
                     target_player_id: "owner-player".to_owned(),
                     notice: LiveInboxNotice {
                         id: 1,
-                        kind: "shop_command".to_owned(),
+                        kind: "parcel_command".to_owned(),
                         sender_user: "alice".to_owned(),
                         subject: "hello".to_owned(),
                         body: "body".to_owned(),
@@ -94,14 +94,14 @@ fn commercial_parcel_input_routes_through_app() {
                 },
                 UiEvent::LiveViewMessage {
                     view_id: "parcel_view".to_owned(),
-                    text: "[shop work] 1 new item(s) queued for parcel P1.".to_owned(),
+                    text: "[parcel work] 1 new item(s) queued for parcel P1.".to_owned(),
                 },
             ]
         );
         assert_eq!(
             app.store().calls.lock().unwrap().clone(),
             vec![
-                "operator:visitor:visitor-player:P1:/shop request-payment 7 25 hello world:true"
+                "operator:visitor:visitor-player:P1:/parcel request-payment 7 25 hello world:true"
                     .to_owned(),
                 "dispatch-work:1".to_owned(),
             ]
@@ -146,7 +146,7 @@ fn parcel_list_renders_status_for_humans() {
     let rendered = render_parcel_list(&parcels);
 
     assert!(rendered.contains("north_01: Corall牛比站. Owner: mainiu."));
-    assert!(rendered.contains("north_02: vacant. Claim: /land claim north_02."));
+    assert!(rendered.contains("north_02: vacant. Claim: /parcel claim north_02."));
     assert!(!rendered.contains("view=parcel_north_01"));
 }
 
@@ -361,13 +361,13 @@ fn shop_mailing_list_chat_posts_as_member_message() {
                 "Hello members",
             )
             .await
-            .expect("post shop chat");
+            .expect("post parcel chat");
 
         assert_eq!(result.post.recipient_count(), 1);
         assert_eq!(
             app.store().calls.lock().unwrap().clone(),
             vec![
-                "mailing-list-send:Offline Tool Broker:updates:visitor:visitor-player:Shop chat: updates:Hello members"
+                "mailing-list-send:Offline Tool Broker:updates:visitor:visitor-player:Parcel chat: updates:Hello members"
                     .to_owned()
             ]
         );
@@ -415,7 +415,7 @@ fn shop_command_route_service_commands_render_expected_text() {
         assert!(
             added
                 .text
-                .contains("Routed shop commands matching /paper submit")
+                .contains("Routed parcel commands matching /paper submit")
         );
         assert!(added.text.contains("work desk"));
         assert!(added.text.contains("start a shift"));
@@ -424,7 +424,7 @@ fn shop_command_route_service_commands_render_expected_text() {
             .list_shop_command_routes("parcel-view", "P1", "owner-player")
             .await
             .expect("list routes");
-        assert!(listed.text.contains("Shop Command Routes for P1"));
+        assert!(listed.text.contains("Parcel Command Routes for P1"));
         assert!(listed.text.contains("/hello -> updates"));
 
         let removed = app
@@ -440,7 +440,7 @@ fn shop_command_route_service_commands_render_expected_text() {
         assert!(
             removed
                 .text
-                .contains("Removed shop command route /paper submit")
+                .contains("Removed parcel command route /paper submit")
         );
 
         assert_eq!(
@@ -482,7 +482,7 @@ fn shop_actions_require_inside_shop_before_mutating_state() {
             calls: Mutex::new(Vec::new()),
         });
         let expected = TestCommerceError::ShopWork(
-            "shop actions can only happen while inside that shop".to_owned(),
+            "parcel actions can only happen while inside that parcel".to_owned(),
         );
 
         let desk = app
@@ -535,7 +535,7 @@ fn shop_actions_require_inside_shop_before_mutating_state() {
             )
             .await
             .err()
-            .expect("shop chat outside shop");
+            .expect("parcel chat outside shop");
         assert_eq!(mailing_chat, expected);
 
         let mailing_subscribe = app
@@ -614,14 +614,14 @@ fn shop_badge_service_commands_render_expected_text() {
         assert!(
             created
                 .text
-                .contains("/shop badge award P1 patron <user> [note]")
+                .contains("/parcel badge award P1 patron <user> [note]")
         );
 
         let list = app
             .list_shop_badges("parcel-view", "P1", "owner-player")
             .await
             .expect("list badges");
-        assert!(list.text.contains("Shop Badges for P1"));
+        assert!(list.text.contains("Parcel Badges for P1"));
         assert!(list.text.contains("Good Patron"));
 
         let award = app

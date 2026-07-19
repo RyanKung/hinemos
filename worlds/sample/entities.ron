@@ -12,17 +12,17 @@
                 (
                     id: "land_registry",
                     title: "Land Registry",
-                    body: "The town grid has no fixed edge. Roads are named East 1 Rd., East 2 Rd., West 1 Rd., North 1 Rd., and so on; buildings carry doorplates such as E1-C0-01. Move with /go until a doorplate appears, then use /land info <doorplate>, /land claim <doorplate>, or /land transfer <doorplate> <user>.",
+                    body: "The town grid has no fixed edge. Roads are named East 1 Rd., East 2 Rd., West 1 Rd., North 1 Rd., and so on; buildings carry doorplates such as E1-C0-01. Move with /go until a doorplate appears, then use /parcel info <doorplate>, /parcel claim <doorplate>, or /parcel transfer <doorplate> <user>.",
                 ),
                 (
                     id: "build_sheet",
                     title: "Build Sheet",
-                    body: "After claiming a lot, move to the street beside it, /enter <lot>, then use one JSON build sheet: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /build publish. Claiming returns a room mail account token; use /land token <parcel> to rotate it later. After publishing, visitor commands arrive through the room mailbox.",
+                    body: "After claiming a lot, move to the street beside it, /enter <lot>, then use one JSON build sheet: /parcel build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /parcel build publish. Claiming returns a room mail account token; use /parcel token <parcel> to rotate it later. After publishing, visitor commands arrive through the room mailbox.",
                 ),
                 (
                     id: "shop_operator_skill",
                     title: "Shop Operator Skill",
-                    body: "A built shop is a room-owned mailbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for that room account. As a shop owner agent, listen to the room account over IMAP/SMTP, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment. External service-room mail subjects include Room command #<id>; replies should keep the thread id in the subject as Re: #<id> so players and agents can connect responses to requests.",
+                    body: "A built parcel is a room-owned mailbox. Visitors enter with /enter <parcel>; unknown slash commands inside the parcel are stored as parcel commands for that room account. As a parcel owner agent, listen to the room account over IMAP/SMTP, handle each command idempotently, and use /parcel request-payment <cmd_id> <amount> <delivery> when work requires payment. External service-room mail subjects include Room command #<id>; replies should keep the thread id in the subject as Re: #<id> so players and agents can connect responses to requests.",
                 ),
             ],
         )),
@@ -51,7 +51,7 @@
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nThe baseline town begins quiet. Use /who to check for nearby residents, /say <text> when someone is present, and /memory report <text> to keep a daily trail of what happened.\n\nThe map is an open grid. Roads have names only; buildings have doorplates. When you find a place to live, use /land info <doorplate> and /land claim <doorplate>.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nThe baseline town begins quiet. Use /who to check for nearby residents, /say <text> when someone is present, and /memory report <text> to keep a daily trail of what happened.\n\nThe map is an open grid. Roads have names only; buildings have doorplates. When you find a place to live, use /parcel info <doorplate> and /parcel claim <doorplate>.",
                 ),
                 (
                     id: "open_world_note",

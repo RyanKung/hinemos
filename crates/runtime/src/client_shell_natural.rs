@@ -1,8 +1,8 @@
 use hinemos_core::{
     BadgeAction, BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction,
-    JsonObservation, LandAction, MbtiType, PayAction, SemanticCommand, SettingsAction, ShopAction,
-    ShopBadgeAction, ShopDeskAction, ShopMailingListAction, ShopRouteAction, ShopShiftAction,
-    ShopStaffAction, ShopWorkAction, SubscriptionAction, role_card_intro_is_valid,
+    JsonObservation, MbtiType, ParcelAction, ParcelBadgeAction, ParcelDeskAction,
+    ParcelMailingListAction, ParcelRouteAction, ParcelShiftAction, ParcelStaffAction,
+    ParcelWorkAction, PayAction, SemanticCommand, SettingsAction, role_card_intro_is_valid,
     role_card_name_is_valid,
 };
 
@@ -325,7 +325,8 @@ fn parse_inbox_filter(value: &str) -> Result<&str, SlashParseError> {
     }
 }
 
-pub(super) fn parse_land_command<'a>(
+pub(super) fn parse_parcel_command<'a>(
+    trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<SemanticCommand, SlashParseError> {
     let action = tokens
@@ -333,20 +334,20 @@ pub(super) fn parse_land_command<'a>(
         .ok_or(SlashParseError::MissingArgument)?
         .to_ascii_lowercase();
     let action = match action.as_str() {
-        "list" => LandAction::List,
-        "info" => LandAction::Info {
+        "list" => ParcelAction::List,
+        "info" => ParcelAction::Info {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         },
-        "claim" => LandAction::Claim {
+        "claim" => ParcelAction::Claim {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         },
-        "transfer" => LandAction::Transfer {
+        "transfer" => ParcelAction::Transfer {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -356,15 +357,66 @@ pub(super) fn parse_land_command<'a>(
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         },
-        "token" => LandAction::Token {
+        "token" => ParcelAction::Token {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         },
+        "build" => ParcelAction::Build {
+            action: parse_parcel_build_action(trimmed, tokens)?,
+        },
+        "inbox" | "commands" => ParcelAction::Inbox,
+        "request-payment" | "request" => {
+            let command_id_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let amount_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let command_id = command_id_text
+                .parse::<i64>()
+                .map_err(|_| SlashParseError::InvalidAmount)?;
+            let amount = amount_text
+                .parse::<i64>()
+                .map_err(|_| SlashParseError::InvalidAmount)?;
+            let delivery = rest_after_token(trimmed, amount_text)?;
+            ParcelAction::RequestPayment {
+                command_id,
+                amount,
+                delivery,
+            }
+        }
+        "mailing-list" | "mailinglist" => ParcelAction::MailingList {
+            action: parse_shop_mailing_list_action(trimmed, tokens)?,
+        },
+        "desk" | "desks" => ParcelAction::Desk {
+            action: parse_shop_desk_action(trimmed, tokens)?,
+        },
+        "route" | "routes" => ParcelAction::Route {
+            action: parse_shop_route_action(trimmed, tokens)?,
+        },
+        "staff" => ParcelAction::Staff {
+            action: parse_shop_staff_action(tokens)?,
+        },
+        "shift" => ParcelAction::Shift {
+            action: parse_shop_shift_action(tokens)?,
+        },
+        "work" => ParcelAction::Work {
+            action: parse_shop_work_action(trimmed, tokens)?,
+        },
+        "badge" | "badges" => ParcelAction::Badge {
+            action: parse_shop_badge_action(trimmed, tokens)?,
+        },
+        "subscribe" => {
+            let (target, slug) = subscription_target_and_slug(tokens)?;
+            ParcelAction::Subscribe { target, slug }
+        }
+        "unsubscribe" => {
+            let (target, slug) = subscription_target_and_slug(tokens)?;
+            ParcelAction::Unsubscribe { target, slug }
+        }
+        "chat" => parse_parcel_chat_action(trimmed)?,
+        "subscriptions" => ParcelAction::Subscriptions,
         _ => return Err(SlashParseError::UnknownCommand),
     };
-    Ok(SemanticCommand::Land { action })
+    Ok(SemanticCommand::Parcel { action })
 }
 
 pub(super) fn parse_pay_action<'a>(
@@ -458,119 +510,37 @@ pub(super) fn parse_settings_command<'a>(
     Ok(SemanticCommand::Settings { action })
 }
 
-pub(super) fn parse_build_command<'a>(
+fn parse_parcel_build_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<SemanticCommand, SlashParseError> {
-    let build_input = trimmed
-        .strip_prefix("/build")
-        .ok_or(SlashParseError::MissingArgument)?
-        .trim();
+) -> Result<BuildAction, SlashParseError> {
+    let build_input = optional_rest_after_tokens(trimmed, 2).unwrap_or_default();
     if build_input.starts_with('{') {
-        let sheet = serde_json::from_str::<BuildSheet>(build_input)
+        let sheet = serde_json::from_str::<BuildSheet>(&build_input)
             .map_err(|_| SlashParseError::InvalidJson)?;
-        return Ok(SemanticCommand::Build {
-            action: BuildAction::Apply { sheet },
-        });
+        return Ok(BuildAction::Apply { sheet });
     }
     if let Some(json_input) = build_input.strip_prefix("json ") {
         let sheet = serde_json::from_str::<BuildSheet>(json_input.trim())
             .map_err(|_| SlashParseError::InvalidJson)?;
-        return Ok(SemanticCommand::Build {
-            action: BuildAction::Apply { sheet },
-        });
+        return Ok(BuildAction::Apply { sheet });
     }
 
     let Some(field) = tokens.next() else {
-        return Ok(SemanticCommand::Build {
-            action: BuildAction::Help,
-        });
+        return Ok(BuildAction::Help);
     };
     let field = field.to_ascii_lowercase();
     if field == "publish" {
-        return Ok(SemanticCommand::Build {
-            action: BuildAction::Publish,
-        });
+        return Ok(BuildAction::Publish);
     }
     let value = rest_after_token(trimmed, &field)?;
-    Ok(SemanticCommand::Build {
-        action: BuildAction::Set { field, value },
-    })
-}
-
-pub(super) fn parse_shop_command<'a>(
-    trimmed: &str,
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<SemanticCommand, SlashParseError> {
-    let action = tokens
-        .next()
-        .ok_or(SlashParseError::MissingArgument)?
-        .to_ascii_lowercase();
-    match action.as_str() {
-        "inbox" | "commands" => Ok(SemanticCommand::Shop {
-            action: ShopAction::Inbox,
-        }),
-        "request-payment" | "request" => {
-            let command_id_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-            let amount_text = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-            let command_id = command_id_text
-                .parse::<i64>()
-                .map_err(|_| SlashParseError::InvalidAmount)?;
-            let amount = amount_text
-                .parse::<i64>()
-                .map_err(|_| SlashParseError::InvalidAmount)?;
-            let delivery = rest_after_token(trimmed, amount_text)?;
-            Ok(SemanticCommand::Shop {
-                action: ShopAction::RequestPayment {
-                    command_id,
-                    amount,
-                    delivery,
-                },
-            })
-        }
-        "mailing-list" | "mailinglist" | "list" => Ok(SemanticCommand::Shop {
-            action: ShopAction::MailingList {
-                action: parse_shop_mailing_list_action(trimmed, tokens)?,
-            },
-        }),
-        "desk" | "desks" => Ok(SemanticCommand::Shop {
-            action: ShopAction::Desk {
-                action: parse_shop_desk_action(trimmed, tokens)?,
-            },
-        }),
-        "route" | "routes" => Ok(SemanticCommand::Shop {
-            action: ShopAction::Route {
-                action: parse_shop_route_action(trimmed, tokens)?,
-            },
-        }),
-        "staff" => Ok(SemanticCommand::Shop {
-            action: ShopAction::Staff {
-                action: parse_shop_staff_action(tokens)?,
-            },
-        }),
-        "shift" => Ok(SemanticCommand::Shop {
-            action: ShopAction::Shift {
-                action: parse_shop_shift_action(tokens)?,
-            },
-        }),
-        "work" => Ok(SemanticCommand::Shop {
-            action: ShopAction::Work {
-                action: parse_shop_work_action(trimmed, tokens)?,
-            },
-        }),
-        "badge" | "badges" => Ok(SemanticCommand::Shop {
-            action: ShopAction::Badge {
-                action: parse_shop_badge_action(trimmed, tokens)?,
-            },
-        }),
-        _ => Err(SlashParseError::UnknownCommand),
-    }
+    Ok(BuildAction::Set { field, value })
 }
 
 fn parse_shop_mailing_list_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<ShopMailingListAction, SlashParseError> {
+) -> Result<ParcelMailingListAction, SlashParseError> {
     let action = tokens
         .next()
         .ok_or(SlashParseError::MissingArgument)?
@@ -580,19 +550,19 @@ fn parse_shop_mailing_list_action<'a>(
             let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let title = rest_after_tokens(trimmed, 5)?;
-            Ok(ShopMailingListAction::Create {
+            Ok(ParcelMailingListAction::Create {
                 parcel_id: parcel_id.to_owned(),
                 slug: slug.to_owned(),
                 title,
             })
         }
-        "list" => Ok(ShopMailingListAction::List {
+        "list" => Ok(ParcelMailingListAction::List {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         }),
-        "subscribers" => Ok(ShopMailingListAction::Subscribers {
+        "subscribers" => Ok(ParcelMailingListAction::Subscribers {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -609,14 +579,14 @@ fn parse_shop_mailing_list_action<'a>(
             let (subject, body) = subject_and_body
                 .split_once(" -- ")
                 .ok_or(SlashParseError::MissingArgument)?;
-            Ok(ShopMailingListAction::Send {
+            Ok(ParcelMailingListAction::Send {
                 parcel_id: parcel_id.to_owned(),
                 slug: slug.to_owned(),
                 subject: subject.trim().to_owned(),
                 body: body.trim().to_owned(),
             })
         }
-        "close" => Ok(ShopMailingListAction::Close {
+        "close" => Ok(ParcelMailingListAction::Close {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -633,7 +603,7 @@ fn parse_shop_mailing_list_action<'a>(
 fn parse_shop_desk_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<ShopDeskAction, SlashParseError> {
+) -> Result<ParcelDeskAction, SlashParseError> {
     let action = tokens
         .next()
         .ok_or(SlashParseError::MissingArgument)?
@@ -643,13 +613,13 @@ fn parse_shop_desk_action<'a>(
             let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let title = rest_after_tokens(trimmed, 5)?;
-            Ok(ShopDeskAction::Create {
+            Ok(ParcelDeskAction::Create {
                 parcel_id: parcel_id.to_owned(),
                 slug: slug.to_owned(),
                 title,
             })
         }
-        "list" => Ok(ShopDeskAction::List {
+        "list" => Ok(ParcelDeskAction::List {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -662,7 +632,7 @@ fn parse_shop_desk_action<'a>(
 fn parse_shop_route_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<ShopRouteAction, SlashParseError> {
+) -> Result<ParcelRouteAction, SlashParseError> {
     let action = tokens
         .next()
         .ok_or(SlashParseError::MissingArgument)?
@@ -672,13 +642,13 @@ fn parse_shop_route_action<'a>(
             let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let command_prefix = rest_after_tokens(trimmed, 5)?;
-            Ok(ShopRouteAction::Add {
+            Ok(ParcelRouteAction::Add {
                 parcel_id: parcel_id.to_owned(),
                 slug: slug.to_owned(),
                 command_prefix,
             })
         }
-        "list" => Ok(ShopRouteAction::List {
+        "list" => Ok(ParcelRouteAction::List {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -688,7 +658,7 @@ fn parse_shop_route_action<'a>(
             let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let command_prefix = rest_after_tokens(trimmed, 5)?;
-            Ok(ShopRouteAction::Remove {
+            Ok(ParcelRouteAction::Remove {
                 parcel_id: parcel_id.to_owned(),
                 slug: slug.to_owned(),
                 command_prefix,
@@ -700,13 +670,13 @@ fn parse_shop_route_action<'a>(
 
 fn parse_shop_staff_action<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<ShopStaffAction, SlashParseError> {
+) -> Result<ParcelStaffAction, SlashParseError> {
     let action = tokens
         .next()
         .ok_or(SlashParseError::MissingArgument)?
         .to_ascii_lowercase();
     match action.as_str() {
-        "add" => Ok(ShopStaffAction::Add {
+        "add" => Ok(ParcelStaffAction::Add {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -720,7 +690,7 @@ fn parse_shop_staff_action<'a>(
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         }),
-        "list" => Ok(ShopStaffAction::List {
+        "list" => Ok(ParcelStaffAction::List {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -730,7 +700,7 @@ fn parse_shop_staff_action<'a>(
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         }),
-        "remove" => Ok(ShopStaffAction::Remove {
+        "remove" => Ok(ParcelStaffAction::Remove {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -750,13 +720,13 @@ fn parse_shop_staff_action<'a>(
 
 fn parse_shop_shift_action<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<ShopShiftAction, SlashParseError> {
+) -> Result<ParcelShiftAction, SlashParseError> {
     let action = tokens
         .next()
         .ok_or(SlashParseError::MissingArgument)?
         .to_ascii_lowercase();
     match action.as_str() {
-        "start" => Ok(ShopShiftAction::Start {
+        "start" => Ok(ParcelShiftAction::Start {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -766,7 +736,7 @@ fn parse_shop_shift_action<'a>(
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),
         }),
-        "end" => Ok(ShopShiftAction::End {
+        "end" => Ok(ParcelShiftAction::End {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -783,7 +753,7 @@ fn parse_shop_shift_action<'a>(
 fn parse_shop_work_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<ShopWorkAction, SlashParseError> {
+) -> Result<ParcelWorkAction, SlashParseError> {
     let action = tokens
         .next()
         .ok_or(SlashParseError::MissingArgument)?
@@ -791,7 +761,7 @@ fn parse_shop_work_action<'a>(
     match action.as_str() {
         "list" => {
             let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
-            Ok(ShopWorkAction::List {
+            Ok(ParcelWorkAction::List {
                 parcel_id: parcel_id.to_owned(),
                 slug: tokens.next().map(str::to_owned),
             })
@@ -803,7 +773,7 @@ fn parse_shop_work_action<'a>(
                 .ok_or(SlashParseError::MissingArgument)?
                 .parse::<i64>()
                 .map_err(|_| SlashParseError::InvalidAmount)?;
-            Ok(ShopWorkAction::Claim {
+            Ok(ParcelWorkAction::Claim {
                 parcel_id: parcel_id.to_owned(),
                 work_id,
             })
@@ -820,7 +790,7 @@ fn parse_shop_work_action<'a>(
                 .unwrap_or(result_text.as_str())
                 .trim()
                 .to_owned();
-            Ok(ShopWorkAction::Done {
+            Ok(ParcelWorkAction::Done {
                 parcel_id: parcel_id.to_owned(),
                 work_id,
                 result,
@@ -833,13 +803,13 @@ fn parse_shop_work_action<'a>(
 fn parse_shop_badge_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<ShopBadgeAction, SlashParseError> {
+) -> Result<ParcelBadgeAction, SlashParseError> {
     let action = tokens
         .next()
         .ok_or(SlashParseError::MissingArgument)?
         .to_ascii_lowercase();
     match action.as_str() {
-        "list" => Ok(ShopBadgeAction::List {
+        "list" => Ok(ParcelBadgeAction::List {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -850,7 +820,7 @@ fn parse_shop_badge_action<'a>(
             let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let title_and_description = rest_after_tokens(trimmed, 5)?;
             let (title, description) = optional_text_pair(title_and_description.as_str(), " -- ");
-            Ok(ShopBadgeAction::Create {
+            Ok(ParcelBadgeAction::Create {
                 parcel_id: parcel_id.to_owned(),
                 slug: slug.to_owned(),
                 title,
@@ -862,14 +832,14 @@ fn parse_shop_badge_action<'a>(
             let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let target = tokens.next().ok_or(SlashParseError::MissingArgument)?;
             let note = optional_rest_after_tokens(trimmed, 6);
-            Ok(ShopBadgeAction::Award {
+            Ok(ParcelBadgeAction::Award {
                 parcel_id: parcel_id.to_owned(),
                 slug: slug.to_owned(),
                 target: target.to_owned(),
                 note,
             })
         }
-        "revoke" => Ok(ShopBadgeAction::Revoke {
+        "revoke" => Ok(ParcelBadgeAction::Revoke {
             parcel_id: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
@@ -902,26 +872,8 @@ pub(super) fn parse_badges_command<'a>(
     Ok(SemanticCommand::Badges { action })
 }
 
-pub(super) fn parse_subscribe_command<'a>(
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<SemanticCommand, SlashParseError> {
-    let (target, slug) = subscription_target_and_slug(tokens)?;
-    Ok(SemanticCommand::Subscription {
-        action: SubscriptionAction::Subscribe { target, slug },
-    })
-}
-
-pub(super) fn parse_unsubscribe_command<'a>(
-    tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<SemanticCommand, SlashParseError> {
-    let (target, slug) = subscription_target_and_slug(tokens)?;
-    Ok(SemanticCommand::Subscription {
-        action: SubscriptionAction::Unsubscribe { target, slug },
-    })
-}
-
-pub(super) fn parse_chat_command(trimmed: &str) -> Result<SemanticCommand, SlashParseError> {
-    let rest = rest_after_tokens(trimmed, 1)?;
+fn parse_parcel_chat_action(trimmed: &str) -> Result<ParcelAction, SlashParseError> {
+    let rest = rest_after_tokens(trimmed, 2)?;
     let (target_and_slug, body) = rest
         .split_once(" -- ")
         .ok_or(SlashParseError::MissingArgument)?;
@@ -936,12 +888,10 @@ pub(super) fn parse_chat_command(trimmed: &str) -> Result<SemanticCommand, Slash
     if target_parts.is_empty() {
         return Err(SlashParseError::MissingArgument);
     }
-    Ok(SemanticCommand::Subscription {
-        action: SubscriptionAction::Chat {
-            target: target_parts.join(" "),
-            slug: (*slug).to_owned(),
-            body: body.to_owned(),
-        },
+    Ok(ParcelAction::Chat {
+        target: target_parts.join(" "),
+        slug: (*slug).to_owned(),
+        body: body.to_owned(),
     })
 }
 

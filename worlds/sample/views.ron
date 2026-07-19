@@ -2,7 +2,7 @@
     (
         id: "arrival_street",
         title: "Harbor Square",
-        description: "Sea mist gathers over Harbor Square, the central plaza where the infinite town grid begins. Roads carry names such as East 1 Rd.; building cells carry doorplates such as E1-C0-01. Continue with /go in any cardinal direction to extend the grid, then claim a visible doorplate with /land claim <doorplate> when you want to settle.",
+        description: "Sea mist gathers over Harbor Square, the central plaza where the infinite town grid begins. Roads carry names such as East 1 Rd.; building cells carry doorplates such as E1-C0-01. Continue with /go in any cardinal direction to extend the grid, then claim a visible doorplate with /parcel claim <doorplate> when you want to settle.",
         exits: [
             (direction: north, target: "grid_road_x0_yp1", label: Some("North 1 Rd."), requirements: []),
             (direction: south, target: "grid_road_x0_ym1", label: Some("South 1 Rd."), requirements: []),

@@ -1,8 +1,8 @@
 //! Storage row types and low-level helpers.
 
 use hinemos_core::{
-    ADMISSION_STATE_AGREED, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT,
-    PlayerState, SHOP_MAILING_LIST_STATUS_OPEN, role_card_name_is_valid,
+    ADMISSION_STATE_AGREED, PARCEL_MAILING_LIST_STATUS_OPEN, PARCEL_STATUS_BUILT,
+    PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT, PlayerState, role_card_name_is_valid,
 };
 use serde_json::Value;
 
@@ -135,7 +135,7 @@ pub struct StoredWorldMessage {
 pub struct StoredInboxItem {
     /// Database id.
     pub id: i64,
-    /// Item kind, for example mail, shop_command, or payment_request.
+    /// Item kind, for example mail, parcel_command, or payment_request.
     pub kind: String,
     /// Recipient SSH user.
     pub recipient_user: String,
@@ -206,7 +206,7 @@ pub struct StoredTransfer {
     pub sender_balance: i64,
 }
 
-/// Commercial parcel state.
+/// Parcel state.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredParcel {
     /// Stable parcel id, for example N1.
@@ -293,7 +293,7 @@ pub struct StoredServiceRoom {
 /// Source table behind a unified room binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoredRoomBindingKind {
-    /// A commercial parcel backed by `commercial_parcels`.
+    /// A parcel backed by `commercial_parcels`.
     CommercialParcel,
     /// An externally hosted service room backed by `service_rooms`.
     ServiceRoom,
@@ -333,21 +333,21 @@ pub struct StoredRoomBinding {
     pub entry_text: String,
     /// Optional label used to replace the authored ASCII placeholder.
     pub ascii_label: Option<String>,
-    /// Parcel owner username when this binding comes from a commercial parcel.
+    /// Parcel owner username when this binding comes from a parcel.
     pub owner_user: Option<String>,
-    /// Parcel status when this binding comes from a commercial parcel.
+    /// Parcel status when this binding comes from a parcel.
     pub parcel_status: Option<String>,
-    /// Parcel title when this binding comes from a commercial parcel.
+    /// Parcel title when this binding comes from a parcel.
     pub parcel_title: Option<String>,
-    /// Parcel description when this binding comes from a commercial parcel.
+    /// Parcel description when this binding comes from a parcel.
     pub parcel_description: Option<String>,
-    /// Parcel style note when this binding comes from a commercial parcel.
+    /// Parcel style note when this binding comes from a parcel.
     pub parcel_style: Option<String>,
-    /// Parcel operator prompt when this binding comes from a commercial parcel.
+    /// Parcel operator prompt when this binding comes from a parcel.
     pub parcel_operator_prompt: Option<String>,
-    /// Parcel custom command help when this binding comes from a commercial parcel.
+    /// Parcel custom command help when this binding comes from a parcel.
     pub parcel_custom_commands: Option<String>,
-    /// Open mailing lists advertised by this commercial parcel.
+    /// Open mailing lists advertised by this parcel.
     pub parcel_mailing_lists: Vec<StoredShopMailingList>,
     /// Explicit enter aliases.
     pub enter_aliases: Vec<String>,
@@ -355,14 +355,14 @@ pub struct StoredRoomBinding {
     pub room_user: Option<String>,
     /// Mailbox player id for room-owned workflows.
     pub room_player_id: Option<String>,
-    /// Owning player id for commercial parcel rooms.
+    /// Owning player id for parcel rooms.
     pub owner_player_id: Option<String>,
     /// Input forwarding policy.
     pub command_policy: StoredRoomCommandPolicy,
 }
 
 impl StoredRoomBinding {
-    /// Builds a binding for a commercial parcel.
+    /// Builds a binding for a parcel.
     #[must_use]
     pub fn from_parcel(parcel: StoredParcel) -> Self {
         let address = parcel.parcel_id.clone();
@@ -464,18 +464,18 @@ impl StoredRoomBinding {
         })
     }
 
-    /// Returns this binding with commercial parcel mailing-list summaries attached.
+    /// Returns this binding with parcel mailing-list summaries attached.
     #[must_use]
     pub fn with_mailing_lists(mut self, lists: Vec<StoredShopMailingList>) -> Self {
         self.parcel_mailing_lists = lists
             .into_iter()
-            .filter(|list| list.status == SHOP_MAILING_LIST_STATUS_OPEN)
+            .filter(|list| list.status == PARCEL_MAILING_LIST_STATUS_OPEN)
             .collect();
         self
     }
 }
 
-/// Raw visitor command forwarded to a shop operator.
+/// Raw visitor command forwarded to a parcel operator.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredOperatorCommand {
     /// Database id.
@@ -607,12 +607,12 @@ pub struct StoredShopMailingListPost {
     pub created_at: String,
 }
 
-/// Stored shop command-route summary.
+/// Stored parcel command-route summary.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopCommandRoute {
     /// Database id.
     pub id: i64,
-    /// Parcel id for the shop.
+    /// Parcel id for the route.
     pub parcel_id: String,
     /// Stable work-desk slug.
     pub slug: String,
@@ -624,7 +624,7 @@ pub struct StoredShopCommandRoute {
     pub created_at: String,
 }
 
-/// Stored shop work-desk summary.
+/// Stored parcel work-desk summary.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopWorkDesk {
     /// Database id.
@@ -658,7 +658,7 @@ pub struct StoredShopStaff {
     pub updated_at: String,
 }
 
-/// Stored shop work shift.
+/// Stored parcel work shift.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopShift {
     /// Database id.
@@ -679,7 +679,7 @@ pub struct StoredShopShift {
     pub ended_at: Option<String>,
 }
 
-/// Stored shop work item.
+/// Stored parcel work item.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopWorkItem {
     /// Database id.
@@ -712,7 +712,7 @@ pub struct StoredShopWorkItem {
     pub updated_at: String,
 }
 
-/// Stored shop badge definition summary.
+/// Stored parcel badge definition summary.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopBadgeDefinition {
     /// Database id.
@@ -735,7 +735,7 @@ pub struct StoredShopBadgeDefinition {
     pub updated_at: String,
 }
 
-/// Stored shop badge award visible in badge listings.
+/// Stored parcel badge award visible in badge listings.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredShopBadgeAward {
     /// Database id.

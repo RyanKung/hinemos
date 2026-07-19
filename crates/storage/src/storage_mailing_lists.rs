@@ -4,14 +4,15 @@ use hinemos_app::{
     ParcelView, ShopMailingListDelivery, ShopMailingListSend, ShopMailingListSubscriberPage,
 };
 use hinemos_core::{
-    PARCEL_STATUS_BUILT, SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE,
-    SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED, SHOP_MAILING_LISTS_PER_PARCEL_MAX,
-    SHOP_WORK_DESKS_PER_PARCEL_MAX, SHOP_WORK_ITEM_CLAIMED, SHOP_WORK_ITEM_DONE,
-    SHOP_WORK_ITEM_QUEUED, SHOP_WORK_SHIFT_ACTIVE, SHOP_WORK_SHIFT_ENDED, SHOP_WORK_STAFF_ACTIVE,
-    SHOP_WORK_STAFF_REMOVED, shop_command_route_prefix_is_valid, shop_mailing_list_body_is_valid,
-    shop_mailing_list_slug_is_valid, shop_mailing_list_subject_is_valid,
-    shop_mailing_list_title_is_valid, shop_work_desk_slug_is_valid, shop_work_desk_title_is_valid,
-    shop_work_result_is_valid,
+    PARCEL_MAILING_LIST_STATUS_CLOSED, PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE,
+    PARCEL_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED, PARCEL_MAILING_LISTS_PER_PARCEL_MAX,
+    PARCEL_STATUS_BUILT, PARCEL_WORK_DESKS_PER_PARCEL_MAX, PARCEL_WORK_ITEM_CLAIMED,
+    PARCEL_WORK_ITEM_DONE, PARCEL_WORK_ITEM_QUEUED, PARCEL_WORK_SHIFT_ACTIVE,
+    PARCEL_WORK_SHIFT_ENDED, PARCEL_WORK_STAFF_ACTIVE, PARCEL_WORK_STAFF_REMOVED,
+    parcel_command_route_prefix_is_valid, parcel_mailing_list_body_is_valid,
+    parcel_mailing_list_slug_is_valid, parcel_mailing_list_subject_is_valid,
+    parcel_mailing_list_title_is_valid, parcel_work_desk_slug_is_valid,
+    parcel_work_desk_title_is_valid, parcel_work_result_is_valid,
 };
 use serde_json::json;
 
@@ -75,10 +76,10 @@ impl PgStorage {
             });
         }
         let list_count = self.shop_mailing_list_count(&parcel.parcel_id).await?;
-        if list_count >= SHOP_MAILING_LISTS_PER_PARCEL_MAX {
+        if list_count >= PARCEL_MAILING_LISTS_PER_PARCEL_MAX {
             return Err(StorageError::InvalidMailingList(format!(
                 "mailing-list limit reached for parcel {}; maximum is {}",
-                parcel.parcel_id, SHOP_MAILING_LISTS_PER_PARCEL_MAX
+                parcel.parcel_id, PARCEL_MAILING_LISTS_PER_PARCEL_MAX
             )));
         }
         let row = sqlx::query_as::<_, StoredShopMailingList>(
@@ -132,13 +133,13 @@ impl PgStorage {
             "#,
         )
         .bind(parcel_id.as_ref())
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
     }
 
-    /// Lists recent active subscribers for an owned shop mailing list.
+    /// Lists recent active subscribers for an owned parcel mailing list.
     pub async fn shop_mailing_list_subscribers(
         &self,
         parcel_id: &str,
@@ -162,7 +163,7 @@ impl PgStorage {
         )
         .bind(list.id)
         .bind(limit)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
         Ok(ShopMailingListSubscriberPage {
@@ -171,7 +172,7 @@ impl PgStorage {
         })
     }
 
-    /// Closes an owned shop mailing list to new subscriptions.
+    /// Closes an owned parcel mailing list to new subscriptions.
     pub async fn close_shop_mailing_list(
         &self,
         parcel_id: &str,
@@ -197,8 +198,8 @@ impl PgStorage {
             "#,
         )
         .bind(list.id)
-        .bind(SHOP_MAILING_LIST_STATUS_CLOSED)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_STATUS_CLOSED)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .fetch_one(&self.pool)
         .await?;
         Ok(row)
@@ -214,7 +215,7 @@ impl PgStorage {
         self.resolve_shop_mailing_list(target, slug).await
     }
 
-    /// Subscribes a player to an open shop mailing list.
+    /// Subscribes a player to an open parcel mailing list.
     pub async fn subscribe_shop_mailing_list(
         &self,
         target: &str,
@@ -224,7 +225,7 @@ impl PgStorage {
     ) -> Result<StoredShopMailingListSubscription, StorageError> {
         validate_slug(slug)?;
         let list = self.resolve_shop_mailing_list(target, slug).await?;
-        if list.status == SHOP_MAILING_LIST_STATUS_CLOSED {
+        if list.status == PARCEL_MAILING_LIST_STATUS_CLOSED {
             return Err(StorageError::MailingListClosed {
                 parcel_id: list.parcel_id,
                 slug: list.slug,
@@ -254,14 +255,14 @@ impl PgStorage {
         .bind(list.id)
         .bind(subscriber_user)
         .bind(subscriber_player_id)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .execute(&self.pool)
         .await?;
         self.subscription_for_player(list.id, subscriber_player_id)
             .await
     }
 
-    /// Unsubscribes a player from a shop mailing list.
+    /// Unsubscribes a player from a parcel mailing list.
     pub async fn unsubscribe_shop_mailing_list(
         &self,
         target: &str,
@@ -286,7 +287,7 @@ impl PgStorage {
         .bind(list.id)
         .bind(subscriber_user)
         .bind(subscriber_player_id)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED)
         .execute(&self.pool)
         .await?;
         self.subscription_for_player(list.id, subscriber_player_id)
@@ -312,7 +313,7 @@ impl PgStorage {
             "#,
         )
         .bind(subscriber_player_id)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
@@ -397,10 +398,10 @@ impl PgStorage {
             });
         }
         let desk_count = self.shop_work_desk_count(&parcel.parcel_id).await?;
-        if desk_count >= SHOP_WORK_DESKS_PER_PARCEL_MAX {
+        if desk_count >= PARCEL_WORK_DESKS_PER_PARCEL_MAX {
             return Err(StorageError::InvalidShopWork(format!(
                 "work-desk limit reached for parcel {}; maximum is {}",
-                parcel.parcel_id, SHOP_WORK_DESKS_PER_PARCEL_MAX
+                parcel.parcel_id, PARCEL_WORK_DESKS_PER_PARCEL_MAX
             )));
         }
         let row = sqlx::query_as::<_, StoredShopWorkDesk>(
@@ -444,7 +445,7 @@ impl PgStorage {
         let username = username.trim();
         if username.is_empty() || username.contains(char::is_whitespace) {
             return Err(StorageError::InvalidShopWork(
-                "invalid shop staff username".to_owned(),
+                "invalid parcel staff username".to_owned(),
             ));
         }
         let desk = self
@@ -463,7 +464,7 @@ impl PgStorage {
         )
         .bind(desk.id)
         .bind(username)
-        .bind(SHOP_WORK_STAFF_ACTIVE)
+        .bind(PARCEL_WORK_STAFF_ACTIVE)
         .fetch_one(&self.pool)
         .await?;
         Ok(staff)
@@ -524,7 +525,7 @@ impl PgStorage {
         )
         .bind(desk_id)
         .bind(staff_user)
-        .bind(SHOP_WORK_STAFF_REMOVED)
+        .bind(PARCEL_WORK_STAFF_REMOVED)
         .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| StorageError::ShopWorkerNotAssigned {
@@ -542,8 +543,8 @@ impl PgStorage {
         )
         .bind(desk_id)
         .bind(staff_user)
-        .bind(SHOP_WORK_SHIFT_ENDED)
-        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .bind(PARCEL_WORK_SHIFT_ENDED)
+        .bind(PARCEL_WORK_SHIFT_ACTIVE)
         .execute(&self.pool)
         .await?;
         Ok(staff)
@@ -579,7 +580,7 @@ impl PgStorage {
         .bind(desk.id)
         .bind(worker_user)
         .bind(worker_player_id)
-        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .bind(PARCEL_WORK_SHIFT_ACTIVE)
         .bind(&desk.parcel_id)
         .bind(&desk.slug)
         .fetch_one(&self.pool)
@@ -615,8 +616,8 @@ impl PgStorage {
         )
         .bind(desk.id)
         .bind(worker_player_id)
-        .bind(SHOP_WORK_SHIFT_ACTIVE)
-        .bind(SHOP_WORK_SHIFT_ENDED)
+        .bind(PARCEL_WORK_SHIFT_ACTIVE)
+        .bind(PARCEL_WORK_SHIFT_ENDED)
         .bind(&desk.parcel_id)
         .bind(&desk.slug)
         .bind(worker_user)
@@ -629,7 +630,7 @@ impl PgStorage {
         Ok(shift)
     }
 
-    /// Lists work items visible to an active in-shop worker.
+    /// Lists work items visible to an active in-parcel worker.
     pub async fn shop_work_items(
         &self,
         parcel_id: &str,
@@ -655,7 +656,7 @@ impl PgStorage {
             .await
     }
 
-    /// Claims one queued work item for an active in-shop worker.
+    /// Claims one queued work item for an active in-parcel worker.
     pub async fn claim_shop_work(
         &self,
         parcel_id: &str,
@@ -669,7 +670,7 @@ impl PgStorage {
         }
         self.ensure_active_shift_for_work(&item, worker_user, worker_player_id)
             .await?;
-        if item.status != SHOP_WORK_ITEM_QUEUED {
+        if item.status != PARCEL_WORK_ITEM_QUEUED {
             return Err(StorageError::ShopWorkItemInvalidState(work_id));
         }
         let claim_query = format!(
@@ -690,8 +691,8 @@ impl PgStorage {
         );
         let claimed = sqlx::query_as::<_, StoredShopWorkItem>(&claim_query)
             .bind(work_id)
-            .bind(SHOP_WORK_ITEM_QUEUED)
-            .bind(SHOP_WORK_ITEM_CLAIMED)
+            .bind(PARCEL_WORK_ITEM_QUEUED)
+            .bind(PARCEL_WORK_ITEM_CLAIMED)
             .bind(worker_user)
             .bind(worker_player_id)
             .fetch_optional(&self.pool)
@@ -700,7 +701,7 @@ impl PgStorage {
         Ok(claimed)
     }
 
-    /// Completes one claimed work item for an active in-shop worker.
+    /// Completes one claimed work item for an active in-parcel worker.
     pub async fn finish_shop_work(
         &self,
         parcel_id: &str,
@@ -709,9 +710,9 @@ impl PgStorage {
         work_id: i64,
         result: &str,
     ) -> Result<StoredShopWorkItem, StorageError> {
-        if !shop_work_result_is_valid(result) {
+        if !parcel_work_result_is_valid(result) {
             return Err(StorageError::InvalidShopWork(
-                "invalid shop work result".to_owned(),
+                "invalid parcel work result".to_owned(),
             ));
         }
         let item = self.shop_work_item(work_id).await?;
@@ -720,7 +721,7 @@ impl PgStorage {
         }
         self.ensure_active_shift_for_work(&item, worker_user, worker_player_id)
             .await?;
-        if item.status != SHOP_WORK_ITEM_CLAIMED
+        if item.status != PARCEL_WORK_ITEM_CLAIMED
             || item.assignee_player_id.as_deref() != Some(worker_player_id)
         {
             return Err(StorageError::ShopWorkItemInvalidState(work_id));
@@ -743,8 +744,8 @@ impl PgStorage {
         );
         let done = sqlx::query_as::<_, StoredShopWorkItem>(&done_query)
             .bind(work_id)
-            .bind(SHOP_WORK_ITEM_CLAIMED)
-            .bind(SHOP_WORK_ITEM_DONE)
+            .bind(PARCEL_WORK_ITEM_CLAIMED)
+            .bind(PARCEL_WORK_ITEM_DONE)
             .bind(result.trim())
             .bind(worker_player_id)
             .fetch_optional(&self.pool)
@@ -816,7 +817,7 @@ impl PgStorage {
         Ok(routes)
     }
 
-    /// Removes a command route from an owned shop work desk.
+    /// Removes a command route from an owned parcel work desk.
     pub async fn remove_shop_command_route(
         &self,
         parcel_id: &str,
@@ -848,7 +849,7 @@ impl PgStorage {
         .await?
         .ok_or_else(|| {
             StorageError::InvalidShopWork(format!(
-                "shop command route not found: {}/{} {}",
+                "parcel command route not found: {}/{} {}",
                 desk.parcel_id,
                 desk.slug,
                 command_prefix.trim()
@@ -873,7 +874,7 @@ impl PgStorage {
         let command = self.operator_command(command_id).await?;
         if command.parcel_id != parcel.parcel_id() {
             return Err(StorageError::InvalidShopWork(format!(
-                "shop command {} belongs to {}, not {}",
+                "parcel command {} belongs to {}, not {}",
                 command.id,
                 command.parcel_id,
                 parcel.parcel_id()
@@ -911,7 +912,7 @@ impl PgStorage {
         let mut deliveries = Vec::with_capacity(recipients.len());
         for recipient in recipients {
             let body = format!(
-                "[{} / {}]\nFrom: {}\n{}\n\nReply: /chat {} {} -- <message>\nUnsubscribe: /unsubscribe {} {}",
+                "[{} / {}]\nFrom: {}\n{}\n\nReply: /parcel chat {} {} -- <message>\nUnsubscribe: /parcel unsubscribe {} {}",
                 post.parcel_id,
                 post.list_title,
                 post.sender_user,
@@ -930,7 +931,7 @@ impl PgStorage {
                     sender_player_id: &post.sender_player_id,
                     subject: &post.subject,
                     body: &body,
-                    source_kind: Some("shop_mailing_list_post"),
+                    source_kind: Some("parcel_mailing_list_post"),
                     source_id: Some(post.id),
                     payload: json!({
                         "parcelId": post.parcel_id.as_str(),
@@ -1036,8 +1037,8 @@ impl PgStorage {
         )
         .bind(parcel_id)
         .bind(slug)
-        .bind(SHOP_WORK_ITEM_QUEUED)
-        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .bind(PARCEL_WORK_ITEM_QUEUED)
+        .bind(PARCEL_WORK_SHIFT_ACTIVE)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row)
@@ -1072,8 +1073,8 @@ impl PgStorage {
             "#,
         )
         .bind(parcel_id.as_ref())
-        .bind(SHOP_WORK_ITEM_QUEUED)
-        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .bind(PARCEL_WORK_ITEM_QUEUED)
+        .bind(PARCEL_WORK_SHIFT_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
@@ -1117,7 +1118,7 @@ impl PgStorage {
         )
         .bind(desk.id)
         .bind(worker_user)
-        .bind(SHOP_WORK_STAFF_ACTIVE)
+        .bind(PARCEL_WORK_STAFF_ACTIVE)
         .fetch_one(&self.pool)
         .await?;
         if assigned {
@@ -1150,7 +1151,7 @@ impl PgStorage {
         )
         .bind(desk_id)
         .bind(worker_player_id)
-        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .bind(PARCEL_WORK_SHIFT_ACTIVE)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row)
@@ -1191,8 +1192,8 @@ impl PgStorage {
         .bind(slug)
         .bind(worker_user)
         .bind(worker_player_id)
-        .bind(SHOP_WORK_SHIFT_ACTIVE)
-        .bind(SHOP_WORK_STAFF_ACTIVE)
+        .bind(PARCEL_WORK_SHIFT_ACTIVE)
+        .bind(PARCEL_WORK_STAFF_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
@@ -1231,10 +1232,10 @@ impl PgStorage {
         );
         let rows = sqlx::query_as::<_, StoredShopWorkItem>(&query)
             .bind(desk_ids)
-            .bind(SHOP_WORK_ITEM_QUEUED)
-            .bind(SHOP_WORK_ITEM_CLAIMED)
+            .bind(PARCEL_WORK_ITEM_QUEUED)
+            .bind(PARCEL_WORK_ITEM_CLAIMED)
             .bind(worker_player_id)
-            .bind(SHOP_WORK_ITEM_DONE)
+            .bind(PARCEL_WORK_ITEM_DONE)
             .bind(limit)
             .fetch_all(&self.pool)
             .await?;
@@ -1348,7 +1349,7 @@ impl PgStorage {
         )
         .bind(parcel_id)
         .bind(slug)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row)
@@ -1403,7 +1404,7 @@ impl PgStorage {
         )
         .bind(target.as_ref())
         .bind(slug)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .bind(PARCEL_STATUS_BUILT)
         .fetch_all(&self.pool)
         .await?;
@@ -1441,7 +1442,7 @@ impl PgStorage {
         )
         .bind(list_id)
         .bind(subscriber_player_id)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .fetch_one(&self.pool)
         .await?;
         Ok(exists)
@@ -1486,7 +1487,7 @@ impl PgStorage {
             "#,
         )
         .bind(list_id)
-        .bind(SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE)
+        .bind(PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
@@ -1611,7 +1612,7 @@ impl PgStorage {
 }
 
 fn validate_slug(slug: &str) -> Result<(), StorageError> {
-    if shop_mailing_list_slug_is_valid(slug) {
+    if parcel_mailing_list_slug_is_valid(slug) {
         Ok(())
     } else {
         Err(StorageError::InvalidMailingList(
@@ -1621,7 +1622,7 @@ fn validate_slug(slug: &str) -> Result<(), StorageError> {
 }
 
 fn validate_title(title: &str) -> Result<(), StorageError> {
-    if shop_mailing_list_title_is_valid(title) {
+    if parcel_mailing_list_title_is_valid(title) {
         Ok(())
     } else {
         Err(StorageError::InvalidMailingList(
@@ -1631,7 +1632,7 @@ fn validate_title(title: &str) -> Result<(), StorageError> {
 }
 
 fn validate_subject(subject: &str) -> Result<(), StorageError> {
-    if shop_mailing_list_subject_is_valid(subject) {
+    if parcel_mailing_list_subject_is_valid(subject) {
         Ok(())
     } else {
         Err(StorageError::InvalidMailingList(
@@ -1641,7 +1642,7 @@ fn validate_subject(subject: &str) -> Result<(), StorageError> {
 }
 
 fn validate_body(body: &str) -> Result<(), StorageError> {
-    if shop_mailing_list_body_is_valid(body) {
+    if parcel_mailing_list_body_is_valid(body) {
         Ok(())
     } else {
         Err(StorageError::InvalidMailingList(
@@ -1651,31 +1652,31 @@ fn validate_body(body: &str) -> Result<(), StorageError> {
 }
 
 fn validate_work_slug(slug: &str) -> Result<(), StorageError> {
-    if shop_work_desk_slug_is_valid(slug) {
+    if parcel_work_desk_slug_is_valid(slug) {
         Ok(())
     } else {
         Err(StorageError::InvalidShopWork(
-            "invalid shop work desk slug".to_owned(),
+            "invalid parcel work desk slug".to_owned(),
         ))
     }
 }
 
 fn validate_work_title(title: &str) -> Result<(), StorageError> {
-    if shop_work_desk_title_is_valid(title) {
+    if parcel_work_desk_title_is_valid(title) {
         Ok(())
     } else {
         Err(StorageError::InvalidShopWork(
-            "invalid shop work desk title".to_owned(),
+            "invalid parcel work desk title".to_owned(),
         ))
     }
 }
 
 fn validate_command_prefix(command_prefix: &str) -> Result<(), StorageError> {
-    if shop_command_route_prefix_is_valid(command_prefix) {
+    if parcel_command_route_prefix_is_valid(command_prefix) {
         Ok(())
     } else {
         Err(StorageError::InvalidShopWork(
-            "invalid shop command route prefix".to_owned(),
+            "invalid parcel command route prefix".to_owned(),
         ))
     }
 }

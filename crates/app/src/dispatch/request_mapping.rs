@@ -38,232 +38,251 @@ pub(super) fn inbox_request<'a>(
     }
 }
 
-pub(super) fn land_request<'a>(action: &'a LandAction, token: &'a str) -> AppRequest<'a> {
+fn build_request<'a>(action: &'a BuildAction, current_view: &'a str) -> AppRequest<'a> {
     match action {
-        LandAction::List => AppRequest::LandList,
-        LandAction::Info { parcel_id } => AppRequest::LandInfo { parcel_id },
-        LandAction::Claim { parcel_id } => AppRequest::LandClaim { parcel_id, token },
-        LandAction::Transfer { parcel_id, target } => AppRequest::LandTransfer {
-            parcel_id,
-            target,
-            token,
-        },
-        LandAction::Token { parcel_id } => AppRequest::LandRotateToken { parcel_id, token },
-    }
-}
-
-pub(super) fn build_request<'a>(action: &'a BuildAction, current_view: &'a str) -> AppRequest<'a> {
-    match action {
-        BuildAction::Help => AppRequest::BuildHelp,
-        BuildAction::Apply { sheet } => AppRequest::BuildApply {
+        BuildAction::Help => AppRequest::ParcelBuildHelp,
+        BuildAction::Apply { sheet } => AppRequest::ParcelBuildApply {
             current_view,
             sheet,
         },
-        BuildAction::Set { field, value } => AppRequest::BuildSet {
+        BuildAction::Set { field, value } => AppRequest::ParcelBuildSet {
             current_view,
             field,
             value,
         },
-        BuildAction::Publish => AppRequest::BuildPublish { current_view },
+        BuildAction::Publish => AppRequest::ParcelBuildPublish { current_view },
     }
 }
 
-pub(super) fn shop_request<'a>(action: &'a ShopAction, current_view: &'a str) -> AppRequest<'a> {
+pub(super) fn parcel_request<'a>(
+    action: &'a ParcelAction,
+    current_view: &'a str,
+    token: &'a str,
+) -> AppRequest<'a> {
     match action {
-        ShopAction::Inbox => AppRequest::ShopInbox,
-        ShopAction::RequestPayment {
+        ParcelAction::List => AppRequest::ParcelList,
+        ParcelAction::Info { parcel_id } => AppRequest::ParcelInfo { parcel_id },
+        ParcelAction::Claim { parcel_id } => AppRequest::ParcelClaim { parcel_id, token },
+        ParcelAction::Transfer { parcel_id, target } => AppRequest::ParcelTransfer {
+            parcel_id,
+            target,
+            token,
+        },
+        ParcelAction::Token { parcel_id } => AppRequest::ParcelRotateToken { parcel_id, token },
+        ParcelAction::Build { action } => build_request(action, current_view),
+        ParcelAction::Inbox => AppRequest::ParcelInbox,
+        ParcelAction::RequestPayment {
             command_id,
             amount,
             delivery,
-        } => AppRequest::ShopRequestPayment {
+        } => AppRequest::ParcelRequestPayment {
             current_view,
             command_id: *command_id,
             amount: *amount,
             delivery,
         },
-        ShopAction::MailingList { action } => match action {
-            ShopMailingListAction::Create {
+        ParcelAction::MailingList { action } => match action {
+            ParcelMailingListAction::Create {
                 parcel_id,
                 slug,
                 title,
-            } => AppRequest::ShopMailingListCreate {
+            } => AppRequest::ParcelMailingListCreate {
                 current_view,
                 parcel_id,
                 slug,
                 title,
             },
-            ShopMailingListAction::List { parcel_id } => AppRequest::ShopMailingListList {
+            ParcelMailingListAction::List { parcel_id } => AppRequest::ParcelMailingListList {
                 current_view,
                 parcel_id,
             },
-            ShopMailingListAction::Subscribers { parcel_id, slug } => {
-                AppRequest::ShopMailingListSubscribers {
+            ParcelMailingListAction::Subscribers { parcel_id, slug } => {
+                AppRequest::ParcelMailingListSubscribers {
                     current_view,
                     parcel_id,
                     slug,
                 }
             }
-            ShopMailingListAction::Send {
+            ParcelMailingListAction::Send {
                 parcel_id,
                 slug,
                 subject,
                 body,
-            } => AppRequest::ShopMailingListSend {
+            } => AppRequest::ParcelMailingListSend {
                 current_view,
                 parcel_id,
                 slug,
                 subject,
                 body,
             },
-            ShopMailingListAction::Close { parcel_id, slug } => AppRequest::ShopMailingListClose {
-                current_view,
-                parcel_id,
-                slug,
-            },
+            ParcelMailingListAction::Close { parcel_id, slug } => {
+                AppRequest::ParcelMailingListClose {
+                    current_view,
+                    parcel_id,
+                    slug,
+                }
+            }
         },
-        ShopAction::Desk { action } => match action {
-            ShopDeskAction::Create {
+        ParcelAction::Desk { action } => match action {
+            ParcelDeskAction::Create {
                 parcel_id,
                 slug,
                 title,
-            } => AppRequest::ShopDeskCreate {
+            } => AppRequest::ParcelDeskCreate {
                 current_view,
                 parcel_id,
                 slug,
                 title,
             },
-            ShopDeskAction::List { parcel_id } => AppRequest::ShopDeskList {
+            ParcelDeskAction::List { parcel_id } => AppRequest::ParcelDeskList {
                 current_view,
                 parcel_id,
             },
         },
-        ShopAction::Route { action } => match action {
-            ShopRouteAction::Add {
+        ParcelAction::Route { action } => match action {
+            ParcelRouteAction::Add {
                 parcel_id,
                 slug,
                 command_prefix,
-            } => AppRequest::ShopRouteAdd {
-                current_view,
-                parcel_id,
-                slug,
-                command_prefix,
-            },
-            ShopRouteAction::List { parcel_id } => AppRequest::ShopRouteList {
-                current_view,
-                parcel_id,
-            },
-            ShopRouteAction::Remove {
-                parcel_id,
-                slug,
-                command_prefix,
-            } => AppRequest::ShopRouteRemove {
+            } => AppRequest::ParcelRouteAdd {
                 current_view,
                 parcel_id,
                 slug,
                 command_prefix,
             },
-        },
-        ShopAction::Staff { action } => match action {
-            ShopStaffAction::Add {
-                parcel_id,
-                slug,
-                username,
-            } => AppRequest::ShopStaffAdd {
+            ParcelRouteAction::List { parcel_id } => AppRequest::ParcelRouteList {
                 current_view,
                 parcel_id,
-                slug,
-                username,
             },
-            ShopStaffAction::List { parcel_id, slug } => AppRequest::ShopStaffList {
+            ParcelRouteAction::Remove {
+                parcel_id,
+                slug,
+                command_prefix,
+            } => AppRequest::ParcelRouteRemove {
                 current_view,
                 parcel_id,
                 slug,
-            },
-            ShopStaffAction::Remove {
-                parcel_id,
-                slug,
-                username,
-            } => AppRequest::ShopStaffRemove {
-                current_view,
-                parcel_id,
-                slug,
-                username,
+                command_prefix,
             },
         },
-        ShopAction::Shift { action } => match action {
-            ShopShiftAction::Start { parcel_id, slug } => AppRequest::ShopShiftStart {
+        ParcelAction::Staff { action } => match action {
+            ParcelStaffAction::Add {
+                parcel_id,
+                slug,
+                username,
+            } => AppRequest::ParcelStaffAdd {
+                current_view,
+                parcel_id,
+                slug,
+                username,
+            },
+            ParcelStaffAction::List { parcel_id, slug } => AppRequest::ParcelStaffList {
                 current_view,
                 parcel_id,
                 slug,
             },
-            ShopShiftAction::End { parcel_id, slug } => AppRequest::ShopShiftEnd {
+            ParcelStaffAction::Remove {
+                parcel_id,
+                slug,
+                username,
+            } => AppRequest::ParcelStaffRemove {
+                current_view,
+                parcel_id,
+                slug,
+                username,
+            },
+        },
+        ParcelAction::Shift { action } => match action {
+            ParcelShiftAction::Start { parcel_id, slug } => AppRequest::ParcelShiftStart {
+                current_view,
+                parcel_id,
+                slug,
+            },
+            ParcelShiftAction::End { parcel_id, slug } => AppRequest::ParcelShiftEnd {
                 current_view,
                 parcel_id,
                 slug,
             },
         },
-        ShopAction::Work { action } => match action {
-            ShopWorkAction::List { parcel_id, slug } => AppRequest::ShopWorkList {
+        ParcelAction::Work { action } => match action {
+            ParcelWorkAction::List { parcel_id, slug } => AppRequest::ParcelWorkList {
                 current_view,
                 parcel_id,
                 slug: slug.as_deref(),
             },
-            ShopWorkAction::Claim { parcel_id, work_id } => AppRequest::ShopWorkClaim {
+            ParcelWorkAction::Claim { parcel_id, work_id } => AppRequest::ParcelWorkClaim {
                 current_view,
                 parcel_id,
                 work_id: *work_id,
             },
-            ShopWorkAction::Done {
+            ParcelWorkAction::Done {
                 parcel_id,
                 work_id,
                 result,
-            } => AppRequest::ShopWorkDone {
+            } => AppRequest::ParcelWorkDone {
                 current_view,
                 parcel_id,
                 work_id: *work_id,
                 result,
             },
         },
-        ShopAction::Badge { action } => match action {
-            ShopBadgeAction::List { parcel_id } => AppRequest::ShopBadgeList {
+        ParcelAction::Badge { action } => match action {
+            ParcelBadgeAction::List { parcel_id } => AppRequest::ParcelBadgeList {
                 current_view,
                 parcel_id,
             },
-            ShopBadgeAction::Create {
+            ParcelBadgeAction::Create {
                 parcel_id,
                 slug,
                 title,
                 description,
-            } => AppRequest::ShopBadgeCreate {
+            } => AppRequest::ParcelBadgeCreate {
                 current_view,
                 parcel_id,
                 slug,
                 title,
                 description: description.as_deref(),
             },
-            ShopBadgeAction::Award {
+            ParcelBadgeAction::Award {
                 parcel_id,
                 slug,
                 target,
                 note,
-            } => AppRequest::ShopBadgeAward {
+            } => AppRequest::ParcelBadgeAward {
                 current_view,
                 parcel_id,
                 slug,
                 target,
                 note: note.as_deref(),
             },
-            ShopBadgeAction::Revoke {
+            ParcelBadgeAction::Revoke {
                 parcel_id,
                 slug,
                 target,
-            } => AppRequest::ShopBadgeRevoke {
+            } => AppRequest::ParcelBadgeRevoke {
                 current_view,
                 parcel_id,
                 slug,
                 target,
             },
         },
+        ParcelAction::Subscribe { target, slug } => AppRequest::ParcelMailingListSubscribe {
+            current_view,
+            target,
+            slug,
+        },
+        ParcelAction::Unsubscribe { target, slug } => AppRequest::ParcelMailingListUnsubscribe {
+            current_view,
+            target,
+            slug,
+        },
+        ParcelAction::Chat { target, slug, body } => AppRequest::ParcelMailingListChat {
+            current_view,
+            target,
+            slug,
+            body,
+        },
+        ParcelAction::Subscriptions => AppRequest::ParcelMailingListSubscriptions,
     }
 }
 
@@ -271,32 +290,5 @@ pub(super) fn badge_request(action: &BadgeAction) -> AppRequest<'_> {
     match action {
         BadgeAction::ListMine => AppRequest::BadgesMine,
         BadgeAction::ListUser { target } => AppRequest::BadgesUser { target },
-    }
-}
-
-pub(super) fn subscription_request<'a>(
-    action: &'a SubscriptionAction,
-    current_view: &'a str,
-) -> AppRequest<'a> {
-    match action {
-        SubscriptionAction::Subscribe { target, slug } => AppRequest::ShopMailingListSubscribe {
-            current_view,
-            target,
-            slug,
-        },
-        SubscriptionAction::Unsubscribe { target, slug } => {
-            AppRequest::ShopMailingListUnsubscribe {
-                current_view,
-                target,
-                slug,
-            }
-        }
-        SubscriptionAction::Chat { target, slug, body } => AppRequest::ShopMailingListChat {
-            current_view,
-            target,
-            slug,
-            body,
-        },
-        SubscriptionAction::List => AppRequest::ShopMailingListSubscriptions,
     }
 }

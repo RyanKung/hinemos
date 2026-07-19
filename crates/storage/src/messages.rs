@@ -713,7 +713,7 @@ impl PgStorage {
 }
 
 fn inbox_item_triggers_notify(kind: &str) -> bool {
-    matches!(kind, "mail" | "shop_command")
+    matches!(kind, "mail" | "parcel_command")
 }
 
 fn mail_inbox_source_none(recipient_user: &str) -> MailInboxSource {
@@ -726,7 +726,7 @@ fn mail_inbox_source_none(recipient_user: &str) -> MailInboxSource {
 
 /// New inbox item input.
 pub struct NewInboxItem<'a> {
-    /// Kind such as mail, shop_command, or payment_request.
+    /// Kind such as mail, parcel_command, or payment_request.
     pub kind: &'a str,
     /// Recipient user.
     pub recipient_user: &'a str,

@@ -1,6 +1,4 @@
-use hinemos_core::{
-    BadgeAction, JsonObservation, ObservationEvent, SemanticCommand, SubscriptionAction,
-};
+use hinemos_core::{BadgeAction, JsonObservation, ObservationEvent, ParcelAction, SemanticCommand};
 
 use super::Chrome;
 
@@ -319,24 +317,24 @@ fn push_subscription_commands(observation: &JsonObservation, parts: &mut Vec<Str
         .available_commands
         .iter()
         .filter_map(|command| match command {
-            SemanticCommand::Subscription {
-                action: SubscriptionAction::Subscribe { target, slug },
-            } => Some(format!("/subscribe {target} {slug}")),
-            SemanticCommand::Subscription {
-                action: SubscriptionAction::Unsubscribe { target, slug },
-            } => Some(format!("/unsubscribe {target} {slug}")),
-            SemanticCommand::Subscription {
-                action: SubscriptionAction::Chat { target, slug, body },
+            SemanticCommand::Parcel {
+                action: ParcelAction::Subscribe { target, slug },
+            } => Some(format!("/parcel subscribe {target} {slug}")),
+            SemanticCommand::Parcel {
+                action: ParcelAction::Unsubscribe { target, slug },
+            } => Some(format!("/parcel unsubscribe {target} {slug}")),
+            SemanticCommand::Parcel {
+                action: ParcelAction::Chat { target, slug, body },
             } => {
                 if body.is_empty() {
-                    Some(format!("/chat {target} {slug} -- <message>"))
+                    Some(format!("/parcel chat {target} {slug} -- <message>"))
                 } else {
-                    Some(format!("/chat {target} {slug} -- {body}"))
+                    Some(format!("/parcel chat {target} {slug} -- {body}"))
                 }
             }
-            SemanticCommand::Subscription {
-                action: SubscriptionAction::List,
-            } => Some("/subscriptions".to_owned()),
+            SemanticCommand::Parcel {
+                action: ParcelAction::Subscriptions,
+            } => Some("/parcel subscriptions".to_owned()),
             _ => None,
         })
         .collect::<Vec<_>>();

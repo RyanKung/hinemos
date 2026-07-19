@@ -12,7 +12,7 @@ use crate::{
 };
 
 impl PgStorage {
-    /// Creates a payment request from a shop command owned by the operator.
+    /// Creates a payment request from a parcel command owned by the operator.
     pub async fn create_payment_request(
         &self,
         operator_command_id: i64,
@@ -58,7 +58,7 @@ impl PgStorage {
             return Err(StorageError::NotParcelOwner(command.parcel_id));
         }
 
-        let memo = format!("shop command #{}", command.id);
+        let memo = format!("parcel command #{}", command.id);
         let request = sqlx::query_as::<_, StoredPaymentRequest>(
             r#"
             insert into payment_requests (
@@ -104,7 +104,7 @@ impl PgStorage {
     ) -> Result<(), StorageError> {
         let subject = format!("Payment request #{}", request.id);
         let body = format!(
-            "{} requests {} {} for shop command #{} in {}. Accept with /pay accept {}.",
+            "{} requests {} {} for parcel command #{} in {}. Accept with /pay accept {}.",
             request.payee_user,
             request.amount,
             request.asset,
@@ -154,7 +154,7 @@ impl PgStorage {
                 event_type: "payment_request_created".to_owned(),
                 actors: json!([request.payee_user, request.payer_user]),
                 content: format!(
-                    "Requested {} {} from {} for shop command #{}.",
+                    "Requested {} {} from {} for parcel command #{}.",
                     request.amount, request.asset, request.payer_user, request.operator_command_id
                 ),
                 world_refs: json!({

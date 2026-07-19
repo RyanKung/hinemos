@@ -1141,7 +1141,7 @@ impl ShopStore for TestCommercialStore {
     ) -> Result<Self::InboxItem, Self::Error> {
         Ok(TestInboxItem {
             id: 1,
-            kind: "shop_command",
+            kind: "parcel_command",
             sender_user: "alice",
             subject: "hello",
             body: "body",

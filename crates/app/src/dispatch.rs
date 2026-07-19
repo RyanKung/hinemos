@@ -97,9 +97,16 @@ where
             RoutedAppRequest::Message(request) => {
                 self.handle_message_request(identity, request).await
             }
-            RoutedAppRequest::Land(request) => self.handle_land_request(identity, request).await,
-            RoutedAppRequest::Build(request) => self.handle_build_request(identity, request).await,
-            RoutedAppRequest::Shop(request) => self.handle_shop_request(identity, request).await,
+            RoutedAppRequest::ParcelRegistry(request) => {
+                self.handle_parcel_registry_request(identity, request).await
+            }
+            RoutedAppRequest::ParcelBuild(request) => {
+                self.handle_parcel_build_request(identity, request).await
+            }
+            RoutedAppRequest::ParcelOperation(request) => {
+                self.handle_parcel_operation_request(identity, request)
+                    .await
+            }
             RoutedAppRequest::ServiceRoom(request) => {
                 self.handle_service_room_request(identity, request).await
             }
