@@ -1,9 +1,9 @@
 use super::contracts::{
     BuildStore, FromMailingListValidation, FromShopBadgeValidation, FromShopWorkValidation,
-    LandStore, ParcelStore, ParcelView, PaymentRequestView, PaymentStore, ShopBadgeAwardView,
-    ShopBadgeDefinitionView, ShopCommandRouteView, ShopMailingListSubscriberView,
-    ShopMailingListSubscriptionView, ShopMailingListView, ShopShiftView, ShopStaffView, ShopStore,
-    ShopWorkDeskView, ShopWorkItemView, TransferView,
+    LandStore, ParcelStore, ParcelView, PaymentRequestView, PaymentStore, ShopBadgeAwardInput,
+    ShopBadgeAwardView, ShopBadgeDefinitionView, ShopCommandRouteView, ShopMailingListPostInput,
+    ShopMailingListSubscriberView, ShopMailingListSubscriptionView, ShopMailingListView,
+    ShopShiftView, ShopStaffView, ShopStore, ShopWorkDeskView, ShopWorkItemView, TransferView,
 };
 use super::rendering::{
     custom_command_preview, is_custom_command_input, non_empty, render_parcel_detail,
@@ -72,11 +72,15 @@ where
     /// Creates a payment request for a shop command.
     pub async fn request_shop_payment(
         &self,
+        current_view: &str,
         command_id: i64,
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
     ) -> Result<ShopPaymentRequestResult<<S as ShopStore>::InboxItem>, E> {
+        let command = self.store.operator_command(command_id).await?;
+        self.ensure_inside_shop(current_view, command.parcel_id())
+            .await?;
         let request = self
             .store
             .create_payment_request(command_id, owner_player_id, amount, delivery)
@@ -101,11 +105,13 @@ where
     /// Creates a mailing list for an owned shop parcel.
     pub async fn create_shop_mailing_list(
         &self,
+        current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
         slug: &str,
         title: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
         validate_mailing_list_slug(slug)?;
         validate_mailing_list_title(title)?;
         let list = self
@@ -129,9 +135,11 @@ where
     /// Lists mailing lists for an owned shop parcel.
     pub async fn list_shop_mailing_lists(
         &self,
+        current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
         let lists = self
             .store
             .shop_mailing_lists(parcel_id, owner_player_id)
@@ -144,10 +152,12 @@ where
     /// Shows active subscriber count and recent subscribers.
     pub async fn shop_mailing_list_subscribers(
         &self,
+        current_view: &str,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
         let page = self
             .store
             .shop_mailing_list_subscribers(parcel_id, slug, owner_player_id, 20)
@@ -166,10 +176,12 @@ where
     /// Closes an owned mailing list to new subscriptions.
     pub async fn close_shop_mailing_list(
         &self,
+        current_view: &str,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
         let list = self
             .store
             .close_shop_mailing_list(parcel_id, slug, owner_player_id)
@@ -186,11 +198,14 @@ where
     /// Subscribes the current player to a shop mailing list.
     pub async fn subscribe_shop_mailing_list(
         &self,
+        current_view: &str,
         target: &str,
         slug: &str,
         subscriber_user: &str,
         subscriber_player_id: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop_mailing_list_target(current_view, target, slug)
+            .await?;
         let subscription = self
             .store
             .subscribe_shop_mailing_list(target, slug, subscriber_user, subscriber_player_id)
@@ -212,11 +227,14 @@ where
     /// Unsubscribes the current player from a shop mailing list.
     pub async fn unsubscribe_shop_mailing_list(
         &self,
+        current_view: &str,
         target: &str,
         slug: &str,
         subscriber_user: &str,
         subscriber_player_id: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop_mailing_list_target(current_view, target, slug)
+            .await?;
         let subscription = self
             .store
             .unsubscribe_shop_mailing_list(target, slug, subscriber_user, subscriber_player_id)
@@ -248,24 +266,29 @@ where
     /// Sends an owner-authored mailing-list post to all current active members.
     pub async fn send_shop_mailing_list_post(
         &self,
-        target: &str,
-        slug: &str,
-        sender_user: &str,
-        sender_player_id: &str,
-        subject: &str,
-        body: &str,
+        input: ShopMailingListPostInput<'_>,
     ) -> Result<super::contracts::ShopMailingListSend<S::MailingListPost, S::InboxItem>, E> {
-        validate_mailing_list_slug(slug)?;
-        validate_mailing_list_subject(subject)?;
-        validate_mailing_list_body(body)?;
+        validate_mailing_list_slug(input.slug)?;
+        validate_mailing_list_subject(input.subject)?;
+        validate_mailing_list_body(input.body)?;
+        self.ensure_inside_shop_mailing_list_target(input.current_view, input.target, input.slug)
+            .await?;
         self.store
-            .send_shop_mailing_list_post(target, slug, sender_user, sender_player_id, subject, body)
+            .send_shop_mailing_list_post(
+                input.target,
+                input.slug,
+                input.sender_user,
+                input.sender_player_id,
+                input.subject,
+                input.body,
+            )
             .await
     }
 
     /// Posts a group-chat message to a shop mailing list.
     pub async fn post_shop_mailing_list_chat(
         &self,
+        current_view: &str,
         target: &str,
         slug: &str,
         sender_user: &str,
@@ -274,6 +297,8 @@ where
     ) -> Result<super::contracts::ShopMailingListSend<S::MailingListPost, S::InboxItem>, E> {
         validate_mailing_list_slug(slug)?;
         validate_mailing_list_body(body)?;
+        self.ensure_inside_shop_mailing_list_target(current_view, target, slug)
+            .await?;
         let subject = format!("Shop chat: {slug}");
         self.store
             .send_shop_mailing_list_post(
@@ -608,12 +633,14 @@ where
     /// Creates or updates a badge definition for an owned shop parcel.
     pub async fn create_shop_badge(
         &self,
+        current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
         slug: &str,
         title: &str,
         description: Option<&str>,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
         validate_badge_slug(slug)?;
         validate_badge_title(title)?;
         validate_badge_description(description)?;
@@ -636,9 +663,11 @@ where
     /// Lists badge definitions for an owned shop parcel.
     pub async fn list_shop_badges(
         &self,
+        current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
         let badges = self.store.shop_badges(parcel_id, owner_player_id).await?;
         Ok(BusinessListResult {
             text: render_shop_badges(parcel_id, &badges).replace('\n', "\r\n"),
@@ -648,18 +677,22 @@ where
     /// Awards a shop badge to a target player.
     pub async fn award_shop_badge(
         &self,
-        parcel_id: &str,
-        slug: &str,
-        issuer_user: &str,
-        issuer_player_id: &str,
-        target: &str,
-        note: Option<&str>,
+        input: ShopBadgeAwardInput<'_>,
     ) -> Result<BusinessListResult, E> {
-        validate_badge_slug(slug)?;
-        validate_badge_note(note)?;
+        self.ensure_inside_shop(input.current_view, input.parcel_id)
+            .await?;
+        validate_badge_slug(input.slug)?;
+        validate_badge_note(input.note)?;
         let award = self
             .store
-            .award_shop_badge(parcel_id, slug, issuer_user, issuer_player_id, target, note)
+            .award_shop_badge(
+                input.parcel_id,
+                input.slug,
+                input.issuer_user,
+                input.issuer_player_id,
+                input.target,
+                input.note,
+            )
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -677,11 +710,13 @@ where
     /// Revokes an active shop badge award.
     pub async fn revoke_shop_badge(
         &self,
+        current_view: &str,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
         target: &str,
     ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_shop(current_view, parcel_id).await?;
         validate_badge_slug(slug)?;
         let award = self
             .store
@@ -723,9 +758,20 @@ where
             Ok(())
         } else {
             Err(E::invalid_shop_work(
-                "shop work can only happen while inside that shop",
+                "shop actions can only happen while inside that shop",
             ))
         }
+    }
+
+    async fn ensure_inside_shop_mailing_list_target(
+        &self,
+        current_view: &str,
+        target: &str,
+        slug: &str,
+    ) -> Result<(), E> {
+        let list = self.store.shop_mailing_list(target, slug).await?;
+        self.ensure_inside_shop(current_view, list.parcel_id())
+            .await
     }
 
     /// Handles a raw or slash-prefixed input line inside a commercial parcel room.

@@ -139,6 +139,8 @@ pub enum AppRequest<'a> {
     },
     /// Create a payment request for a shop command.
     ShopRequestPayment {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Operator command id.
         command_id: i64,
         /// Positive MARK amount.
@@ -148,6 +150,8 @@ pub enum AppRequest<'a> {
     },
     /// Create a mailing list for an owned shop.
     ShopMailingListCreate {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
         /// Stable list slug.
@@ -157,11 +161,15 @@ pub enum AppRequest<'a> {
     },
     /// List mailing lists for an owned shop.
     ShopMailingListList {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
     },
     /// Show mailing-list subscribers for an owned shop.
     ShopMailingListSubscribers {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
         /// Stable list slug.
@@ -169,6 +177,8 @@ pub enum AppRequest<'a> {
     },
     /// Send an owner-authored mailing-list post.
     ShopMailingListSend {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
         /// Stable list slug.
@@ -180,6 +190,8 @@ pub enum AppRequest<'a> {
     },
     /// Post a group-chat message to a shop mailing list.
     ShopMailingListChat {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id or visible shop title.
         target: &'a str,
         /// Stable list slug.
@@ -189,6 +201,8 @@ pub enum AppRequest<'a> {
     },
     /// Close a mailing list to new subscriptions.
     ShopMailingListClose {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
         /// Stable list slug.
@@ -196,6 +210,8 @@ pub enum AppRequest<'a> {
     },
     /// Subscribe the current player to a shop mailing list.
     ShopMailingListSubscribe {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id or visible shop title.
         target: &'a str,
         /// Stable list slug.
@@ -203,6 +219,8 @@ pub enum AppRequest<'a> {
     },
     /// Unsubscribe the current player from a shop mailing list.
     ShopMailingListUnsubscribe {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id or visible shop title.
         target: &'a str,
         /// Stable list slug.
@@ -337,11 +355,15 @@ pub enum AppRequest<'a> {
     },
     /// List badge definitions for an owned shop.
     ShopBadgeList {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
     },
     /// Create or update a badge definition for an owned shop.
     ShopBadgeCreate {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
         /// Stable badge slug.
@@ -353,6 +375,8 @@ pub enum AppRequest<'a> {
     },
     /// Award a shop badge to a user.
     ShopBadgeAward {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
         /// Stable badge slug.
@@ -364,6 +388,8 @@ pub enum AppRequest<'a> {
     },
     /// Revoke an active shop badge award.
     ShopBadgeRevoke {
+        /// Current runtime view id.
+        current_view: &'a str,
         /// Parcel id.
         parcel_id: &'a str,
         /// Stable badge slug.

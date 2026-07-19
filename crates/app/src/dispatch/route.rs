@@ -122,42 +122,51 @@ pub(super) enum BuildAppRequest<'a> {
 pub(super) enum ShopAppRequest<'a> {
     Inbox,
     RequestPayment {
+        current_view: &'a str,
         command_id: i64,
         amount: i64,
         delivery: &'a str,
     },
     MailingListCreate {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
         title: &'a str,
     },
     MailingListList {
+        current_view: &'a str,
         parcel_id: &'a str,
     },
     MailingListSubscribers {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
     },
     MailingListSend {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
         subject: &'a str,
         body: &'a str,
     },
     MailingListChat {
+        current_view: &'a str,
         target: &'a str,
         slug: &'a str,
         body: &'a str,
     },
     MailingListClose {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
     },
     MailingListSubscribe {
+        current_view: &'a str,
         target: &'a str,
         slug: &'a str,
     },
     MailingListUnsubscribe {
+        current_view: &'a str,
         target: &'a str,
         slug: &'a str,
     },
@@ -232,21 +241,25 @@ pub(super) enum ShopAppRequest<'a> {
         command_prefix: &'a str,
     },
     BadgeList {
+        current_view: &'a str,
         parcel_id: &'a str,
     },
     BadgeCreate {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
         title: &'a str,
         description: Option<&'a str>,
     },
     BadgeAward {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
         target: &'a str,
         note: Option<&'a str>,
     },
     BadgeRevoke {
+        current_view: &'a str,
         parcel_id: &'a str,
         slug: &'a str,
         target: &'a str,
@@ -521,52 +534,94 @@ fn route_shop(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
     match request {
         AppRequest::ShopInbox => RoutedAppRequest::Shop(ShopAppRequest::Inbox),
         AppRequest::ShopRequestPayment {
+            current_view,
             command_id,
             amount,
             delivery,
         } => RoutedAppRequest::Shop(ShopAppRequest::RequestPayment {
+            current_view,
             command_id,
             amount,
             delivery,
         }),
         AppRequest::ShopMailingListCreate {
+            current_view,
             parcel_id,
             slug,
             title,
         } => RoutedAppRequest::Shop(ShopAppRequest::MailingListCreate {
+            current_view,
             parcel_id,
             slug,
             title,
         }),
-        AppRequest::ShopMailingListList { parcel_id } => {
-            RoutedAppRequest::Shop(ShopAppRequest::MailingListList { parcel_id })
-        }
-        AppRequest::ShopMailingListSubscribers { parcel_id, slug } => {
-            RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscribers { parcel_id, slug })
-        }
+        AppRequest::ShopMailingListList {
+            current_view,
+            parcel_id,
+        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListList {
+            current_view,
+            parcel_id,
+        }),
+        AppRequest::ShopMailingListSubscribers {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscribers {
+            current_view,
+            parcel_id,
+            slug,
+        }),
         AppRequest::ShopMailingListSend {
+            current_view,
             parcel_id,
             slug,
             subject,
             body,
         } => RoutedAppRequest::Shop(ShopAppRequest::MailingListSend {
+            current_view,
             parcel_id,
             slug,
             subject,
             body,
         }),
-        AppRequest::ShopMailingListChat { target, slug, body } => {
-            RoutedAppRequest::Shop(ShopAppRequest::MailingListChat { target, slug, body })
-        }
-        AppRequest::ShopMailingListClose { parcel_id, slug } => {
-            RoutedAppRequest::Shop(ShopAppRequest::MailingListClose { parcel_id, slug })
-        }
-        AppRequest::ShopMailingListSubscribe { target, slug } => {
-            RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscribe { target, slug })
-        }
-        AppRequest::ShopMailingListUnsubscribe { target, slug } => {
-            RoutedAppRequest::Shop(ShopAppRequest::MailingListUnsubscribe { target, slug })
-        }
+        AppRequest::ShopMailingListChat {
+            current_view,
+            target,
+            slug,
+            body,
+        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListChat {
+            current_view,
+            target,
+            slug,
+            body,
+        }),
+        AppRequest::ShopMailingListClose {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListClose {
+            current_view,
+            parcel_id,
+            slug,
+        }),
+        AppRequest::ShopMailingListSubscribe {
+            current_view,
+            target,
+            slug,
+        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscribe {
+            current_view,
+            target,
+            slug,
+        }),
+        AppRequest::ShopMailingListUnsubscribe {
+            current_view,
+            target,
+            slug,
+        } => RoutedAppRequest::Shop(ShopAppRequest::MailingListUnsubscribe {
+            current_view,
+            target,
+            slug,
+        }),
         AppRequest::ShopMailingListSubscriptions => {
             RoutedAppRequest::Shop(ShopAppRequest::MailingListSubscriptions)
         }
@@ -695,36 +750,46 @@ fn route_shop(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
             slug,
             command_prefix,
         }),
-        AppRequest::ShopBadgeList { parcel_id } => {
-            RoutedAppRequest::Shop(ShopAppRequest::BadgeList { parcel_id })
-        }
+        AppRequest::ShopBadgeList {
+            current_view,
+            parcel_id,
+        } => RoutedAppRequest::Shop(ShopAppRequest::BadgeList {
+            current_view,
+            parcel_id,
+        }),
         AppRequest::ShopBadgeCreate {
+            current_view,
             parcel_id,
             slug,
             title,
             description,
         } => RoutedAppRequest::Shop(ShopAppRequest::BadgeCreate {
+            current_view,
             parcel_id,
             slug,
             title,
             description,
         }),
         AppRequest::ShopBadgeAward {
+            current_view,
             parcel_id,
             slug,
             target,
             note,
         } => RoutedAppRequest::Shop(ShopAppRequest::BadgeAward {
+            current_view,
             parcel_id,
             slug,
             target,
             note,
         }),
         AppRequest::ShopBadgeRevoke {
+            current_view,
             parcel_id,
             slug,
             target,
         } => RoutedAppRequest::Shop(ShopAppRequest::BadgeRevoke {
+            current_view,
             parcel_id,
             slug,
             target,

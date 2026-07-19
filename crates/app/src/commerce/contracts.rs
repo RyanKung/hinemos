@@ -516,6 +516,42 @@ pub struct ShopMailingListSend<P, I> {
     pub deliveries: Vec<ShopMailingListDelivery<I>>,
 }
 
+/// Inputs for sending one shop mailing-list post from inside the shop.
+pub struct ShopMailingListPostInput<'a> {
+    /// Current runtime view id.
+    pub current_view: &'a str,
+    /// Parcel id or visible shop title.
+    pub target: &'a str,
+    /// Stable list slug.
+    pub slug: &'a str,
+    /// Sender username.
+    pub sender_user: &'a str,
+    /// Sender player id.
+    pub sender_player_id: &'a str,
+    /// Inbox subject.
+    pub subject: &'a str,
+    /// Inbox body.
+    pub body: &'a str,
+}
+
+/// Inputs for awarding a shop badge from inside the shop.
+pub struct ShopBadgeAwardInput<'a> {
+    /// Current runtime view id.
+    pub current_view: &'a str,
+    /// Parcel id.
+    pub parcel_id: &'a str,
+    /// Stable badge slug.
+    pub slug: &'a str,
+    /// Issuer username.
+    pub issuer_user: &'a str,
+    /// Issuer player id.
+    pub issuer_player_id: &'a str,
+    /// Target username or player id.
+    pub target: &'a str,
+    /// Optional one-line award note.
+    pub note: Option<&'a str>,
+}
+
 /// Storage boundary for shop operator actions.
 pub trait ShopStore {
     /// Store error type.
@@ -570,6 +606,10 @@ pub trait ShopStore {
         limit: i64,
     ) -> Result<Vec<Self::OperatorCommand>, Self::Error>;
 
+    /// Loads one stored shop operator command.
+    async fn operator_command(&self, command_id: i64)
+    -> Result<Self::OperatorCommand, Self::Error>;
+
     /// Creates a payment request from a shop command.
     async fn create_payment_request(
         &self,
@@ -618,6 +658,13 @@ pub trait ShopStore {
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
+    ) -> Result<Self::MailingList, Self::Error>;
+
+    /// Resolves a visible shop target and slug to one mailing list.
+    async fn shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
     ) -> Result<Self::MailingList, Self::Error>;
 
     /// Subscribes a player to an open shop mailing list.

@@ -66,7 +66,9 @@ where
             SemanticCommand::Build { action } => build_request(action, context.current_view),
             SemanticCommand::Shop { action } => shop_request(action, context.current_view),
             SemanticCommand::Badges { action } => badge_request(action),
-            SemanticCommand::Subscription { action } => subscription_request(action),
+            SemanticCommand::Subscription { action } => {
+                subscription_request(action, context.current_view)
+            }
             _ => return Ok(None),
         };
         Ok(Some(self.handle(identity, request).await?))

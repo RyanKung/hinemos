@@ -79,7 +79,7 @@ fn commercial_parcel_input_routes_through_app() {
             events,
             vec![
                 UiEvent::Text(
-                    "Shop request #1 sent to owner owner for parcel parcel.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\nQueued 1 shop work item(s). Workers must be inside the shop with an active shift to list, claim, or complete them.\r\nPreview: hello\r\n"
+                    "Shop request #1 sent to owner owner for parcel P1.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\nQueued 1 shop work item(s). Workers must be inside the shop with an active shift to list, claim, or complete them.\r\nPreview: hello\r\n"
                         .to_owned()
                 ),
                 UiEvent::LiveInboxNotice {
@@ -303,14 +303,15 @@ fn shop_mailing_list_send_emits_live_inbox_notice() {
         let identity = AppIdentity::new("owner", "owner-player");
 
         let result = app
-            .send_shop_mailing_list_post(
-                "P1",
-                "updates",
-                &identity.user,
-                &identity.player_id,
-                "Weekly Deal",
-                "Body",
-            )
+            .send_shop_mailing_list_post(ShopMailingListPostInput {
+                current_view: "parcel-view",
+                target: "P1",
+                slug: "updates",
+                sender_user: &identity.user,
+                sender_player_id: &identity.player_id,
+                subject: "Weekly Deal",
+                body: "Body",
+            })
             .await
             .expect("send mailing list post");
 
@@ -352,6 +353,7 @@ fn shop_mailing_list_chat_posts_as_member_message() {
 
         let result = app
             .post_shop_mailing_list_chat(
+                "parcel-view",
                 "Offline Tool Broker",
                 "updates",
                 &identity.user,
@@ -453,7 +455,7 @@ fn shop_command_route_service_commands_render_expected_text() {
 }
 
 #[test]
-fn shop_work_router_configuration_requires_inside_shop() {
+fn shop_actions_require_inside_shop_before_mutating_state() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -479,8 +481,8 @@ fn shop_work_router_configuration_requires_inside_shop() {
             }),
             calls: Mutex::new(Vec::new()),
         });
-        let expected = TestCommerceError::InvalidShopWork(
-            "shop work can only happen while inside that shop".to_owned(),
+        let expected = TestCommerceError::ShopWork(
+            "shop actions can only happen while inside that shop".to_owned(),
         );
 
         let desk = app
@@ -501,9 +503,70 @@ fn shop_work_router_configuration_requires_inside_shop() {
             .expect_err("route add outside shop");
         assert_eq!(route, expected);
 
+        let mailing_create = app
+            .create_shop_mailing_list("street-a", "P1", "owner-player", "updates", "Updates")
+            .await
+            .expect_err("mailing-list create outside shop");
+        assert_eq!(mailing_create, expected);
+
+        let mailing_send = app
+            .send_shop_mailing_list_post(ShopMailingListPostInput {
+                current_view: "street-a",
+                target: "P1",
+                slug: "updates",
+                sender_user: "owner",
+                sender_player_id: "owner-player",
+                subject: "Weekly Deal",
+                body: "Body",
+            })
+            .await
+            .err()
+            .expect("mailing-list send outside shop");
+        assert_eq!(mailing_send, expected);
+
+        let mailing_chat = app
+            .post_shop_mailing_list_chat(
+                "street-a",
+                "P1",
+                "updates",
+                "visitor",
+                "visitor-player",
+                "Hello members",
+            )
+            .await
+            .err()
+            .expect("shop chat outside shop");
+        assert_eq!(mailing_chat, expected);
+
+        let mailing_subscribe = app
+            .subscribe_shop_mailing_list("street-a", "P1", "updates", "visitor", "visitor-player")
+            .await
+            .expect_err("mailing-list subscribe outside shop");
+        assert_eq!(mailing_subscribe, expected);
+
+        let payment = app
+            .request_shop_payment("street-a", 1, "owner-player", 25, "delivery")
+            .await
+            .err()
+            .expect("payment request outside shop");
+        assert_eq!(payment, expected);
+
+        let badge = app
+            .create_shop_badge(
+                "street-a",
+                "P1",
+                "owner-player",
+                "patron",
+                "Good Patron",
+                None,
+            )
+            .await
+            .expect_err("badge create outside shop");
+        assert_eq!(badge, expected);
+
         assert!(
             app.store().calls.lock().unwrap().is_empty(),
-            "outside-shop configuration must not reach storage mutation calls"
+            "outside-shop actions must not reach storage mutation calls"
         );
     });
 }
@@ -538,6 +601,7 @@ fn shop_badge_service_commands_render_expected_text() {
 
         let created = app
             .create_shop_badge(
+                "parcel-view",
                 "P1",
                 "owner-player",
                 "patron",
@@ -554,21 +618,22 @@ fn shop_badge_service_commands_render_expected_text() {
         );
 
         let list = app
-            .list_shop_badges("P1", "owner-player")
+            .list_shop_badges("parcel-view", "P1", "owner-player")
             .await
             .expect("list badges");
         assert!(list.text.contains("Shop Badges for P1"));
         assert!(list.text.contains("Good Patron"));
 
         let award = app
-            .award_shop_badge(
-                "P1",
-                "patron",
-                "owner",
-                "owner-player",
-                "visitor",
-                Some("great work"),
-            )
+            .award_shop_badge(ShopBadgeAwardInput {
+                current_view: "parcel-view",
+                parcel_id: "P1",
+                slug: "patron",
+                issuer_user: "owner",
+                issuer_player_id: "owner-player",
+                target: "visitor",
+                note: Some("great work"),
+            })
             .await
             .expect("award badge");
         assert!(award.text.contains("Awarded badge Good Patron (patron)"));
@@ -587,7 +652,7 @@ fn shop_badge_service_commands_render_expected_text() {
         assert!(badges.text.contains("Note: great work"));
 
         let revoke = app
-            .revoke_shop_badge("P1", "patron", "owner-player", "visitor")
+            .revoke_shop_badge("parcel-view", "P1", "patron", "owner-player", "visitor")
             .await
             .expect("revoke badge");
         assert!(revoke.text.contains("Revoked badge Good Patron (patron)"));

@@ -597,6 +597,47 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
         .expect("finish work");
     assert_eq!(done.status, "done");
     assert_eq!(done.result.as_deref(), Some("accepted for daily"));
+    let visible_after_done = storage
+        .shop_work_items(
+            "E1-C0-01",
+            "customer",
+            "player:customer",
+            Some("submissions"),
+            20,
+        )
+        .await
+        .expect("list completed work during shift");
+    assert_eq!(visible_after_done.len(), 1);
+    let completed_item = visible_after_done.first().expect("completed work item");
+    assert_eq!(completed_item.status, "done");
+    assert_eq!(completed_item.result.as_deref(), Some("accepted for daily"));
+    storage
+        .remove_shop_staff("E1-C0-01", "submissions", "player:owner", "customer")
+        .await
+        .expect("remove worker");
+    let listed_after_remove = storage
+        .shop_work_items(
+            "E1-C0-01",
+            "customer",
+            "player:customer",
+            Some("submissions"),
+            20,
+        )
+        .await
+        .expect_err("removed worker cannot list work during old shift");
+    assert!(matches!(
+        listed_after_remove,
+        StorageError::ShopShiftNotActive { .. }
+    ));
+    assert_eq!(
+        db.query_value(
+            "select count(*)
+             from shop_work_shifts
+             where worker_user = 'customer'
+               and status = 'active'"
+        ),
+        "0"
+    );
 
     storage
         .remove_shop_command_route("E1-C0-01", "player:owner", "submissions", "/hello")

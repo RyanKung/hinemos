@@ -690,6 +690,13 @@ impl ShopStore for PgStorage {
         PgStorage::recent_operator_commands(self, owner_player_id, limit).await
     }
 
+    async fn operator_command(
+        &self,
+        command_id: i64,
+    ) -> Result<Self::OperatorCommand, Self::Error> {
+        PgStorage::operator_command(self, command_id).await
+    }
+
     async fn create_payment_request(
         &self,
         operator_command_id: i64,
@@ -752,6 +759,14 @@ impl ShopStore for PgStorage {
         owner_player_id: &str,
     ) -> Result<Self::MailingList, Self::Error> {
         PgStorage::close_shop_mailing_list(self, parcel_id, slug, owner_player_id).await
+    }
+
+    async fn shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+    ) -> Result<Self::MailingList, Self::Error> {
+        PgStorage::shop_mailing_list(self, target, slug).await
     }
 
     async fn subscribe_shop_mailing_list(

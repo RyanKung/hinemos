@@ -98,12 +98,19 @@ where
                 None,
             )),
             ShopAppRequest::RequestPayment {
+                current_view,
                 command_id,
                 amount,
                 delivery,
             } => {
                 let result = self
-                    .request_shop_payment(command_id, &identity.player_id, amount, delivery)
+                    .request_shop_payment(
+                        current_view,
+                        command_id,
+                        &identity.player_id,
+                        amount,
+                        delivery,
+                    )
                     .await?;
                 Ok(vec![
                     UiEvent::Text(result.text),
@@ -114,12 +121,19 @@ where
                 ])
             }
             ShopAppRequest::MailingListCreate {
+                current_view,
                 parcel_id,
                 slug,
                 title,
             } => {
                 let text = self
-                    .create_shop_mailing_list(parcel_id, &identity.player_id, slug, title)
+                    .create_shop_mailing_list(
+                        current_view,
+                        parcel_id,
+                        &identity.player_id,
+                        slug,
+                        title,
+                    )
                     .await?
                     .text;
                 Ok(text_events(
@@ -127,33 +141,47 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::MailingListList { parcel_id } => Ok(text_events(
-                self.list_shop_mailing_lists(parcel_id, &identity.player_id)
+            ShopAppRequest::MailingListList {
+                current_view,
+                parcel_id,
+            } => Ok(text_events(
+                self.list_shop_mailing_lists(current_view, parcel_id, &identity.player_id)
                     .await?
                     .text,
                 None,
             )),
-            ShopAppRequest::MailingListSubscribers { parcel_id, slug } => Ok(text_events(
-                self.shop_mailing_list_subscribers(parcel_id, slug, &identity.player_id)
-                    .await?
-                    .text,
+            ShopAppRequest::MailingListSubscribers {
+                current_view,
+                parcel_id,
+                slug,
+            } => Ok(text_events(
+                self.shop_mailing_list_subscribers(
+                    current_view,
+                    parcel_id,
+                    slug,
+                    &identity.player_id,
+                )
+                .await?
+                .text,
                 None,
             )),
             ShopAppRequest::MailingListSend {
+                current_view,
                 parcel_id,
                 slug,
                 subject,
                 body,
             } => {
                 let result = self
-                    .send_shop_mailing_list_post(
-                        parcel_id,
+                    .send_shop_mailing_list_post(ShopMailingListPostInput {
+                        current_view,
+                        target: parcel_id,
                         slug,
-                        &identity.user,
-                        &identity.player_id,
+                        sender_user: &identity.user,
+                        sender_player_id: &identity.player_id,
                         subject,
                         body,
-                    )
+                    })
                     .await?;
                 let mut events = vec![UiEvent::Text(format!(
                     "Sent shop chat post #{} to {} member(s): {}.\r\n",
@@ -169,9 +197,15 @@ where
                 }));
                 Ok(events)
             }
-            ShopAppRequest::MailingListChat { target, slug, body } => {
+            ShopAppRequest::MailingListChat {
+                current_view,
+                target,
+                slug,
+                body,
+            } => {
                 let result = self
                     .post_shop_mailing_list_chat(
+                        current_view,
                         target,
                         slug,
                         &identity.user,
@@ -193,9 +227,13 @@ where
                 }));
                 Ok(events)
             }
-            ShopAppRequest::MailingListClose { parcel_id, slug } => {
+            ShopAppRequest::MailingListClose {
+                current_view,
+                parcel_id,
+                slug,
+            } => {
                 let text = self
-                    .close_shop_mailing_list(parcel_id, slug, &identity.player_id)
+                    .close_shop_mailing_list(current_view, parcel_id, slug, &identity.player_id)
                     .await?
                     .text;
                 Ok(text_events(
@@ -203,14 +241,29 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::MailingListSubscribe { target, slug } => Ok(text_events(
-                self.subscribe_shop_mailing_list(target, slug, &identity.user, &identity.player_id)
-                    .await?
-                    .text,
+            ShopAppRequest::MailingListSubscribe {
+                current_view,
+                target,
+                slug,
+            } => Ok(text_events(
+                self.subscribe_shop_mailing_list(
+                    current_view,
+                    target,
+                    slug,
+                    &identity.user,
+                    &identity.player_id,
+                )
+                .await?
+                .text,
                 None,
             )),
-            ShopAppRequest::MailingListUnsubscribe { target, slug } => Ok(text_events(
+            ShopAppRequest::MailingListUnsubscribe {
+                current_view,
+                target,
+                slug,
+            } => Ok(text_events(
                 self.unsubscribe_shop_mailing_list(
+                    current_view,
                     target,
                     slug,
                     &identity.user,
@@ -427,47 +480,61 @@ where
                     Some(self.commercial_parcel_invalidation(parcel_id).await?),
                 ))
             }
-            ShopAppRequest::BadgeList { parcel_id } => Ok(text_events(
-                self.list_shop_badges(parcel_id, &identity.player_id)
+            ShopAppRequest::BadgeList {
+                current_view,
+                parcel_id,
+            } => Ok(text_events(
+                self.list_shop_badges(current_view, parcel_id, &identity.player_id)
                     .await?
                     .text,
                 None,
             )),
             ShopAppRequest::BadgeCreate {
+                current_view,
                 parcel_id,
                 slug,
                 title,
                 description,
             } => Ok(text_events(
-                self.create_shop_badge(parcel_id, &identity.player_id, slug, title, description)
-                    .await?
-                    .text,
-                None,
-            )),
-            ShopAppRequest::BadgeAward {
-                parcel_id,
-                slug,
-                target,
-                note,
-            } => Ok(text_events(
-                self.award_shop_badge(
+                self.create_shop_badge(
+                    current_view,
                     parcel_id,
-                    slug,
-                    &identity.user,
                     &identity.player_id,
-                    target,
-                    note,
+                    slug,
+                    title,
+                    description,
                 )
                 .await?
                 .text,
                 None,
             )),
+            ShopAppRequest::BadgeAward {
+                current_view,
+                parcel_id,
+                slug,
+                target,
+                note,
+            } => Ok(text_events(
+                self.award_shop_badge(ShopBadgeAwardInput {
+                    current_view,
+                    parcel_id,
+                    slug,
+                    issuer_user: &identity.user,
+                    issuer_player_id: &identity.player_id,
+                    target,
+                    note,
+                })
+                .await?
+                .text,
+                None,
+            )),
             ShopAppRequest::BadgeRevoke {
+                current_view,
                 parcel_id,
                 slug,
                 target,
             } => Ok(text_events(
-                self.revoke_shop_badge(parcel_id, slug, &identity.player_id, target)
+                self.revoke_shop_badge(current_view, parcel_id, slug, &identity.player_id, target)
                     .await?
                     .text,
                 None,

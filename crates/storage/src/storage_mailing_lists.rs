@@ -204,6 +204,16 @@ impl PgStorage {
         Ok(row)
     }
 
+    /// Resolves a built shop target and mailing-list slug without changing membership.
+    pub async fn shop_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+    ) -> Result<StoredShopMailingList, StorageError> {
+        validate_slug(slug)?;
+        self.resolve_shop_mailing_list(target, slug).await
+    }
+
     /// Subscribes a player to an open shop mailing list.
     pub async fn subscribe_shop_mailing_list(
         &self,
@@ -500,6 +510,8 @@ impl PgStorage {
         let desk = self
             .owned_shop_work_desk(parcel_id, slug, owner_player_id)
             .await?;
+        let desk_id = desk.id;
+        let staff_user = username.trim();
         let staff = sqlx::query_as::<_, StoredShopStaff>(
             r#"
             update shop_work_staff
@@ -510,15 +522,30 @@ impl PgStorage {
                       to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
             "#,
         )
-        .bind(desk.id)
-        .bind(username.trim())
+        .bind(desk_id)
+        .bind(staff_user)
         .bind(SHOP_WORK_STAFF_REMOVED)
         .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| StorageError::ShopWorkerNotAssigned {
-            parcel_id: desk.parcel_id,
-            slug: desk.slug,
+            parcel_id: desk.parcel_id.clone(),
+            slug: desk.slug.clone(),
         })?;
+        sqlx::query(
+            r#"
+            update shop_work_shifts
+            set status = $3, ended_at = now(), updated_at = now()
+            where desk_id = $1
+              and worker_user = $2
+              and status = $4
+            "#,
+        )
+        .bind(desk_id)
+        .bind(staff_user)
+        .bind(SHOP_WORK_SHIFT_ENDED)
+        .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .execute(&self.pool)
+        .await?;
         Ok(staff)
     }
 
@@ -1147,6 +1174,16 @@ impl PgStorage {
               and shift.worker_user = $3
               and shift.worker_player_id = $4
               and shift.status = $5
+              and (
+                    d.owner_player_id = $4
+                 or exists (
+                        select 1
+                        from shop_work_staff staff
+                        where staff.desk_id = d.id
+                          and staff.staff_user = $3
+                          and staff.status = $6
+                    )
+              )
             order by d.id
             "#,
         )
@@ -1155,6 +1192,7 @@ impl PgStorage {
         .bind(worker_user)
         .bind(worker_player_id)
         .bind(SHOP_WORK_SHIFT_ACTIVE)
+        .bind(SHOP_WORK_STAFF_ACTIVE)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
@@ -1176,9 +1214,18 @@ impl PgStorage {
               and (
                     item.status = $2
                  or (item.status = $3 and item.assignee_player_id = $4)
+                 or item.status = $5
               )
-            order by item.updated_at asc, item.id
-            limit $5
+            order by case item.status
+                         when $2 then 0
+                         when $3 then 1
+                         when $5 then 2
+                         else 3
+                     end,
+                     case when item.status = $5 then item.updated_at end desc,
+                     item.updated_at asc,
+                     item.id
+            limit $6
             "#,
             shop_work_item_projection()
         );
@@ -1187,6 +1234,7 @@ impl PgStorage {
             .bind(SHOP_WORK_ITEM_QUEUED)
             .bind(SHOP_WORK_ITEM_CLAIMED)
             .bind(worker_player_id)
+            .bind(SHOP_WORK_ITEM_DONE)
             .bind(limit)
             .fetch_all(&self.pool)
             .await?;
@@ -1444,7 +1492,8 @@ impl PgStorage {
         Ok(rows)
     }
 
-    async fn operator_command(
+    /// Loads one stored operator command by id.
+    pub async fn operator_command(
         &self,
         command_id: i64,
     ) -> Result<StoredOperatorCommand, StorageError> {

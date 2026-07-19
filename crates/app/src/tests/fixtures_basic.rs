@@ -57,9 +57,9 @@ pub(super) struct TestCommercialStore {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum TestCommerceError {
-    InvalidMailingList(String),
-    InvalidShopWork(String),
-    InvalidShopBadge(String),
+    MailingList(String),
+    ShopWork(String),
+    ShopBadge(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -527,7 +527,7 @@ impl PaymentRequestView for TestPaymentRequest {
     }
 
     fn parcel_id(&self) -> &str {
-        "parcel"
+        "P1"
     }
 
     fn payer_user(&self) -> &str {
@@ -581,7 +581,7 @@ impl OperatorCommandView for TestOperatorCommand {
     }
 
     fn parcel_id(&self) -> &str {
-        "parcel"
+        "P1"
     }
 
     fn raw_input(&self) -> &str {
@@ -952,19 +952,19 @@ impl TestCommercialStore {
 
 impl FromMailingListValidation for TestCommerceError {
     fn invalid_mailing_list(message: &str) -> Self {
-        Self::InvalidMailingList(message.to_owned())
+        Self::MailingList(message.to_owned())
     }
 }
 
 impl FromShopWorkValidation for TestCommerceError {
     fn invalid_shop_work(message: &str) -> Self {
-        Self::InvalidShopWork(message.to_owned())
+        Self::ShopWork(message.to_owned())
     }
 }
 
 impl FromShopBadgeValidation for TestCommerceError {
     fn invalid_shop_badge(message: &str) -> Self {
-        Self::InvalidShopBadge(message.to_owned())
+        Self::ShopBadge(message.to_owned())
     }
 }
 
@@ -1116,6 +1116,13 @@ impl ShopStore for TestCommercialStore {
         Ok(Vec::new())
     }
 
+    async fn operator_command(
+        &self,
+        _command_id: i64,
+    ) -> Result<Self::OperatorCommand, Self::Error> {
+        Ok(TestOperatorCommand)
+    }
+
     async fn create_payment_request(
         &self,
         _operator_command_id: i64,
@@ -1205,6 +1212,19 @@ impl ShopStore for TestCommercialStore {
             slug: slug.to_owned(),
             title: "Shop Updates".to_owned(),
             status: "closed".to_owned(),
+            subscriber_count: 1,
+        })
+    }
+
+    async fn shop_mailing_list(
+        &self,
+        _target: &str,
+        slug: &str,
+    ) -> Result<Self::MailingList, Self::Error> {
+        Ok(TestMailingList {
+            slug: slug.to_owned(),
+            title: "Shop Updates".to_owned(),
+            status: "open".to_owned(),
             subscriber_count: 1,
         })
     }

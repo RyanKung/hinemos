@@ -76,6 +76,7 @@ pub(super) fn shop_request<'a>(action: &'a ShopAction, current_view: &'a str) ->
             amount,
             delivery,
         } => AppRequest::ShopRequestPayment {
+            current_view,
             command_id: *command_id,
             amount: *amount,
             delivery,
@@ -86,15 +87,21 @@ pub(super) fn shop_request<'a>(action: &'a ShopAction, current_view: &'a str) ->
                 slug,
                 title,
             } => AppRequest::ShopMailingListCreate {
+                current_view,
                 parcel_id,
                 slug,
                 title,
             },
-            ShopMailingListAction::List { parcel_id } => {
-                AppRequest::ShopMailingListList { parcel_id }
-            }
+            ShopMailingListAction::List { parcel_id } => AppRequest::ShopMailingListList {
+                current_view,
+                parcel_id,
+            },
             ShopMailingListAction::Subscribers { parcel_id, slug } => {
-                AppRequest::ShopMailingListSubscribers { parcel_id, slug }
+                AppRequest::ShopMailingListSubscribers {
+                    current_view,
+                    parcel_id,
+                    slug,
+                }
             }
             ShopMailingListAction::Send {
                 parcel_id,
@@ -102,14 +109,17 @@ pub(super) fn shop_request<'a>(action: &'a ShopAction, current_view: &'a str) ->
                 subject,
                 body,
             } => AppRequest::ShopMailingListSend {
+                current_view,
                 parcel_id,
                 slug,
                 subject,
                 body,
             },
-            ShopMailingListAction::Close { parcel_id, slug } => {
-                AppRequest::ShopMailingListClose { parcel_id, slug }
-            }
+            ShopMailingListAction::Close { parcel_id, slug } => AppRequest::ShopMailingListClose {
+                current_view,
+                parcel_id,
+                slug,
+            },
         },
         ShopAction::Desk { action } => match action {
             ShopDeskAction::Create {
@@ -215,13 +225,17 @@ pub(super) fn shop_request<'a>(action: &'a ShopAction, current_view: &'a str) ->
             },
         },
         ShopAction::Badge { action } => match action {
-            ShopBadgeAction::List { parcel_id } => AppRequest::ShopBadgeList { parcel_id },
+            ShopBadgeAction::List { parcel_id } => AppRequest::ShopBadgeList {
+                current_view,
+                parcel_id,
+            },
             ShopBadgeAction::Create {
                 parcel_id,
                 slug,
                 title,
                 description,
             } => AppRequest::ShopBadgeCreate {
+                current_view,
                 parcel_id,
                 slug,
                 title,
@@ -233,6 +247,7 @@ pub(super) fn shop_request<'a>(action: &'a ShopAction, current_view: &'a str) ->
                 target,
                 note,
             } => AppRequest::ShopBadgeAward {
+                current_view,
                 parcel_id,
                 slug,
                 target,
@@ -243,6 +258,7 @@ pub(super) fn shop_request<'a>(action: &'a ShopAction, current_view: &'a str) ->
                 slug,
                 target,
             } => AppRequest::ShopBadgeRevoke {
+                current_view,
                 parcel_id,
                 slug,
                 target,
@@ -258,17 +274,29 @@ pub(super) fn badge_request(action: &BadgeAction) -> AppRequest<'_> {
     }
 }
 
-pub(super) fn subscription_request(action: &SubscriptionAction) -> AppRequest<'_> {
+pub(super) fn subscription_request<'a>(
+    action: &'a SubscriptionAction,
+    current_view: &'a str,
+) -> AppRequest<'a> {
     match action {
-        SubscriptionAction::Subscribe { target, slug } => {
-            AppRequest::ShopMailingListSubscribe { target, slug }
-        }
+        SubscriptionAction::Subscribe { target, slug } => AppRequest::ShopMailingListSubscribe {
+            current_view,
+            target,
+            slug,
+        },
         SubscriptionAction::Unsubscribe { target, slug } => {
-            AppRequest::ShopMailingListUnsubscribe { target, slug }
+            AppRequest::ShopMailingListUnsubscribe {
+                current_view,
+                target,
+                slug,
+            }
         }
-        SubscriptionAction::Chat { target, slug, body } => {
-            AppRequest::ShopMailingListChat { target, slug, body }
-        }
+        SubscriptionAction::Chat { target, slug, body } => AppRequest::ShopMailingListChat {
+            current_view,
+            target,
+            slug,
+            body,
+        },
         SubscriptionAction::List => AppRequest::ShopMailingListSubscriptions,
     }
 }
