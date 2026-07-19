@@ -11,7 +11,7 @@ struct SshAgent<'a> {
 }
 
 #[test]
-fn two_ssh_agents_can_trade_with_offline_shop_owner() {
+fn two_ssh_agents_can_trade_with_offline_parcel_owner() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -31,10 +31,10 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     let customer_key = admitted_key(&temp, host, port, &customer);
     let peer_key = admitted_key(&temp, host, port, &peer);
 
-    assert_owner_shop_setup(host, port, &owner, &owner_key);
+    assert_owner_parcel_setup(host, port, &owner, &owner_key);
     assert_owner_mailing_list_setup(host, port, &owner, &owner_key);
-    assert_customer_shop_visit(host, port, &customer, &customer_key);
-    assert_shop_mailing_list_flow(
+    assert_customer_parcel_visit(host, port, &customer, &customer_key);
+    assert_parcel_mailing_list_flow(
         &test_database,
         host,
         port,
@@ -51,9 +51,9 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
             key: &peer_key,
         },
     );
-    assert_shop_badge_flow(host, port, &owner, &owner_key, &customer, &customer_key);
-    assert_shop_mailbox_converged(&test_database);
-    let request_id = request_shop_payment(host, port, &owner, &owner_key);
+    assert_parcel_badge_flow(host, port, &owner, &owner_key, &customer, &customer_key);
+    assert_parcel_mailbox_converged(&test_database);
+    let request_id = request_parcel_payment(host, port, &owner, &owner_key);
     assert_customer_paid_request(host, port, &customer, &customer_key, request_id);
     assert_owner_received_payment(host, port, &owner, &owner_key);
 
@@ -68,14 +68,14 @@ fn assert_owner_mailing_list_setup(host: &str, port: u16, owner: &str, owner_key
         owner,
         owner_key,
         &[
-            "/parcel mailing-list create C0-N1-01 updates Shop Updates",
+            "/parcel mailing-list create C0-N1-01 updates Parcel Updates",
             "/parcel mailing-list list C0-N1-01",
             "/quit",
         ],
     );
     assert_contains(
         &owner_setup,
-        "Created parcel chat updates for parcel C0-N1-01: Shop Updates.",
+        "Created parcel chat updates for parcel C0-N1-01: Parcel Updates.",
         "owner can create a parcel chat",
     );
     assert_contains(
@@ -90,12 +90,12 @@ fn assert_owner_mailing_list_setup(host: &str, port: u16, owner: &str, owner_key
     );
 }
 
-fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
-    let shop_command_count = test_database.query_value(
+fn assert_parcel_mailbox_converged(test_database: &TestDatabase) {
+    let parcel_command_count = test_database.query_value(
         "select count(*) from inbox_items where recipient_user = 'room-C0-N1-01' and kind = 'parcel_command' and source_kind = 'operator_command' and body = '/hello'",
     );
     assert_eq!(
-        shop_command_count, "1",
+        parcel_command_count, "1",
         "visitor parcel command should be stored once as the parcel actionable item"
     );
 
@@ -116,7 +116,7 @@ fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
     );
 }
 
-fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path) {
+fn assert_owner_parcel_setup(host: &str, port: u16, owner: &str, owner_key: &Path) {
     let owner_setup = run_ssh_batch_with_key(
         host,
         port,
@@ -186,7 +186,7 @@ fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path)
     );
 }
 
-fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_key: &Path) {
+fn assert_customer_parcel_visit(host: &str, port: u16, customer: &str, customer_key: &Path) {
     let customer_visit = run_ssh_batch_with_key(
         host,
         port,
@@ -226,7 +226,7 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
     assert_contains(
         &customer_visit,
-        "Mailing lists: Shop Updates (updates) join: /parcel subscribe C0-N1-01 updates",
+        "Mailing lists: Parcel Updates (updates) join: /parcel subscribe C0-N1-01 updates",
         "customer sees the parcel chat join command",
     );
     assert_contains(
@@ -281,7 +281,7 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
 }
 
-fn assert_shop_mailing_list_flow(
+fn assert_parcel_mailing_list_flow(
     test_database: &TestDatabase,
     host: &str,
     port: u16,
@@ -302,7 +302,7 @@ fn assert_shop_mailing_list_flow(
     );
     assert_contains(
         &customer_subscribe,
-        "Joined parcel chat Shop Updates (updates) at C0-N1-01.",
+        "Joined parcel chat Parcel Updates (updates) at C0-N1-01.",
         "customer can subscribe to the parcel mailing list",
     );
     assert_contains(
@@ -326,7 +326,7 @@ fn assert_shop_mailing_list_flow(
     );
     assert_contains(
         &peer_subscribe,
-        "Joined parcel chat Shop Updates (updates) at C0-N1-01.",
+        "Joined parcel chat Parcel Updates (updates) at C0-N1-01.",
         "peer can join the same parcel chat",
     );
     assert_contains(
@@ -447,7 +447,7 @@ fn assert_shop_mailing_list_flow(
     );
     assert_contains(
         &customer_unsubscribe,
-        "Left parcel chat Shop Updates (updates) at C0-N1-01.",
+        "Left parcel chat Parcel Updates (updates) at C0-N1-01.",
         "customer can unsubscribe",
     );
     assert_contains(
@@ -469,7 +469,7 @@ fn assert_shop_mailing_list_flow(
     );
     assert_contains(
         &peer_unsubscribe,
-        "Left parcel chat Shop Updates (updates) at C0-N1-01.",
+        "Left parcel chat Parcel Updates (updates) at C0-N1-01.",
         "peer can leave the parcel chat",
     );
 
@@ -490,7 +490,7 @@ fn assert_shop_mailing_list_flow(
     );
 }
 
-fn assert_shop_badge_flow(
+fn assert_parcel_badge_flow(
     host: &str,
     port: u16,
     owner: &str,
@@ -590,7 +590,7 @@ fn assert_shop_badge_flow(
     );
 }
 
-fn request_shop_payment(host: &str, port: u16, owner: &str, owner_key: &Path) -> i64 {
+fn request_parcel_payment(host: &str, port: u16, owner: &str, owner_key: &Path) -> i64 {
     let owner_request = run_ssh_batch_with_key(
         host,
         port,

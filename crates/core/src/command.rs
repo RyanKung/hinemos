@@ -155,9 +155,9 @@ pub enum SemanticCommand {
         /// Direction to move.
         direction: Direction,
     },
-    /// Enter an adjacent parcel or shopfront.
+    /// Enter an adjacent parcel or parcelfront.
     Enter {
-        /// Parcel id or visible shop title.
+        /// Parcel id or visible parcel title.
         target: String,
     },
     /// Inspect a visible entity.
@@ -237,7 +237,7 @@ pub enum SemanticCommand {
         /// Parcel command action.
         action: ParcelAction,
     },
-    /// Inspect shop-issued badges.
+    /// Inspect parcel-issued badges.
     Badges {
         /// Badge inspection action.
         action: BadgeAction,

@@ -14,9 +14,9 @@ mod storage_badges;
 mod storage_ext;
 mod storage_mailing_lists;
 mod storage_memory;
+mod storage_parcel;
 mod storage_payments;
 mod storage_rooms;
-mod storage_shop;
 mod types;
 
 use std::future::Future;
@@ -46,12 +46,12 @@ pub use types::{
     NewMemoryAtom, NewMemoryEvent, StoredAccountSettings, StoredAdmission, StoredAgentSelfModel,
     StoredBalance, StoredHungerState, StoredIdentity, StoredInboxItem, StoredMailAuthToken,
     StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
-    StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind,
-    StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward, StoredShopBadgeDefinition,
-    StoredShopCommandRoute, StoredShopMailingList, StoredShopMailingListPost,
-    StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredShopShift,
-    StoredShopStaff, StoredShopWorkDesk, StoredShopWorkItem, StoredSocialEdge, StoredTransfer,
-    StoredWorldMessage,
+    StoredParcelBadgeAward, StoredParcelBadgeDefinition, StoredParcelCommandRoute,
+    StoredParcelMailingList, StoredParcelMailingListPost, StoredParcelMailingListSubscriber,
+    StoredParcelMailingListSubscription, StoredParcelShift, StoredParcelStaff,
+    StoredParcelWorkDesk, StoredParcelWorkItem, StoredPasswordIdentity, StoredPaymentRequest,
+    StoredRoomBinding, StoredRoomBindingKind, StoredRoomCommandPolicy, StoredServiceRoom,
+    StoredSocialEdge, StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.

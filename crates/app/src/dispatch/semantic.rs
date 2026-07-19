@@ -18,7 +18,7 @@ impl<S> AppService<S>
 where
     S: AppDispatchStore,
     <S as AppDispatchStore>::Error:
-        FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
+        FromMailingListValidation + FromParcelBadgeValidation + FromParcelWorkValidation,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding: RoomBindingEntryView
         + ParcelView

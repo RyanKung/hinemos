@@ -32,7 +32,7 @@ impl ConnectionHandler {
                 self.send_output_event(channel, session, event).await?;
             }
             UiEvent::InvalidateRoomCache
-            | UiEvent::InvalidateCommercialParcelCache { .. }
+            | UiEvent::InvalidateParcelCache { .. }
             | UiEvent::InvalidateInboxItem { .. } => self.handle_cache_event(event).await,
             UiEvent::LiveMessage { .. }
             | UiEvent::LiveViewMessage { .. }
@@ -79,12 +79,12 @@ impl ConnectionHandler {
             UiEvent::InvalidateRoomCache => {
                 self.shared.clear_room_cache().await;
             }
-            UiEvent::InvalidateCommercialParcelCache {
+            UiEvent::InvalidateParcelCache {
                 view_id,
                 front_view_id,
             } => {
                 self.shared
-                    .invalidate_room_cache_for_commercial_parcel(&view_id, &front_view_id)
+                    .invalidate_room_cache_for_parcel(&view_id, &front_view_id)
                     .await;
             }
             UiEvent::InvalidateInboxItem { item_id } => {

@@ -420,15 +420,15 @@ where
         + AdmissionStore<Error = E>
         + BuildStore<Error = E>
         + InboxStore<Error = E>
-        + LandStore<Error = E>
+        + ParcelOwnershipStore<Error = E>
         + MailStore<Error = E>
         + MemoryStore<Error = E>
         + MessageStore<Error = E>
+        + ParcelRegistryStore<Error = E>
         + ParcelStore<Error = E>
         + PaymentStore<Error = E>
-        + RoomStore<Error = E>
-        + ShopStore<Error = E>,
-    E: FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
+        + RoomStore<Error = E>,
+    E: FromMailingListValidation + FromParcelBadgeValidation + FromParcelWorkValidation,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding: RoomBindingEntryView
         + ParcelView
@@ -454,9 +454,9 @@ where
         if let Some(events) = self.handle_memory_raw_line(identity, raw_line).await? {
             return Ok(Some(events));
         }
-        if RoomBindingKindView::is_commercial_parcel(binding)
+        if RoomBindingKindView::is_parcel(binding)
             && let Some(events) = self
-                .handle_commercial_parcel_input(identity, binding, raw_line)
+                .handle_parcel_input(identity, binding, raw_line)
                 .await?
         {
             return Ok(Some(events));
@@ -530,8 +530,8 @@ pub trait RoomBindingEntryView {
 
 /// Protocol-neutral view of a room binding's role metadata.
 pub trait RoomBindingKindView: RoomMailboxView {
-    /// True when this binding represents a commercial parcel room.
-    fn is_commercial_parcel(&self) -> bool;
+    /// True when this binding represents a parcel room.
+    fn is_parcel(&self) -> bool;
 
     /// True when this binding represents an externally hosted service room.
     fn is_service_room(&self) -> bool;

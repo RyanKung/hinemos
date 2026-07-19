@@ -1,17 +1,18 @@
 use super::contracts::{
-    BuildStore, FromMailingListValidation, FromShopBadgeValidation, FromShopWorkValidation,
-    LandStore, ParcelStore, ParcelView, PaymentRequestView, PaymentStore, ShopBadgeAwardInput,
-    ShopBadgeAwardView, ShopBadgeDefinitionView, ShopCommandRouteView, ShopMailingListPostInput,
-    ShopMailingListSubscriberView, ShopMailingListSubscriptionView, ShopMailingListView,
-    ShopShiftView, ShopStaffView, ShopStore, ShopWorkDeskView, ShopWorkItemView, TransferView,
+    BuildStore, FromMailingListValidation, FromParcelBadgeValidation, FromParcelWorkValidation,
+    ParcelBadgeAwardInput, ParcelBadgeAwardView, ParcelBadgeDefinitionView, ParcelCommandRouteView,
+    ParcelMailingListPostInput, ParcelMailingListSubscriberView, ParcelMailingListSubscriptionView,
+    ParcelMailingListView, ParcelOwnershipStore, ParcelRegistryStore, ParcelShiftView,
+    ParcelStaffView, ParcelStore, ParcelView, ParcelWorkDeskView, ParcelWorkItemView,
+    PaymentRequestView, PaymentStore, TransferView,
 };
 use super::rendering::{
     custom_command_preview, is_custom_command_input, non_empty, render_parcel_detail,
     render_parcel_list,
 };
 use super::results::{
-    BuildCommandResult, BusinessListResult, CommercialParcelCacheInvalidation, LandCommandResult,
-    PayAcceptResult, PayDirectResult, ShopPaymentRequestResult, build_help_text,
+    BuildCommandResult, BusinessListResult, ParcelCacheInvalidation, ParcelOwnershipResult,
+    ParcelPaymentRequestResult, PayAcceptResult, PayDirectResult, build_help_text,
     default_build_commands,
 };
 use crate::{
@@ -26,23 +27,23 @@ use crate::{
 
 impl<S, E> AppService<S>
 where
-    S: ShopStore<Error = E> + LandStore<Error = E>,
-    E: FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
+    S: ParcelStore<Error = E> + ParcelOwnershipStore<Error = E>,
+    E: FromMailingListValidation + FromParcelBadgeValidation + FromParcelWorkValidation,
 {
     /// Returns true when a parcel will consume this raw input line.
     #[must_use]
-    pub fn commercial_parcel_consumes_input<P>(&self, binding: &P, raw_line: &str) -> bool
+    pub fn parcel_consumes_input<P>(&self, binding: &P, raw_line: &str) -> bool
     where
         P: ParcelView + RoomBindingKindView,
     {
-        RoomBindingKindView::is_commercial_parcel(binding)
+        RoomBindingKindView::is_parcel(binding)
             && binding.status() == PARCEL_STATUS_BUILT
             && ParcelView::owner_player_id(binding).is_some()
             && is_custom_command_input(binding, raw_line)
     }
 
     /// Builds the parcel operator inbox text.
-    pub async fn shop_inbox(&self, owner_player_id: &str) -> Result<BusinessListResult, E> {
+    pub async fn parcel_inbox(&self, owner_player_id: &str) -> Result<BusinessListResult, E> {
         let commands = self
             .store
             .recent_operator_commands(owner_player_id, 20)
@@ -70,16 +71,16 @@ where
     }
 
     /// Creates a payment request for a parcel command.
-    pub async fn request_shop_payment(
+    pub async fn request_parcel_payment(
         &self,
         current_view: &str,
         command_id: i64,
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<ShopPaymentRequestResult<<S as ShopStore>::InboxItem>, E> {
+    ) -> Result<ParcelPaymentRequestResult<<S as ParcelStore>::InboxItem>, E> {
         let command = self.store.operator_command(command_id).await?;
-        self.ensure_inside_shop(current_view, command.parcel_id())
+        self.ensure_inside_parcel(current_view, command.parcel_id())
             .await?;
         let request = self
             .store
@@ -89,7 +90,7 @@ where
             .store
             .inbox_item_by_source(request.payer_player_id(), "payment_request", request.id())
             .await?;
-        Ok(ShopPaymentRequestResult {
+        Ok(ParcelPaymentRequestResult {
             text: format!(
                 "Created payment request #{} for {}: {} {}. Delivery is locked until payment.\r\n",
                 request.id(),
@@ -103,7 +104,7 @@ where
     }
 
     /// Creates a mailing list for an owned parcel.
-    pub async fn create_shop_mailing_list(
+    pub async fn create_parcel_mailing_list(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -111,12 +112,12 @@ where
         slug: &str,
         title: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_mailing_list_slug(slug)?;
         validate_mailing_list_title(title)?;
         let list = self
             .store
-            .create_shop_mailing_list(parcel_id, owner_player_id, slug, title)
+            .create_parcel_mailing_list(parcel_id, owner_player_id, slug, title)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -133,37 +134,37 @@ where
     }
 
     /// Lists mailing lists for an owned parcel.
-    pub async fn list_shop_mailing_lists(
+    pub async fn list_parcel_mailing_lists(
         &self,
         current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         let lists = self
             .store
-            .shop_mailing_lists(parcel_id, owner_player_id)
+            .parcel_mailing_lists(parcel_id, owner_player_id)
             .await?;
         Ok(BusinessListResult {
-            text: render_shop_mailing_lists(parcel_id, &lists).replace('\n', "\r\n"),
+            text: render_parcel_mailing_lists(parcel_id, &lists).replace('\n', "\r\n"),
         })
     }
 
     /// Shows active subscriber count and recent subscribers.
-    pub async fn shop_mailing_list_subscribers(
+    pub async fn parcel_mailing_list_subscribers(
         &self,
         current_view: &str,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         let page = self
             .store
-            .shop_mailing_list_subscribers(parcel_id, slug, owner_player_id, 20)
+            .parcel_mailing_list_subscribers(parcel_id, slug, owner_player_id, 20)
             .await?;
         Ok(BusinessListResult {
-            text: render_shop_mailing_list_subscribers(
+            text: render_parcel_mailing_list_subscribers(
                 parcel_id,
                 slug,
                 page.total,
@@ -174,17 +175,17 @@ where
     }
 
     /// Closes an owned mailing list to new subscriptions.
-    pub async fn close_shop_mailing_list(
+    pub async fn close_parcel_mailing_list(
         &self,
         current_view: &str,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         let list = self
             .store
-            .close_shop_mailing_list(parcel_id, slug, owner_player_id)
+            .close_parcel_mailing_list(parcel_id, slug, owner_player_id)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -196,7 +197,7 @@ where
     }
 
     /// Subscribes the current player to a parcel mailing list.
-    pub async fn subscribe_shop_mailing_list(
+    pub async fn subscribe_parcel_mailing_list(
         &self,
         current_view: &str,
         target: &str,
@@ -204,11 +205,11 @@ where
         subscriber_user: &str,
         subscriber_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop_mailing_list_target(current_view, target, slug)
+        self.ensure_inside_parcel_mailing_list_target(current_view, target, slug)
             .await?;
         let subscription = self
             .store
-            .subscribe_shop_mailing_list(target, slug, subscriber_user, subscriber_player_id)
+            .subscribe_parcel_mailing_list(target, slug, subscriber_user, subscriber_player_id)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -225,7 +226,7 @@ where
     }
 
     /// Unsubscribes the current player from a parcel mailing list.
-    pub async fn unsubscribe_shop_mailing_list(
+    pub async fn unsubscribe_parcel_mailing_list(
         &self,
         current_view: &str,
         target: &str,
@@ -233,11 +234,11 @@ where
         subscriber_user: &str,
         subscriber_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop_mailing_list_target(current_view, target, slug)
+        self.ensure_inside_parcel_mailing_list_target(current_view, target, slug)
             .await?;
         let subscription = self
             .store
-            .unsubscribe_shop_mailing_list(target, slug, subscriber_user, subscriber_player_id)
+            .unsubscribe_parcel_mailing_list(target, slug, subscriber_user, subscriber_player_id)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -250,31 +251,31 @@ where
     }
 
     /// Lists active mailing-list subscriptions for the current player.
-    pub async fn shop_mailing_list_subscriptions(
+    pub async fn parcel_mailing_list_subscriptions(
         &self,
         subscriber_player_id: &str,
     ) -> Result<BusinessListResult, E> {
         let subscriptions = self
             .store
-            .shop_mailing_list_subscriptions(subscriber_player_id)
+            .parcel_mailing_list_subscriptions(subscriber_player_id)
             .await?;
         Ok(BusinessListResult {
-            text: render_shop_mailing_list_subscriptions(&subscriptions).replace('\n', "\r\n"),
+            text: render_parcel_mailing_list_subscriptions(&subscriptions).replace('\n', "\r\n"),
         })
     }
 
     /// Sends an owner-authored mailing-list post to all current active members.
-    pub async fn send_shop_mailing_list_post(
+    pub async fn send_parcel_mailing_list_post(
         &self,
-        input: ShopMailingListPostInput<'_>,
-    ) -> Result<super::contracts::ShopMailingListSend<S::MailingListPost, S::InboxItem>, E> {
+        input: ParcelMailingListPostInput<'_>,
+    ) -> Result<super::contracts::ParcelMailingListSend<S::MailingListPost, S::InboxItem>, E> {
         validate_mailing_list_slug(input.slug)?;
         validate_mailing_list_subject(input.subject)?;
         validate_mailing_list_body(input.body)?;
-        self.ensure_inside_shop_mailing_list_target(input.current_view, input.target, input.slug)
+        self.ensure_inside_parcel_mailing_list_target(input.current_view, input.target, input.slug)
             .await?;
         self.store
-            .send_shop_mailing_list_post(
+            .send_parcel_mailing_list_post(
                 input.target,
                 input.slug,
                 input.sender_user,
@@ -286,7 +287,7 @@ where
     }
 
     /// Posts a group-chat message to a parcel mailing list.
-    pub async fn post_shop_mailing_list_chat(
+    pub async fn post_parcel_mailing_list_chat(
         &self,
         current_view: &str,
         target: &str,
@@ -294,14 +295,14 @@ where
         sender_user: &str,
         sender_player_id: &str,
         body: &str,
-    ) -> Result<super::contracts::ShopMailingListSend<S::MailingListPost, S::InboxItem>, E> {
+    ) -> Result<super::contracts::ParcelMailingListSend<S::MailingListPost, S::InboxItem>, E> {
         validate_mailing_list_slug(slug)?;
         validate_mailing_list_body(body)?;
-        self.ensure_inside_shop_mailing_list_target(current_view, target, slug)
+        self.ensure_inside_parcel_mailing_list_target(current_view, target, slug)
             .await?;
         let subject = format!("Parcel chat: {slug}");
         self.store
-            .send_shop_mailing_list_post(
+            .send_parcel_mailing_list_post(
                 target,
                 slug,
                 sender_user,
@@ -313,7 +314,7 @@ where
     }
 
     /// Creates a parcel-local work desk.
-    pub async fn create_shop_work_desk(
+    pub async fn create_parcel_work_desk(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -321,12 +322,12 @@ where
         slug: &str,
         title: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_desk_slug(slug)?;
         validate_work_desk_title(title)?;
         let desk = self
             .store
-            .create_shop_work_desk(parcel_id, owner_player_id, slug, title)
+            .create_parcel_work_desk(parcel_id, owner_player_id, slug, title)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -343,24 +344,24 @@ where
     }
 
     /// Lists parcel-local work desks for an owned parcel.
-    pub async fn list_shop_work_desks(
+    pub async fn list_parcel_work_desks(
         &self,
         current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         let desks = self
             .store
-            .shop_work_desks(parcel_id, owner_player_id)
+            .parcel_work_desks(parcel_id, owner_player_id)
             .await?;
         Ok(BusinessListResult {
-            text: render_shop_work_desks(parcel_id, &desks).replace('\n', "\r\n"),
+            text: render_parcel_work_desks(parcel_id, &desks).replace('\n', "\r\n"),
         })
     }
 
     /// Adds a worker to one parcel-local work desk.
-    pub async fn add_shop_staff(
+    pub async fn add_parcel_staff(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -368,15 +369,15 @@ where
         owner_player_id: &str,
         username: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_desk_slug(slug)?;
         let staff = self
             .store
-            .add_shop_staff(parcel_id, slug, owner_player_id, username)
+            .add_parcel_staff(parcel_id, slug, owner_player_id, username)
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Added parcel staff {} to {} for parcel {}.\r\nThey must enter the shop and run /parcel shift start {} {} before consuming work.\r\n",
+                "Added parcel staff {} to {} for parcel {}.\r\nThey must enter the parcel and run /parcel shift start {} {} before consuming work.\r\n",
                 staff.staff_user(),
                 slug,
                 parcel_id,
@@ -387,26 +388,26 @@ where
     }
 
     /// Lists workers assigned to one parcel-local work desk.
-    pub async fn list_shop_staff(
+    pub async fn list_parcel_staff(
         &self,
         current_view: &str,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_desk_slug(slug)?;
         let staff = self
             .store
-            .shop_staff(parcel_id, slug, owner_player_id, 50)
+            .parcel_staff(parcel_id, slug, owner_player_id, 50)
             .await?;
         Ok(BusinessListResult {
-            text: render_shop_staff(parcel_id, slug, &staff).replace('\n', "\r\n"),
+            text: render_parcel_staff(parcel_id, slug, &staff).replace('\n', "\r\n"),
         })
     }
 
     /// Removes a worker from one parcel-local work desk.
-    pub async fn remove_shop_staff(
+    pub async fn remove_parcel_staff(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -414,11 +415,11 @@ where
         owner_player_id: &str,
         username: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_desk_slug(slug)?;
         let staff = self
             .store
-            .remove_shop_staff(parcel_id, slug, owner_player_id, username)
+            .remove_parcel_staff(parcel_id, slug, owner_player_id, username)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -432,7 +433,7 @@ where
     }
 
     /// Starts a worker shift inside the target parcel.
-    pub async fn start_shop_shift(
+    pub async fn start_parcel_shift(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -440,11 +441,11 @@ where
         worker_user: &str,
         worker_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_desk_slug(slug)?;
         let shift = self
             .store
-            .start_shop_shift(parcel_id, slug, worker_user, worker_player_id)
+            .start_parcel_shift(parcel_id, slug, worker_user, worker_player_id)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -459,7 +460,7 @@ where
     }
 
     /// Ends a worker shift inside the target parcel.
-    pub async fn end_shop_shift(
+    pub async fn end_parcel_shift(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -467,11 +468,11 @@ where
         worker_user: &str,
         worker_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_desk_slug(slug)?;
         let shift = self
             .store
-            .end_shop_shift(parcel_id, slug, worker_user, worker_player_id)
+            .end_parcel_shift(parcel_id, slug, worker_user, worker_player_id)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -484,7 +485,7 @@ where
     }
 
     /// Lists work items for an active in-parcel worker.
-    pub async fn list_shop_work(
+    pub async fn list_parcel_work(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -492,21 +493,21 @@ where
         worker_user: &str,
         worker_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         if let Some(slug) = slug {
             validate_work_desk_slug(slug)?;
         }
         let items = self
             .store
-            .shop_work_items(parcel_id, worker_user, worker_player_id, slug, 50)
+            .parcel_work_items(parcel_id, worker_user, worker_player_id, slug, 50)
             .await?;
         Ok(BusinessListResult {
-            text: render_shop_work_items(parcel_id, slug, &items).replace('\n', "\r\n"),
+            text: render_parcel_work_items(parcel_id, slug, &items).replace('\n', "\r\n"),
         })
     }
 
     /// Claims one work item for an active in-parcel worker.
-    pub async fn claim_shop_work(
+    pub async fn claim_parcel_work(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -514,10 +515,10 @@ where
         worker_player_id: &str,
         work_id: i64,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         let item = self
             .store
-            .claim_shop_work(parcel_id, worker_user, worker_player_id, work_id)
+            .claim_parcel_work(parcel_id, worker_user, worker_player_id, work_id)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -535,7 +536,7 @@ where
     }
 
     /// Completes one claimed work item for an active in-parcel worker.
-    pub async fn finish_shop_work(
+    pub async fn finish_parcel_work(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -544,11 +545,11 @@ where
         work_id: i64,
         result: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_result(result)?;
         let item = self
             .store
-            .finish_shop_work(parcel_id, worker_user, worker_player_id, work_id, result)
+            .finish_parcel_work(parcel_id, worker_user, worker_player_id, work_id, result)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -561,7 +562,7 @@ where
     }
 
     /// Adds a command route from a parcel command prefix into a parcel-local work desk.
-    pub async fn add_shop_command_route(
+    pub async fn add_parcel_command_route(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -569,16 +570,16 @@ where
         slug: &str,
         command_prefix: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_desk_slug(slug)?;
         validate_command_route_prefix(command_prefix)?;
         let route = self
             .store
-            .add_shop_command_route(parcel_id, owner_player_id, slug, command_prefix)
+            .add_parcel_command_route(parcel_id, owner_player_id, slug, command_prefix)
             .await?;
         Ok(BusinessListResult {
             text: format!(
-                "Routed parcel commands matching {} to work desk {} ({}) for parcel {}.\r\nWorkers must enter the shop and start a shift before listing or claiming routed work.\r\n",
+                "Routed parcel commands matching {} to work desk {} ({}) for parcel {}.\r\nWorkers must enter the parcel and start a shift before listing or claiming routed work.\r\n",
                 route.command_prefix(),
                 route.desk_title(),
                 route.slug(),
@@ -588,24 +589,24 @@ where
     }
 
     /// Lists command routes for an owned parcel.
-    pub async fn list_shop_command_routes(
+    pub async fn list_parcel_command_routes(
         &self,
         current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         let routes = self
             .store
-            .shop_command_routes(parcel_id, owner_player_id)
+            .parcel_command_routes(parcel_id, owner_player_id)
             .await?;
         Ok(BusinessListResult {
-            text: render_shop_command_routes(parcel_id, &routes).replace('\n', "\r\n"),
+            text: render_parcel_command_routes(parcel_id, &routes).replace('\n', "\r\n"),
         })
     }
 
     /// Removes a command route from a parcel-chat stream.
-    pub async fn remove_shop_command_route(
+    pub async fn remove_parcel_command_route(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -613,12 +614,12 @@ where
         slug: &str,
         command_prefix: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_work_desk_slug(slug)?;
         validate_command_route_prefix(command_prefix)?;
         let route = self
             .store
-            .remove_shop_command_route(parcel_id, owner_player_id, slug, command_prefix)
+            .remove_parcel_command_route(parcel_id, owner_player_id, slug, command_prefix)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -631,7 +632,7 @@ where
     }
 
     /// Creates or updates a badge definition for an owned parcel.
-    pub async fn create_shop_badge(
+    pub async fn create_parcel_badge(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -640,13 +641,13 @@ where
         title: &str,
         description: Option<&str>,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_badge_slug(slug)?;
         validate_badge_title(title)?;
         validate_badge_description(description)?;
         let badge = self
             .store
-            .create_shop_badge(parcel_id, owner_player_id, slug, title, description)
+            .create_parcel_badge(parcel_id, owner_player_id, slug, title, description)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -661,31 +662,31 @@ where
     }
 
     /// Lists badge definitions for an owned parcel.
-    pub async fn list_shop_badges(
+    pub async fn list_parcel_badges(
         &self,
         current_view: &str,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
-        let badges = self.store.shop_badges(parcel_id, owner_player_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
+        let badges = self.store.parcel_badges(parcel_id, owner_player_id).await?;
         Ok(BusinessListResult {
-            text: render_shop_badges(parcel_id, &badges).replace('\n', "\r\n"),
+            text: render_parcel_badges(parcel_id, &badges).replace('\n', "\r\n"),
         })
     }
 
     /// Awards a parcel badge to a target player.
-    pub async fn award_shop_badge(
+    pub async fn award_parcel_badge(
         &self,
-        input: ShopBadgeAwardInput<'_>,
+        input: ParcelBadgeAwardInput<'_>,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(input.current_view, input.parcel_id)
+        self.ensure_inside_parcel(input.current_view, input.parcel_id)
             .await?;
         validate_badge_slug(input.slug)?;
         validate_badge_note(input.note)?;
         let award = self
             .store
-            .award_shop_badge(
+            .award_parcel_badge(
                 input.parcel_id,
                 input.slug,
                 input.issuer_user,
@@ -708,7 +709,7 @@ where
     }
 
     /// Revokes an active parcel badge award.
-    pub async fn revoke_shop_badge(
+    pub async fn revoke_parcel_badge(
         &self,
         current_view: &str,
         parcel_id: &str,
@@ -716,11 +717,11 @@ where
         owner_player_id: &str,
         target: &str,
     ) -> Result<BusinessListResult, E> {
-        self.ensure_inside_shop(current_view, parcel_id).await?;
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
         validate_badge_slug(slug)?;
         let award = self
             .store
-            .revoke_shop_badge(parcel_id, slug, owner_player_id, target)
+            .revoke_parcel_badge(parcel_id, slug, owner_player_id, target)
             .await?;
         Ok(BusinessListResult {
             text: format!(
@@ -738,7 +739,7 @@ where
         owner_label: &str,
         player_id: &str,
     ) -> Result<BusinessListResult, E> {
-        let awards = self.store.shop_badges_for_player(player_id, 50).await?;
+        let awards = self.store.parcel_badges_for_player(player_id, 50).await?;
         Ok(BusinessListResult {
             text: render_badge_awards(owner_label, &awards).replace('\n', "\r\n"),
         })
@@ -746,36 +747,36 @@ where
 
     /// Lists active badges held by a public user target.
     pub async fn target_badges(&self, target: &str) -> Result<BusinessListResult, E> {
-        let awards = self.store.shop_badges_for_target(target, 50).await?;
+        let awards = self.store.parcel_badges_for_target(target, 50).await?;
         Ok(BusinessListResult {
             text: render_badge_awards(target, &awards).replace('\n', "\r\n"),
         })
     }
 
-    async fn ensure_inside_shop(&self, current_view: &str, parcel_id: &str) -> Result<(), E> {
-        let parcel = self.store.commercial_parcel(parcel_id).await?;
+    async fn ensure_inside_parcel(&self, current_view: &str, parcel_id: &str) -> Result<(), E> {
+        let parcel = self.store.parcel_by_id(parcel_id).await?;
         if parcel.view_id() == current_view {
             Ok(())
         } else {
-            Err(E::invalid_shop_work(
+            Err(E::invalid_parcel_work(
                 "parcel actions can only happen while inside that parcel",
             ))
         }
     }
 
-    async fn ensure_inside_shop_mailing_list_target(
+    async fn ensure_inside_parcel_mailing_list_target(
         &self,
         current_view: &str,
         target: &str,
         slug: &str,
     ) -> Result<(), E> {
-        let list = self.store.shop_mailing_list(target, slug).await?;
-        self.ensure_inside_shop(current_view, list.parcel_id())
+        let list = self.store.parcel_mailing_list(target, slug).await?;
+        self.ensure_inside_parcel(current_view, list.parcel_id())
             .await
     }
 
     /// Handles a raw or slash-prefixed input line inside a parcel room.
-    pub async fn handle_commercial_parcel_input<P>(
+    pub async fn handle_parcel_input<P>(
         &self,
         identity: &AppIdentity,
         binding: &P,
@@ -784,7 +785,7 @@ where
     where
         P: ParcelView + RoomBindingKindView + Sync,
     {
-        if !self.commercial_parcel_consumes_input(binding, raw_line) {
+        if !self.parcel_consumes_input(binding, raw_line) {
             return Ok(None);
         }
         let Some(owner_player_id) = ParcelView::owner_player_id(binding) else {
@@ -814,7 +815,7 @@ where
             .await?;
         let work_items = self
             .store
-            .dispatch_shop_command_routes(binding, command.id())
+            .dispatch_parcel_command_routes(binding, command.id())
             .await?;
         let queued_work_items = work_items.len();
         let route_summary = if queued_work_items == 0 {
@@ -897,93 +898,95 @@ where
 
 fn validate_work_desk_slug<E>(slug: &str) -> Result<(), E>
 where
-    E: FromShopWorkValidation,
+    E: FromParcelWorkValidation,
 {
     if parcel_work_desk_slug_is_valid(slug) {
         Ok(())
     } else {
-        Err(E::invalid_shop_work("invalid parcel work desk slug"))
+        Err(E::invalid_parcel_work("invalid parcel work desk slug"))
     }
 }
 
 fn validate_work_desk_title<E>(title: &str) -> Result<(), E>
 where
-    E: FromShopWorkValidation,
+    E: FromParcelWorkValidation,
 {
     if parcel_work_desk_title_is_valid(title) {
         Ok(())
     } else {
-        Err(E::invalid_shop_work("invalid parcel work desk title"))
+        Err(E::invalid_parcel_work("invalid parcel work desk title"))
     }
 }
 
 fn validate_work_result<E>(result: &str) -> Result<(), E>
 where
-    E: FromShopWorkValidation,
+    E: FromParcelWorkValidation,
 {
     if parcel_work_result_is_valid(result) {
         Ok(())
     } else {
-        Err(E::invalid_shop_work("invalid parcel work result"))
+        Err(E::invalid_parcel_work("invalid parcel work result"))
     }
 }
 
 fn validate_command_route_prefix<E>(command_prefix: &str) -> Result<(), E>
 where
-    E: FromShopWorkValidation,
+    E: FromParcelWorkValidation,
 {
     if parcel_command_route_prefix_is_valid(command_prefix) {
         Ok(())
     } else {
-        Err(E::invalid_shop_work("invalid parcel command route prefix"))
+        Err(E::invalid_parcel_work(
+            "invalid parcel command route prefix",
+        ))
     }
 }
 
 fn validate_badge_slug<E>(slug: &str) -> Result<(), E>
 where
-    E: FromShopBadgeValidation,
+    E: FromParcelBadgeValidation,
 {
     if parcel_badge_slug_is_valid(slug) {
         Ok(())
     } else {
-        Err(E::invalid_shop_badge("invalid badge slug"))
+        Err(E::invalid_parcel_badge("invalid badge slug"))
     }
 }
 
 fn validate_badge_title<E>(title: &str) -> Result<(), E>
 where
-    E: FromShopBadgeValidation,
+    E: FromParcelBadgeValidation,
 {
     if parcel_badge_title_is_valid(title) {
         Ok(())
     } else {
-        Err(E::invalid_shop_badge("invalid badge title"))
+        Err(E::invalid_parcel_badge("invalid badge title"))
     }
 }
 
 fn validate_badge_description<E>(description: Option<&str>) -> Result<(), E>
 where
-    E: FromShopBadgeValidation,
+    E: FromParcelBadgeValidation,
 {
     if description.is_none_or(parcel_badge_description_is_valid) {
         Ok(())
     } else {
-        Err(E::invalid_shop_badge("invalid badge description"))
+        Err(E::invalid_parcel_badge("invalid badge description"))
     }
 }
 
 fn validate_badge_note<E>(note: Option<&str>) -> Result<(), E>
 where
-    E: FromShopBadgeValidation,
+    E: FromParcelBadgeValidation,
 {
     if note.is_none_or(parcel_badge_note_is_valid) {
         Ok(())
     } else {
-        Err(E::invalid_shop_badge("invalid badge note"))
+        Err(E::invalid_parcel_badge("invalid badge note"))
     }
 }
 
-fn render_shop_mailing_lists(parcel_id: &str, lists: &[impl ShopMailingListView]) -> String {
+fn render_parcel_mailing_lists(parcel_id: &str, lists: &[impl ParcelMailingListView]) -> String {
     let mut lines = vec![format!("Parcel Chats for {parcel_id}")];
     if lists.is_empty() {
         lines.push(
@@ -1010,11 +1013,11 @@ fn render_shop_mailing_lists(parcel_id: &str, lists: &[impl ShopMailingListView]
     lines.join("\n")
 }
 
-fn render_shop_mailing_list_subscribers(
+fn render_parcel_mailing_list_subscribers(
     parcel_id: &str,
     slug: &str,
     total: i64,
-    subscribers: &[impl ShopMailingListSubscriberView],
+    subscribers: &[impl ParcelMailingListSubscriberView],
 ) -> String {
     let mut lines = vec![format!(
         "Parcel Chat Members for {parcel_id} {slug}: {total} active"
@@ -1035,20 +1038,20 @@ fn render_shop_mailing_list_subscribers(
     lines.join("\n")
 }
 
-fn render_shop_mailing_list_subscriptions(
-    subscriptions: &[impl ShopMailingListSubscriptionView],
+fn render_parcel_mailing_list_subscriptions(
+    subscriptions: &[impl ParcelMailingListSubscriptionView],
 ) -> String {
     let mut lines = vec!["Parcel Chat Memberships".to_owned()];
     if subscriptions.is_empty() {
         lines.push("No active parcel chats.".to_owned());
     } else {
         for subscription in subscriptions {
-            let shop = subscription
-                .shop_title()
+            let parcel = subscription
+                .parcel_title()
                 .unwrap_or(subscription.parcel_id());
             lines.push(format!(
                 "- {} / {} ({}) status={} updated={}. Post: /parcel chat {} {} -- <message>. Unsubscribe: /parcel unsubscribe {} {}",
-                shop,
+                parcel,
                 subscription.list_title(),
                 subscription.slug(),
                 subscription.status(),
@@ -1064,7 +1067,7 @@ fn render_shop_mailing_list_subscriptions(
     lines.join("\n")
 }
 
-fn render_shop_work_desks(parcel_id: &str, desks: &[impl ShopWorkDeskView]) -> String {
+fn render_parcel_work_desks(parcel_id: &str, desks: &[impl ParcelWorkDeskView]) -> String {
     let mut lines = vec![format!("Parcel Work Desks for {parcel_id}")];
     if desks.is_empty() {
         lines.push(
@@ -1090,7 +1093,7 @@ fn render_shop_work_desks(parcel_id: &str, desks: &[impl ShopWorkDeskView]) -> S
     lines.join("\n")
 }
 
-fn render_shop_staff(parcel_id: &str, slug: &str, staff: &[impl ShopStaffView]) -> String {
+fn render_parcel_staff(parcel_id: &str, slug: &str, staff: &[impl ParcelStaffView]) -> String {
     let mut lines = vec![format!("Parcel Staff for {parcel_id} {slug}")];
     if staff.is_empty() {
         lines.push(
@@ -1111,10 +1114,10 @@ fn render_shop_staff(parcel_id: &str, slug: &str, staff: &[impl ShopStaffView]) 
     lines.join("\n")
 }
 
-fn render_shop_work_items(
+fn render_parcel_work_items(
     parcel_id: &str,
     slug: Option<&str>,
-    items: &[impl ShopWorkItemView],
+    items: &[impl ParcelWorkItemView],
 ) -> String {
     let scope = slug
         .map(|slug| format!("{parcel_id} {slug}"))
@@ -1158,7 +1161,7 @@ fn render_shop_work_items(
     lines.join("\n")
 }
 
-fn render_shop_command_routes(parcel_id: &str, routes: &[impl ShopCommandRouteView]) -> String {
+fn render_parcel_command_routes(parcel_id: &str, routes: &[impl ParcelCommandRouteView]) -> String {
     let mut lines = vec![format!("Parcel Command Routes for {parcel_id}")];
     if routes.is_empty() {
         lines.push(
@@ -1180,7 +1183,7 @@ fn render_shop_command_routes(parcel_id: &str, routes: &[impl ShopCommandRouteVi
     lines.join("\n")
 }
 
-fn render_shop_badges(parcel_id: &str, badges: &[impl ShopBadgeDefinitionView]) -> String {
+fn render_parcel_badges(parcel_id: &str, badges: &[impl ParcelBadgeDefinitionView]) -> String {
     let mut lines = vec![format!("Parcel Badges for {parcel_id}")];
     if badges.is_empty() {
         lines.push(
@@ -1208,13 +1211,13 @@ fn render_shop_badges(parcel_id: &str, badges: &[impl ShopBadgeDefinitionView]) 
     lines.join("\n")
 }
 
-fn render_badge_awards(owner_label: &str, awards: &[impl ShopBadgeAwardView]) -> String {
+fn render_badge_awards(owner_label: &str, awards: &[impl ParcelBadgeAwardView]) -> String {
     let mut lines = vec![format!("Badges for {owner_label}")];
     if awards.is_empty() {
         lines.push("No active badges.".to_owned());
     } else {
         for award in awards {
-            let shop = award.shop_title().unwrap_or(award.parcel_id());
+            let parcel = award.parcel_title().unwrap_or(award.parcel_id());
             let note = award
                 .note()
                 .filter(|value| !value.trim().is_empty())
@@ -1224,7 +1227,7 @@ fn render_badge_awards(owner_label: &str, awards: &[impl ShopBadgeAwardView]) ->
                 "- {} ({}) from {} [{}], issued by {} at {}.{}",
                 award.badge_title(),
                 award.slug(),
-                shop,
+                parcel,
                 award.parcel_id(),
                 award.issuer_user(),
                 award.awarded_at(),
@@ -1238,11 +1241,11 @@ fn render_badge_awards(owner_label: &str, awards: &[impl ShopBadgeAwardView]) ->
 
 impl<S, E> AppService<S>
 where
-    S: ParcelStore<Error = E>,
+    S: ParcelRegistryStore<Error = E>,
 {
     /// Builds the parcel list text.
-    pub async fn land_list(&self) -> Result<BusinessListResult, E> {
-        let parcels = self.store.list_commercial_parcels().await?;
+    pub async fn parcel_list(&self) -> Result<BusinessListResult, E> {
+        let parcels = self.store.list_parcels().await?;
         Ok(BusinessListResult {
             text: render_parcel_list(&parcels).replace('\n', "\r\n"),
         })
@@ -1251,33 +1254,33 @@ where
 
 impl<S, E> AppService<S>
 where
-    S: LandStore<Error = E>,
+    S: ParcelOwnershipStore<Error = E>,
 {
     /// Builds the parcel detail text.
-    pub async fn land_info(&self, parcel_id: &str) -> Result<BusinessListResult, E> {
-        let parcel = self.store.commercial_parcel(parcel_id).await?;
+    pub async fn parcel_info(&self, parcel_id: &str) -> Result<BusinessListResult, E> {
+        let parcel = self.store.parcel_by_id(parcel_id).await?;
         Ok(BusinessListResult {
             text: render_parcel_detail(&parcel).replace('\n', "\r\n"),
         })
     }
 
     /// Claims a parcel and creates the room mailbox token.
-    pub async fn claim_land(
+    pub async fn claim_parcel(
         &self,
         parcel_id: &str,
         owner_user: &str,
         owner_player_id: &str,
         token: &str,
-    ) -> Result<LandCommandResult, E> {
+    ) -> Result<ParcelOwnershipResult, E> {
         let parcel = self
             .store
-            .claim_commercial_parcel(parcel_id, owner_user, owner_player_id)
+            .claim_parcel(parcel_id, owner_user, owner_player_id)
             .await?;
         let mail = self
             .store
             .set_room_mail_auth_token(parcel_id, owner_player_id, token)
             .await?;
-        Ok(LandCommandResult {
+        Ok(ParcelOwnershipResult {
             text: format!(
                 "Claimed parcel {}. Room mail account: {}. Token: {}\r\nUse this token from the room owner process with SMTP/IMAP. You can rotate it later with /parcel token {}.\r\nBuild here with /parcel build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /parcel build publish. From the street, enter with /enter {}. Custom commands are auto-filled if omitted.\r\n",
                 parcel.parcel_id(),
@@ -1286,7 +1289,7 @@ where
                 parcel.parcel_id(),
                 parcel.parcel_id()
             ),
-            invalidate: Some(CommercialParcelCacheInvalidation {
+            invalidate: Some(ParcelCacheInvalidation {
                 view_id: parcel.view_id().to_owned(),
                 front_view_id: parcel.front_view_id().to_owned(),
             }),
@@ -1294,23 +1297,23 @@ where
     }
 
     /// Transfers a parcel and rotates its room mailbox token for the new owner.
-    pub async fn transfer_land(
+    pub async fn transfer_parcel(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
         target: &str,
         token: &str,
-    ) -> Result<LandCommandResult, E> {
+    ) -> Result<ParcelOwnershipResult, E> {
         let parcel = self
             .store
-            .transfer_commercial_parcel(parcel_id, owner_player_id, target)
+            .transfer_parcel(parcel_id, owner_player_id, target)
             .await?;
         let new_owner_player_id = parcel.owner_player_id().unwrap_or_default();
         let mail = self
             .store
             .set_room_mail_auth_token(parcel_id, new_owner_player_id, token)
             .await?;
-        Ok(LandCommandResult {
+        Ok(ParcelOwnershipResult {
             text: format!(
                 "Transferred parcel {} to {}.\r\nNew room mail account: {}. Token: {}\r\nGive this token to the new room owner process; the old room token has been rotated.\r\n",
                 parcel.parcel_id(),
@@ -1318,7 +1321,7 @@ where
                 mail.username(),
                 token
             ),
-            invalidate: Some(CommercialParcelCacheInvalidation {
+            invalidate: Some(ParcelCacheInvalidation {
                 view_id: parcel.view_id().to_owned(),
                 front_view_id: parcel.front_view_id().to_owned(),
             }),
@@ -1326,17 +1329,17 @@ where
     }
 
     /// Rotates a parcel room mailbox token.
-    pub async fn rotate_land_token(
+    pub async fn rotate_parcel_token(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
         token: &str,
-    ) -> Result<LandCommandResult, E> {
+    ) -> Result<ParcelOwnershipResult, E> {
         let mail = self
             .store
             .set_room_mail_auth_token(parcel_id, owner_player_id, token)
             .await?;
-        Ok(LandCommandResult {
+        Ok(ParcelOwnershipResult {
             text: format!(
                 "Room mail account for {}: {}\r\nToken: {}\r\nUse SMTP/IMAP with this username/token. This token is shown once; run /parcel token {} again to rotate it.\r\n",
                 parcel_id,
@@ -1351,7 +1354,7 @@ where
 
 impl<S, E> AppService<S>
 where
-    S: BuildStore<Error = E> + ShopStore<Error = E>,
+    S: BuildStore<Error = E>,
 {
     /// Renders the build help text.
     pub fn build_help_text(&self) -> &'static str {
@@ -1405,7 +1408,7 @@ where
                 "Updated build sheet for current parcel: {}.\r\n",
                 updated.join(", ")
             ),
-            invalidate: latest_parcel.map(|parcel| CommercialParcelCacheInvalidation {
+            invalidate: latest_parcel.map(|parcel| ParcelCacheInvalidation {
                 view_id: parcel.view_id().to_owned(),
                 front_view_id: parcel.front_view_id().to_owned(),
             }),
@@ -1426,7 +1429,7 @@ where
             .await?;
         Ok(BuildCommandResult {
             text: format!("Updated {} for parcel {}.\r\n", field, parcel.parcel_id()),
-            invalidate: Some(CommercialParcelCacheInvalidation {
+            invalidate: Some(ParcelCacheInvalidation {
                 view_id: parcel.view_id().to_owned(),
                 front_view_id: parcel.front_view_id().to_owned(),
             }),
@@ -1448,7 +1451,7 @@ where
                 "Published parcel {} as a built parcel.\r\n",
                 parcel.parcel_id()
             ),
-            invalidate: Some(CommercialParcelCacheInvalidation {
+            invalidate: Some(ParcelCacheInvalidation {
                 view_id: parcel.view_id().to_owned(),
                 front_view_id: parcel.front_view_id().to_owned(),
             }),

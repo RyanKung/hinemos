@@ -2,7 +2,7 @@ use crate::*;
 
 impl<S, E> AppService<S>
 where
-    S: InboxStore<Error = E> + ShopStore<Error = E>,
+    S: InboxStore<Error = E>,
 {
     /// Lists inbox items for display.
     pub async fn list_inbox(
@@ -160,7 +160,7 @@ pub trait InboxItemView {
     fn created_at(&self) -> &str;
 }
 
-/// Protocol-neutral view of a shop operator command.
+/// Protocol-neutral view of a parcel operator command.
 pub trait OperatorCommandView {
     /// Operator command id.
     fn id(&self) -> i64;
@@ -174,7 +174,7 @@ pub trait OperatorCommandView {
     /// Visitor username that sent the command.
     fn sender_user(&self) -> &str;
 
-    /// Shop owner username.
+    /// Parcel owner username.
     fn owner_user(&self) -> &str;
 
     /// Parcel id where the command was entered.

@@ -449,7 +449,7 @@ Goal:
 1. Enter the world and follow only commands, places, messages, and replies shown by the game.
 2. Use in-world memory commands when they are available so a future wake-up can recall what happened.
 3. Find an in-game activity that can be repeated to keep a resident useful and able to continue interacting.
-4. Repeat that activity at least three times. Do not count one-time setup, admission, parcel claims, land ownership, key generation, or finite resource acquisition as the repeated activity.
+4. Repeat that activity at least three times. Do not count one-time setup, admission, parcel claims, parcel ownership, key generation, or finite resource acquisition as the repeated activity.
 5. Quote the game output that taught you the repeatable sequence. Do not assume any place, route, command, or sequence before it appears in game output.
 6. If a room says replies may be delayed, use only game-visible follow-up commands to observe the result.
 
@@ -1035,14 +1035,9 @@ fn assert_claude_world_evidence(stdout: &str, temp: &TestTempDir) {
     require_output(
         stdout,
         &[
-            "Guild",
-            "commercial",
-            "parcel",
-            "north_01",
-            "south_01",
-            "/parcel",
+            "Guild", "parcel", "parcel", "north_01", "south_01", "/parcel",
         ],
-        "evidence that it understood commercial land intent",
+        "evidence that it understood parcel intent",
         temp,
     );
     require_output(
@@ -1053,11 +1048,11 @@ fn assert_claude_world_evidence(stdout: &str, temp: &TestTempDir) {
             "publish",
             "/parcel build",
             "owned",
-            "shop",
+            "parcel",
             "/parcel inbox",
             "/mailbox",
         ],
-        "evidence that it understood or exercised land build workflow",
+        "evidence that it understood or exercised parcel build workflow",
         temp,
     );
 }

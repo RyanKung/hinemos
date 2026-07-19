@@ -162,7 +162,7 @@ struct RoomDirectoryCache {
     service_room_any_views: HashMap<String, CacheEntry<Option<StoredServiceRoom>>>,
     service_room_users: HashMap<String, CacheEntry<Vec<StoredServiceRoom>>>,
     service_rooms_front_views: HashMap<String, CacheEntry<Vec<StoredServiceRoom>>>,
-    commercial_parcels_front_views: HashMap<String, CacheEntry<Vec<StoredParcel>>>,
+    parcels_front_views: HashMap<String, CacheEntry<Vec<StoredParcel>>>,
     room_binding_views: HashMap<String, CacheEntry<Option<StoredRoomBinding>>>,
     room_binding_front_views: HashMap<String, CacheEntry<Vec<StoredRoomBinding>>>,
     room_context_views: HashMap<String, CacheEntry<RoomViewContext>>,
@@ -208,7 +208,7 @@ impl RoomDirectoryCache {
         self.service_room_any_views.clear();
         self.service_room_users.clear();
         self.service_rooms_front_views.clear();
-        self.commercial_parcels_front_views.clear();
+        self.parcels_front_views.clear();
         self.room_binding_views.clear();
         self.room_binding_front_views.clear();
         self.room_context_views.clear();
@@ -235,15 +235,15 @@ impl RoomDirectoryCache {
         for front_view_id in old_front_view_id.into_iter().chain(new_front_view_id) {
             self.service_rooms_front_views.remove(front_view_id);
             self.room_binding_front_views.remove(front_view_id);
-            self.commercial_parcels_front_views.remove(front_view_id);
+            self.parcels_front_views.remove(front_view_id);
             self.room_context_views.remove(front_view_id);
         }
     }
 
-    fn invalidate_for_commercial_parcel(&mut self, view_id: &str, front_view_id: &str) {
+    fn invalidate_for_parcel(&mut self, view_id: &str, front_view_id: &str) {
         self.room_binding_views.remove(view_id);
         self.room_binding_front_views.remove(front_view_id);
-        self.commercial_parcels_front_views.remove(front_view_id);
+        self.parcels_front_views.remove(front_view_id);
         self.room_context_views.remove(view_id);
         self.room_context_views.remove(front_view_id);
     }
@@ -307,15 +307,11 @@ impl SharedState {
         );
     }
 
-    async fn invalidate_room_cache_for_commercial_parcel(
-        &self,
-        view_id: &str,
-        front_view_id: &str,
-    ) {
+    async fn invalidate_room_cache_for_parcel(&self, view_id: &str, front_view_id: &str) {
         self.room_cache
             .lock()
             .await
-            .invalidate_for_commercial_parcel(view_id, front_view_id);
+            .invalidate_for_parcel(view_id, front_view_id);
     }
 
     async fn service_room_by_view_any(&self, view_id: &str) -> Result<Option<StoredServiceRoom>> {
@@ -457,8 +453,8 @@ impl SharedState {
         ) {
             return Ok(value);
         }
-        let commercial_parcels = self.commercial_parcels_by_front_view(front_view_id).await?;
-        let mut bindings = commercial_parcels
+        let parcels = self.parcels_by_front_view(front_view_id).await?;
+        let mut bindings = parcels
             .into_iter()
             .map(StoredRoomBinding::from_parcel)
             .collect::<Vec<_>>();
@@ -513,31 +509,21 @@ impl SharedState {
         Ok(value)
     }
 
-    async fn commercial_parcels_by_front_view(
-        &self,
-        front_view_id: &str,
-    ) -> Result<Vec<StoredParcel>> {
+    async fn parcels_by_front_view(&self, front_view_id: &str) -> Result<Vec<StoredParcel>> {
         if let Some(value) = RoomDirectoryCache::get(
             self.room_cache
                 .lock()
                 .await
-                .commercial_parcels_front_views
+                .parcels_front_views
                 .get(front_view_id),
         ) {
             return Ok(value);
         }
-        let value = self
-            .storage
-            .commercial_parcels_by_front_view(front_view_id)
-            .await?;
-        self.room_cache
-            .lock()
-            .await
-            .commercial_parcels_front_views
-            .insert(
-                front_view_id.to_owned(),
-                RoomDirectoryCache::put(value.clone()),
-            );
+        let value = self.storage.parcels_by_front_view(front_view_id).await?;
+        self.room_cache.lock().await.parcels_front_views.insert(
+            front_view_id.to_owned(),
+            RoomDirectoryCache::put(value.clone()),
+        );
         Ok(value)
     }
 

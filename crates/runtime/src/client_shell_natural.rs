@@ -384,25 +384,25 @@ pub(super) fn parse_parcel_command<'a>(
             }
         }
         "mailing-list" | "mailinglist" => ParcelAction::MailingList {
-            action: parse_shop_mailing_list_action(trimmed, tokens)?,
+            action: parse_parcel_mailing_list_action(trimmed, tokens)?,
         },
         "desk" | "desks" => ParcelAction::Desk {
-            action: parse_shop_desk_action(trimmed, tokens)?,
+            action: parse_parcel_desk_action(trimmed, tokens)?,
         },
         "route" | "routes" => ParcelAction::Route {
-            action: parse_shop_route_action(trimmed, tokens)?,
+            action: parse_parcel_route_action(trimmed, tokens)?,
         },
         "staff" => ParcelAction::Staff {
-            action: parse_shop_staff_action(tokens)?,
+            action: parse_parcel_staff_action(tokens)?,
         },
         "shift" => ParcelAction::Shift {
-            action: parse_shop_shift_action(tokens)?,
+            action: parse_parcel_shift_action(tokens)?,
         },
         "work" => ParcelAction::Work {
-            action: parse_shop_work_action(trimmed, tokens)?,
+            action: parse_parcel_work_action(trimmed, tokens)?,
         },
         "badge" | "badges" => ParcelAction::Badge {
-            action: parse_shop_badge_action(trimmed, tokens)?,
+            action: parse_parcel_badge_action(trimmed, tokens)?,
         },
         "subscribe" => {
             let (target, slug) = subscription_target_and_slug(tokens)?;
@@ -537,7 +537,7 @@ fn parse_parcel_build_action<'a>(
     Ok(BuildAction::Set { field, value })
 }
 
-fn parse_shop_mailing_list_action<'a>(
+fn parse_parcel_mailing_list_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<ParcelMailingListAction, SlashParseError> {
@@ -600,7 +600,7 @@ fn parse_shop_mailing_list_action<'a>(
     }
 }
 
-fn parse_shop_desk_action<'a>(
+fn parse_parcel_desk_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<ParcelDeskAction, SlashParseError> {
@@ -629,7 +629,7 @@ fn parse_shop_desk_action<'a>(
     }
 }
 
-fn parse_shop_route_action<'a>(
+fn parse_parcel_route_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<ParcelRouteAction, SlashParseError> {
@@ -668,7 +668,7 @@ fn parse_shop_route_action<'a>(
     }
 }
 
-fn parse_shop_staff_action<'a>(
+fn parse_parcel_staff_action<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<ParcelStaffAction, SlashParseError> {
     let action = tokens
@@ -718,7 +718,7 @@ fn parse_shop_staff_action<'a>(
     }
 }
 
-fn parse_shop_shift_action<'a>(
+fn parse_parcel_shift_action<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<ParcelShiftAction, SlashParseError> {
     let action = tokens
@@ -750,7 +750,7 @@ fn parse_shop_shift_action<'a>(
     }
 }
 
-fn parse_shop_work_action<'a>(
+fn parse_parcel_work_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<ParcelWorkAction, SlashParseError> {
@@ -800,7 +800,7 @@ fn parse_shop_work_action<'a>(
     }
 }
 
-fn parse_shop_badge_action<'a>(
+fn parse_parcel_badge_action<'a>(
     trimmed: &str,
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<ParcelBadgeAction, SlashParseError> {

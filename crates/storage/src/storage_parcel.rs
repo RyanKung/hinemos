@@ -36,7 +36,7 @@ where
 }
 
 impl PgStorage {
-    /// Stores a raw visitor command for a shop operator.
+    /// Stores a raw visitor command for a parcel operator.
     pub async fn save_operator_command<P>(
         &self,
         parcel: &P,
@@ -59,7 +59,7 @@ impl PgStorage {
                 delivered,
             )
             .await?;
-        self.notify_shop_operator(
+        self.notify_parcel_operator(
             parcel,
             &parties,
             sender_user,
@@ -68,7 +68,7 @@ impl PgStorage {
             &command,
         )
         .await?;
-        self.record_shop_command_memory(
+        self.record_parcel_command_memory(
             parcel,
             &parties,
             sender_user,
@@ -124,7 +124,7 @@ impl PgStorage {
         Ok(command)
     }
 
-    async fn notify_shop_operator<P>(
+    async fn notify_parcel_operator<P>(
         &self,
         parcel: &P,
         parties: &OperatorCommandParties<'_>,
@@ -158,7 +158,7 @@ impl PgStorage {
         Ok(())
     }
 
-    async fn record_shop_command_memory<P>(
+    async fn record_parcel_command_memory<P>(
         &self,
         parcel: &P,
         parties: &OperatorCommandParties<'_>,
@@ -170,7 +170,7 @@ impl PgStorage {
     where
         P: ParcelView,
     {
-        self.record_shop_command_visitor_memory(
+        self.record_parcel_command_visitor_memory(
             parcel,
             parties,
             sender_user,
@@ -179,12 +179,12 @@ impl PgStorage {
             command,
         )
         .await?;
-        self.record_shop_command_owner_memory(parcel, parties, sender_user, raw_input, command)
+        self.record_parcel_command_owner_memory(parcel, parties, sender_user, raw_input, command)
             .await?;
         Ok(())
     }
 
-    async fn record_shop_command_visitor_memory<P>(
+    async fn record_parcel_command_visitor_memory<P>(
         &self,
         parcel: &P,
         parties: &OperatorCommandParties<'_>,
@@ -253,7 +253,7 @@ impl PgStorage {
         Ok(())
     }
 
-    async fn record_shop_command_owner_memory<P>(
+    async fn record_parcel_command_owner_memory<P>(
         &self,
         parcel: &P,
         parties: &OperatorCommandParties<'_>,

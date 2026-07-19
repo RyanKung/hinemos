@@ -77,7 +77,7 @@ pub enum StorageError {
         /// Stable list slug.
         slug: String,
     },
-    /// Mailing list already exists for a shop parcel.
+    /// Mailing list already exists for a parcel parcel.
     #[error("mailing list already exists: {parcel_id}/{slug}")]
     MailingListAlreadyExists {
         /// Parcel id.
@@ -119,10 +119,10 @@ pub enum StorageError {
     },
     /// Parcel work input is invalid.
     #[error("invalid parcel work: {0}")]
-    InvalidShopWork(String),
+    InvalidParcelWork(String),
     /// Parcel work desk was not found.
     #[error("parcel work desk not found: {parcel_id}/{slug}")]
-    ShopWorkDeskNotFound {
+    ParcelWorkDeskNotFound {
         /// Parcel id.
         parcel_id: String,
         /// Stable work-desk slug.
@@ -130,7 +130,7 @@ pub enum StorageError {
     },
     /// Parcel work desk already exists.
     #[error("parcel work desk already exists: {parcel_id}/{slug}")]
-    ShopWorkDeskAlreadyExists {
+    ParcelWorkDeskAlreadyExists {
         /// Parcel id.
         parcel_id: String,
         /// Stable work-desk slug.
@@ -138,7 +138,7 @@ pub enum StorageError {
     },
     /// Worker is not assigned to the parcel work desk.
     #[error("parcel worker is not assigned to this desk: {parcel_id}/{slug}")]
-    ShopWorkerNotAssigned {
+    ParcelWorkerNotAssigned {
         /// Parcel id.
         parcel_id: String,
         /// Stable work-desk slug.
@@ -146,7 +146,7 @@ pub enum StorageError {
     },
     /// Worker has no active in-parcel shift for this desk.
     #[error("no active parcel shift for this desk: {parcel_id}/{slug}")]
-    ShopShiftNotActive {
+    ParcelShiftNotActive {
         /// Parcel id.
         parcel_id: String,
         /// Stable work-desk slug.
@@ -154,16 +154,16 @@ pub enum StorageError {
     },
     /// Parcel work item was not found.
     #[error("parcel work item not found: {0}")]
-    ShopWorkItemNotFound(i64),
+    ParcelWorkItemNotFound(i64),
     /// Parcel work item is not in a valid state for this operation.
     #[error("parcel work item has invalid state: {0}")]
-    ShopWorkItemInvalidState(i64),
+    ParcelWorkItemInvalidState(i64),
     /// Parcel badge input is invalid.
     #[error("invalid parcel badge: {0}")]
-    InvalidShopBadge(String),
+    InvalidParcelBadge(String),
     /// Parcel badge was not found.
     #[error("parcel badge not found: {parcel_id}/{slug}")]
-    ShopBadgeNotFound {
+    ParcelBadgeNotFound {
         /// Parcel id.
         parcel_id: String,
         /// Stable badge slug.
@@ -171,7 +171,7 @@ pub enum StorageError {
     },
     /// Parcel badge award was not found.
     #[error("parcel badge award not found: {parcel_id}/{slug} for {target}")]
-    ShopBadgeAwardNotFound {
+    ParcelBadgeAwardNotFound {
         /// Parcel id.
         parcel_id: String,
         /// Stable badge slug.
@@ -181,7 +181,7 @@ pub enum StorageError {
     },
     /// Parcel badge award is not currently active.
     #[error("parcel badge award is not active: {parcel_id}/{slug} for {target}")]
-    ShopBadgeAwardNotActive {
+    ParcelBadgeAwardNotActive {
         /// Parcel id.
         parcel_id: String,
         /// Stable badge slug.

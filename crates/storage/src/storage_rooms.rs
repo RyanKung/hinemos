@@ -76,11 +76,11 @@ impl PgStorage {
         &self,
         front_view_id: &str,
     ) -> Result<Vec<StoredRoomBinding>, StorageError> {
-        let parcels = self.commercial_parcels_by_front_view(front_view_id).await?;
+        let parcels = self.parcels_by_front_view(front_view_id).await?;
         let mut bindings = Vec::with_capacity(parcels.len());
         for parcel in parcels {
             let lists = self
-                .shop_mailing_lists_for_parcel(&parcel.parcel_id)
+                .parcel_mailing_lists_for_parcel(&parcel.parcel_id)
                 .await?;
             bindings.push(StoredRoomBinding::from_parcel(parcel).with_mailing_lists(lists));
         }
@@ -104,9 +104,9 @@ impl PgStorage {
         &self,
         view_id: &str,
     ) -> Result<Option<StoredRoomBinding>, StorageError> {
-        if let Some(parcel) = self.commercial_parcel_by_view(view_id).await? {
+        if let Some(parcel) = self.parcel_by_view(view_id).await? {
             let lists = self
-                .shop_mailing_lists_for_parcel(&parcel.parcel_id)
+                .parcel_mailing_lists_for_parcel(&parcel.parcel_id)
                 .await?;
             return Ok(Some(
                 StoredRoomBinding::from_parcel(parcel).with_mailing_lists(lists),

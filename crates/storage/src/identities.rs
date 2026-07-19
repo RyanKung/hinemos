@@ -335,7 +335,7 @@ impl PgStorage {
         let room_player_id = room_mail_player_id(parcel_id.as_ref());
         let parcel = sqlx::query(
             r#"
-            update commercial_parcels
+            update parcels
             set room_user = coalesce(room_user, $3),
                 room_player_id = coalesce(room_player_id, $4),
                 updated_at = now()

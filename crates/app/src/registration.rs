@@ -145,7 +145,7 @@ impl<S> AppService<S> {
 
 impl<S, E> AppService<S>
 where
-    S: ParcelStore<Error = E>,
+    S: ParcelRegistryStore<Error = E>,
 {
     /// Checks whether the proposed room aliases conflict with parcels or previously claimed aliases.
     pub async fn service_room_alias_conflict(
@@ -161,9 +161,7 @@ where
             return Ok(None);
         }
 
-        let parcels = storage
-            .commercial_parcels_by_front_view(front_view_id)
-            .await?;
+        let parcels = storage.parcels_by_front_view(front_view_id).await?;
         for token in &tokens {
             if let Some(parcel) = parcels.iter().find(|parcel| {
                 normalize_enter_token(parcel.parcel_id()) == *token
@@ -204,7 +202,7 @@ impl<S> AppService<S> {
     where
         S: RoomRegistrationStore
             + RoomStore<Error = <S as RoomRegistrationStore>::Error>
-            + ParcelStore<Error = <S as RoomRegistrationStore>::Error>,
+            + ParcelRegistryStore<Error = <S as RoomRegistrationStore>::Error>,
         <S as RoomStore>::RoomBinding: ServiceRoomView,
         S::ServiceRoom: ServiceRoomView,
         <S as RoomRegistrationStore>::Error: std::error::Error + Send + Sync + 'static,
@@ -263,7 +261,7 @@ impl<S> AppService<S> {
     where
         S: RoomRegistrationStore
             + RoomStore<Error = <S as RoomRegistrationStore>::Error>
-            + ParcelStore<Error = <S as RoomRegistrationStore>::Error>,
+            + ParcelRegistryStore<Error = <S as RoomRegistrationStore>::Error>,
         <S as RoomStore>::RoomBinding: ServiceRoomView,
         S::ServiceRoom: ServiceRoomView,
         <S as RoomRegistrationStore>::Error: std::error::Error + Send + Sync + 'static,
@@ -314,8 +312,8 @@ impl<S> AppService<S> {
         claimed_aliases: &mut HashMap<(String, String), String>,
     ) -> Result<bool>
     where
-        S: ParcelStore,
-        <S as ParcelStore>::Error: std::error::Error + Send + Sync + 'static,
+        S: ParcelRegistryStore,
+        <S as ParcelRegistryStore>::Error: std::error::Error + Send + Sync + 'static,
     {
         if !registration
             .front_view_id

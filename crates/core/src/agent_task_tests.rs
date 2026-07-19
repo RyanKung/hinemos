@@ -251,7 +251,7 @@ fn reward_prefers_social_progress_over_isolated_survival() {
 
 #[test]
 fn task_history_transcript_contains_only_world_commands() {
-    let mut task = TaskMode::new("own a shop").expect("task");
+    let mut task = TaskMode::new("own a parcel").expect("task");
     let before = task.snapshot(
         &observation(vec![SemanticCommand::Move {
             direction: Direction::North,
@@ -278,13 +278,13 @@ fn task_history_transcript_contains_only_world_commands() {
     assert!(
         task.command_transcript()
             .iter()
-            .all(|line| !line.contains("own a shop"))
+            .all(|line| !line.contains("own a parcel"))
     );
 }
 
 #[test]
 fn plan_act_and_goal_json_are_rejected_as_protocol_leaks() {
-    let task = TaskMode::new("become a shopkeeper").expect("task");
+    let task = TaskMode::new("become a parcelkeeper").expect("task");
     let observation = observation(vec![SemanticCommand::Extension {
         name: "plan".to_owned(),
         input: "/plan <json>".to_owned(),
@@ -295,7 +295,7 @@ fn plan_act_and_goal_json_are_rejected_as_protocol_leaks() {
         &snapshot,
         SemanticCommand::Extension {
             name: "plan".to_owned(),
-            input: "/plan {\"objective\":\"become a shopkeeper\"}".to_owned(),
+            input: "/plan {\"objective\":\"become a parcelkeeper\"}".to_owned(),
         },
     );
 
@@ -425,8 +425,8 @@ fn pay_direct_template_authorizes_direct_payment_placeholders() {
 }
 
 #[test]
-fn shop_inbox_template_does_not_authorize_payment_request() {
-    let task = TaskMode::new("check shop inbox").expect("task");
+fn parcel_inbox_template_does_not_authorize_payment_request() {
+    let task = TaskMode::new("check parcel inbox").expect("task");
     let snapshot = task.snapshot(
         &observation(vec![SemanticCommand::Parcel {
             action: ParcelAction::Inbox,

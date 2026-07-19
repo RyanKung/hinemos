@@ -224,7 +224,7 @@ pub struct Entity {
     pub aliases: Vec<String>,
     /// Commands supported by this entity.
     pub actions: Vec<ActionKind>,
-    /// Optional structured payload (bulletin boards, shops, etc.).
+    /// Optional structured payload (bulletin boards, parcels, etc.).
     #[serde(default)]
     pub collection: Option<EntityCollection>,
     /// Whether the entity can be carried.

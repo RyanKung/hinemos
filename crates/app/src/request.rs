@@ -188,11 +188,11 @@ pub enum AppRequest<'a> {
         /// Inbox body.
         body: &'a str,
     },
-    /// Post a group-chat message to a shop mailing list.
+    /// Post a group-chat message to a parcel mailing list.
     ParcelMailingListChat {
         /// Current runtime view id.
         current_view: &'a str,
-        /// Parcel id or visible shop title.
+        /// Parcel id or visible parcel title.
         target: &'a str,
         /// Stable list slug.
         slug: &'a str,
@@ -208,20 +208,20 @@ pub enum AppRequest<'a> {
         /// Stable list slug.
         slug: &'a str,
     },
-    /// Subscribe the current player to a shop mailing list.
+    /// Subscribe the current player to a parcel mailing list.
     ParcelMailingListSubscribe {
         /// Current runtime view id.
         current_view: &'a str,
-        /// Parcel id or visible shop title.
+        /// Parcel id or visible parcel title.
         target: &'a str,
         /// Stable list slug.
         slug: &'a str,
     },
-    /// Unsubscribe the current player from a shop mailing list.
+    /// Unsubscribe the current player from a parcel mailing list.
     ParcelMailingListUnsubscribe {
         /// Current runtime view id.
         current_view: &'a str,
-        /// Parcel id or visible shop title.
+        /// Parcel id or visible parcel title.
         target: &'a str,
         /// Stable list slug.
         slug: &'a str,

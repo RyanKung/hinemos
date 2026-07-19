@@ -309,7 +309,7 @@ fn has_world_agent_evidence(stdout: &str) -> bool {
             "publish",
             "/parcel build",
             "owned",
-            "shop",
+            "parcel",
         ],
     ]
     .iter()

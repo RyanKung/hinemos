@@ -4,7 +4,7 @@ use sqlx::postgres::PgPool;
 
 use crate::StorageError;
 use crate::accounts::{SYSTEM_LEDGER_ADJUSTMENT_ACCOUNT_ID, SYSTEM_MARK_ACCOUNT_ID};
-use crate::parcels::seed_commercial_parcels;
+use crate::parcels::seed_parcels;
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_player_profiles(pool).await?;
@@ -14,12 +14,12 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_world_messages(pool).await?;
     migrate_inbox_items(pool).await?;
     migrate_ledger(pool).await?;
-    migrate_commercial_parcels(pool).await?;
+    migrate_parcels(pool).await?;
     migrate_service_rooms(pool).await?;
-    migrate_shop_mailing_lists(pool).await?;
-    migrate_shop_badges(pool).await?;
-    migrate_shop_payments(pool).await?;
-    migrate_shop_work(pool).await?;
+    migrate_parcel_mailing_lists(pool).await?;
+    migrate_parcel_badges(pool).await?;
+    migrate_parcel_payments(pool).await?;
+    migrate_parcel_work(pool).await?;
     migrate_memory_events(pool).await?;
     migrate_memory_atoms(pool).await?;
     migrate_social_memory(pool).await?;
@@ -659,10 +659,10 @@ async fn create_ledger_indexes(pool: &PgPool) -> Result<(), StorageError> {
     Ok(())
 }
 
-async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
+async fn migrate_parcels(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
-            create table if not exists commercial_parcels (
+            create table if not exists parcels (
                 parcel_id text primary key,
                 view_id text not null unique,
                 district text not null,
@@ -687,21 +687,21 @@ async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
-    sqlx::query("alter table commercial_parcels add column if not exists room_user text")
+    sqlx::query("alter table parcels add column if not exists room_user text")
         .execute(pool)
         .await?;
 
-    sqlx::query("alter table commercial_parcels add column if not exists room_player_id text")
+    sqlx::query("alter table parcels add column if not exists room_player_id text")
         .execute(pool)
         .await?;
 
-    sqlx::query("alter table commercial_parcels add column if not exists front_view_id text")
+    sqlx::query("alter table parcels add column if not exists front_view_id text")
         .execute(pool)
         .await?;
 
     sqlx::query(
         r#"
-            update commercial_parcels
+            update parcels
             set front_view_id = format('street_%s_%s', district, lpad((((position - 1) / 2) + 1)::text, 2, '0'))
             where front_view_id is null
             "#,
@@ -711,8 +711,8 @@ async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create unique index if not exists commercial_parcels_room_user_idx
-            on commercial_parcels (room_user)
+            create unique index if not exists parcels_room_user_idx
+            on parcels (room_user)
             where room_user is not null
             "#,
     )
@@ -721,15 +721,15 @@ async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create unique index if not exists commercial_parcels_room_player_idx
-            on commercial_parcels (room_player_id)
+            create unique index if not exists parcels_room_player_idx
+            on parcels (room_player_id)
             where room_player_id is not null
             "#,
     )
     .execute(pool)
     .await?;
 
-    seed_commercial_parcels(pool).await?;
+    seed_parcels(pool).await?;
 
     Ok(())
 }
@@ -791,7 +791,7 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
     Ok(())
 }
 
-async fn migrate_shop_payments(pool: &PgPool) -> Result<(), StorageError> {
+async fn migrate_parcel_payments(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists operator_commands (
@@ -859,12 +859,12 @@ async fn migrate_shop_payments(pool: &PgPool) -> Result<(), StorageError> {
     Ok(())
 }
 
-async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
+async fn migrate_parcel_work(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
-            create table if not exists shop_work_desks (
+            create table if not exists parcel_work_desks (
                 id bigserial primary key,
-                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
                 owner_player_id text not null,
                 slug text not null,
                 title text not null,
@@ -881,8 +881,8 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_work_desks_owner_idx
-            on shop_work_desks (owner_player_id, parcel_id, created_at desc)
+            create index if not exists parcel_work_desks_owner_idx
+            on parcel_work_desks (owner_player_id, parcel_id, created_at desc)
             "#,
     )
     .execute(pool)
@@ -890,9 +890,9 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_work_staff (
+            create table if not exists parcel_work_staff (
                 id bigserial primary key,
-                desk_id bigint not null references shop_work_desks(id) on delete cascade,
+                desk_id bigint not null references parcel_work_desks(id) on delete cascade,
                 staff_user text not null,
                 status text not null default 'active'
                     check (status in ('active', 'removed')),
@@ -907,8 +907,8 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_work_staff_user_idx
-            on shop_work_staff (staff_user, status, updated_at desc)
+            create index if not exists parcel_work_staff_user_idx
+            on parcel_work_staff (staff_user, status, updated_at desc)
             "#,
     )
     .execute(pool)
@@ -916,9 +916,9 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_work_shifts (
+            create table if not exists parcel_work_shifts (
                 id bigserial primary key,
-                desk_id bigint not null references shop_work_desks(id) on delete cascade,
+                desk_id bigint not null references parcel_work_desks(id) on delete cascade,
                 worker_user text not null,
                 worker_player_id text not null,
                 status text not null default 'active'
@@ -934,8 +934,8 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create unique index if not exists shop_work_shifts_one_active_per_worker_idx
-            on shop_work_shifts (desk_id, worker_player_id)
+            create unique index if not exists parcel_work_shifts_one_active_per_worker_idx
+            on parcel_work_shifts (desk_id, worker_player_id)
             where status = 'active'
             "#,
     )
@@ -944,10 +944,10 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_work_routes (
+            create table if not exists parcel_work_routes (
                 id bigserial primary key,
-                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
-                desk_id bigint not null references shop_work_desks(id) on delete cascade,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
+                desk_id bigint not null references parcel_work_desks(id) on delete cascade,
                 owner_player_id text not null,
                 command_prefix text not null,
                 created_at timestamptz not null default now(),
@@ -960,8 +960,8 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_work_routes_parcel_idx
-            on shop_work_routes (parcel_id, created_at desc)
+            create index if not exists parcel_work_routes_parcel_idx
+            on parcel_work_routes (parcel_id, created_at desc)
             "#,
     )
     .execute(pool)
@@ -969,10 +969,10 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_work_items (
+            create table if not exists parcel_work_items (
                 id bigserial primary key,
-                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
-                desk_id bigint not null references shop_work_desks(id) on delete cascade,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
+                desk_id bigint not null references parcel_work_desks(id) on delete cascade,
                 operator_command_id bigint not null references operator_commands(id) on delete cascade,
                 command_prefix text not null,
                 status text not null default 'queued'
@@ -991,8 +991,8 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_work_items_desk_status_idx
-            on shop_work_items (desk_id, status, updated_at desc)
+            create index if not exists parcel_work_items_desk_status_idx
+            on parcel_work_items (desk_id, status, updated_at desc)
             "#,
     )
     .execute(pool)
@@ -1001,12 +1001,12 @@ async fn migrate_shop_work(pool: &PgPool) -> Result<(), StorageError> {
     Ok(())
 }
 
-async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
+async fn migrate_parcel_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
-            create table if not exists shop_mailing_lists (
+            create table if not exists parcel_mailing_lists (
                 id bigserial primary key,
-                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
                 owner_player_id text not null,
                 slug text not null,
                 title text not null,
@@ -1024,8 +1024,8 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_mailing_lists_owner_idx
-            on shop_mailing_lists (owner_player_id, parcel_id, created_at desc)
+            create index if not exists parcel_mailing_lists_owner_idx
+            on parcel_mailing_lists (owner_player_id, parcel_id, created_at desc)
             "#,
     )
     .execute(pool)
@@ -1033,9 +1033,9 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_mailing_list_subscriptions (
+            create table if not exists parcel_mailing_list_subscriptions (
                 id bigserial primary key,
-                list_id bigint not null references shop_mailing_lists(id) on delete cascade,
+                list_id bigint not null references parcel_mailing_lists(id) on delete cascade,
                 subscriber_user text not null,
                 subscriber_player_id text not null,
                 status text not null default 'active'
@@ -1051,8 +1051,8 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_mailing_list_subscriptions_player_idx
-            on shop_mailing_list_subscriptions (subscriber_player_id, status, updated_at desc)
+            create index if not exists parcel_mailing_list_subscriptions_player_idx
+            on parcel_mailing_list_subscriptions (subscriber_player_id, status, updated_at desc)
             "#,
     )
     .execute(pool)
@@ -1060,9 +1060,9 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_mailing_list_posts (
+            create table if not exists parcel_mailing_list_posts (
                 id bigserial primary key,
-                list_id bigint not null references shop_mailing_lists(id) on delete cascade,
+                list_id bigint not null references parcel_mailing_lists(id) on delete cascade,
                 sender_user text not null,
                 sender_player_id text not null,
                 subject text not null,
@@ -1077,9 +1077,9 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_mailing_list_deliveries (
+            create table if not exists parcel_mailing_list_deliveries (
                 id bigserial primary key,
-                post_id bigint not null references shop_mailing_list_posts(id) on delete cascade,
+                post_id bigint not null references parcel_mailing_list_posts(id) on delete cascade,
                 recipient_user text not null,
                 recipient_player_id text not null,
                 inbox_item_id bigint references inbox_items(id),
@@ -1091,19 +1091,19 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
-    sqlx::query("drop table if exists shop_command_routes")
+    sqlx::query("drop table if exists parcel_command_routes")
         .execute(pool)
         .await?;
 
     Ok(())
 }
 
-async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
+async fn migrate_parcel_badges(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
-            create table if not exists shop_badges (
+            create table if not exists parcel_badges (
                 id bigserial primary key,
-                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
                 owner_player_id text not null,
                 slug text not null,
                 title text not null,
@@ -1119,8 +1119,8 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_badges_owner_idx
-            on shop_badges (owner_player_id, parcel_id, updated_at desc)
+            create index if not exists parcel_badges_owner_idx
+            on parcel_badges (owner_player_id, parcel_id, updated_at desc)
             "#,
     )
     .execute(pool)
@@ -1128,9 +1128,9 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_badge_awards (
+            create table if not exists parcel_badge_awards (
                 id bigserial primary key,
-                badge_id bigint not null references shop_badges(id) on delete cascade,
+                badge_id bigint not null references parcel_badges(id) on delete cascade,
                 issuer_user text not null,
                 issuer_player_id text not null,
                 recipient_user text not null,
@@ -1149,8 +1149,8 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            alter table shop_badge_awards
-            drop constraint if exists shop_badge_awards_badge_id_recipient_player_id_key
+            alter table parcel_badge_awards
+            drop constraint if exists parcel_badge_awards_badge_id_recipient_player_id_key
             "#,
     )
     .execute(pool)
@@ -1158,8 +1158,8 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create unique index if not exists shop_badge_awards_active_unique_idx
-            on shop_badge_awards (badge_id, recipient_player_id)
+            create unique index if not exists parcel_badge_awards_active_unique_idx
+            on parcel_badge_awards (badge_id, recipient_player_id)
             where status = 'active'
             "#,
     )
@@ -1168,8 +1168,8 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_badge_awards_recipient_idx
-            on shop_badge_awards (recipient_player_id, status, awarded_at desc)
+            create index if not exists parcel_badge_awards_recipient_idx
+            on parcel_badge_awards (recipient_player_id, status, awarded_at desc)
             "#,
     )
     .execute(pool)

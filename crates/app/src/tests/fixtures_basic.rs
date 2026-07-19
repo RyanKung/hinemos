@@ -31,7 +31,7 @@ pub(super) struct TestMailToken {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct TestCommercialParcel {
+pub(super) struct TestParcel {
     pub(super) parcel_id: &'static str,
     pub(super) view_id: &'static str,
     pub(super) front_view_id: &'static str,
@@ -50,16 +50,16 @@ pub(super) struct TestCommercialParcel {
 }
 
 #[derive(Debug)]
-pub(super) struct TestCommercialStore {
-    pub(super) parcel: Mutex<TestCommercialParcel>,
+pub(super) struct TestParcelFixtureStore {
+    pub(super) parcel: Mutex<TestParcel>,
     pub(super) calls: Mutex<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum TestCommerceError {
     MailingList(String),
-    ShopWork(String),
-    ShopBadge(String),
+    ParcelWork(String),
+    ParcelBadge(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,25 +109,25 @@ pub(super) struct TestWorkDesk {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct TestShopStaff {
+pub(super) struct TestParcelStaff {
     pub(super) staff_user: String,
     pub(super) status: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct TestShopShift {
+pub(super) struct TestParcelShift {
     pub(super) slug: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct TestShopWorkItem {
+pub(super) struct TestParcelWorkItem {
     pub(super) id: i64,
     pub(super) slug: String,
     pub(super) status: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct TestShopBadge {
+pub(super) struct TestParcelBadge {
     pub(super) slug: String,
     pub(super) title: String,
     pub(super) description: Option<String>,
@@ -135,7 +135,7 @@ pub(super) struct TestShopBadge {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct TestShopBadgeAward {
+pub(super) struct TestParcelBadgeAward {
     pub(super) status: String,
     pub(super) recipient_user: String,
     pub(super) note: Option<String>,
@@ -421,7 +421,7 @@ impl MailAuthTokenView for TestMailToken {
     }
 }
 
-impl ParcelView for TestCommercialParcel {
+impl ParcelView for TestParcel {
     fn parcel_id(&self) -> &str {
         self.parcel_id
     }
@@ -483,7 +483,7 @@ impl ParcelView for TestCommercialParcel {
     }
 }
 
-impl RoomMailboxView for TestCommercialParcel {
+impl RoomMailboxView for TestParcel {
     fn view_id(&self) -> &str {
         self.view_id
     }
@@ -497,8 +497,8 @@ impl RoomMailboxView for TestCommercialParcel {
     }
 }
 
-impl RoomBindingKindView for TestCommercialParcel {
-    fn is_commercial_parcel(&self) -> bool {
+impl RoomBindingKindView for TestParcel {
+    fn is_parcel(&self) -> bool {
         true
     }
 
@@ -507,7 +507,7 @@ impl RoomBindingKindView for TestCommercialParcel {
     }
 }
 
-impl RoomCommandPolicyView for TestCommercialParcel {
+impl RoomCommandPolicyView for TestParcel {
     fn forwards_all_input(&self) -> bool {
         true
     }
@@ -589,7 +589,7 @@ impl OperatorCommandView for TestOperatorCommand {
     }
 }
 
-impl ShopMailingListView for TestMailingList {
+impl ParcelMailingListView for TestMailingList {
     fn id(&self) -> i64 {
         1
     }
@@ -619,7 +619,7 @@ impl ShopMailingListView for TestMailingList {
     }
 }
 
-impl ShopMailingListSubscriberView for TestMailingListSubscriber {
+impl ParcelMailingListSubscriberView for TestMailingListSubscriber {
     fn subscriber_user(&self) -> &str {
         "visitor"
     }
@@ -633,12 +633,12 @@ impl ShopMailingListSubscriberView for TestMailingListSubscriber {
     }
 }
 
-impl ShopMailingListSubscriptionView for TestMailingListSubscription {
+impl ParcelMailingListSubscriptionView for TestMailingListSubscription {
     fn parcel_id(&self) -> &str {
         "P1"
     }
 
-    fn shop_title(&self) -> Option<&str> {
+    fn parcel_title(&self) -> Option<&str> {
         Some("Parcel")
     }
 
@@ -647,7 +647,7 @@ impl ShopMailingListSubscriptionView for TestMailingListSubscription {
     }
 
     fn list_title(&self) -> &str {
-        "Shop Updates"
+        "Parcel Updates"
     }
 
     fn status(&self) -> &str {
@@ -659,7 +659,7 @@ impl ShopMailingListSubscriptionView for TestMailingListSubscription {
     }
 }
 
-impl ShopMailingListPostView for TestMailingListPost {
+impl ParcelMailingListPostView for TestMailingListPost {
     fn id(&self) -> i64 {
         7
     }
@@ -673,7 +673,7 @@ impl ShopMailingListPostView for TestMailingListPost {
     }
 
     fn list_title(&self) -> &str {
-        "Shop Updates"
+        "Parcel Updates"
     }
 
     fn subject(&self) -> &str {
@@ -685,7 +685,7 @@ impl ShopMailingListPostView for TestMailingListPost {
     }
 }
 
-impl ShopCommandRouteView for TestCommandRoute {
+impl ParcelCommandRouteView for TestCommandRoute {
     fn id(&self) -> i64 {
         13
     }
@@ -711,7 +711,7 @@ impl ShopCommandRouteView for TestCommandRoute {
     }
 }
 
-impl ShopWorkDeskView for TestWorkDesk {
+impl ParcelWorkDeskView for TestWorkDesk {
     fn id(&self) -> i64 {
         19
     }
@@ -745,7 +745,7 @@ impl ShopWorkDeskView for TestWorkDesk {
     }
 }
 
-impl ShopStaffView for TestShopStaff {
+impl ParcelStaffView for TestParcelStaff {
     fn staff_user(&self) -> &str {
         &self.staff_user
     }
@@ -759,7 +759,7 @@ impl ShopStaffView for TestShopStaff {
     }
 }
 
-impl ShopShiftView for TestShopShift {
+impl ParcelShiftView for TestParcelShift {
     fn id(&self) -> i64 {
         23
     }
@@ -789,7 +789,7 @@ impl ShopShiftView for TestShopShift {
     }
 }
 
-impl ShopWorkItemView for TestShopWorkItem {
+impl ParcelWorkItemView for TestParcelWorkItem {
     fn id(&self) -> i64 {
         self.id
     }
@@ -843,7 +843,7 @@ impl ShopWorkItemView for TestShopWorkItem {
     }
 }
 
-impl ShopBadgeDefinitionView for TestShopBadge {
+impl ParcelBadgeDefinitionView for TestParcelBadge {
     fn id(&self) -> i64 {
         11
     }
@@ -877,7 +877,7 @@ impl ShopBadgeDefinitionView for TestShopBadge {
     }
 }
 
-impl ShopBadgeAwardView for TestShopBadgeAward {
+impl ParcelBadgeAwardView for TestParcelBadgeAward {
     fn id(&self) -> i64 {
         17
     }
@@ -886,7 +886,7 @@ impl ShopBadgeAwardView for TestShopBadgeAward {
         "P1"
     }
 
-    fn shop_title(&self) -> Option<&str> {
+    fn parcel_title(&self) -> Option<&str> {
         Some("Parcel")
     }
 
@@ -935,15 +935,12 @@ impl ShopBadgeAwardView for TestShopBadgeAward {
     }
 }
 
-impl TestCommercialStore {
-    fn parcel(&self) -> TestCommercialParcel {
+impl TestParcelFixtureStore {
+    fn parcel(&self) -> TestParcel {
         self.parcel.lock().unwrap().clone()
     }
 
-    fn update_parcel(
-        &self,
-        mutate: impl FnOnce(&mut TestCommercialParcel),
-    ) -> TestCommercialParcel {
+    fn update_parcel(&self, mutate: impl FnOnce(&mut TestParcel)) -> TestParcel {
         let mut parcel = self.parcel.lock().unwrap();
         mutate(&mut parcel);
         parcel.clone()
@@ -956,24 +953,24 @@ impl FromMailingListValidation for TestCommerceError {
     }
 }
 
-impl FromShopWorkValidation for TestCommerceError {
-    fn invalid_shop_work(message: &str) -> Self {
-        Self::ShopWork(message.to_owned())
+impl FromParcelWorkValidation for TestCommerceError {
+    fn invalid_parcel_work(message: &str) -> Self {
+        Self::ParcelWork(message.to_owned())
     }
 }
 
-impl FromShopBadgeValidation for TestCommerceError {
-    fn invalid_shop_badge(message: &str) -> Self {
-        Self::ShopBadge(message.to_owned())
+impl FromParcelBadgeValidation for TestCommerceError {
+    fn invalid_parcel_badge(message: &str) -> Self {
+        Self::ParcelBadge(message.to_owned())
     }
 }
 
-impl LandStore for TestCommercialStore {
+impl ParcelOwnershipStore for TestParcelFixtureStore {
     type Error = TestCommerceError;
-    type Parcel = TestCommercialParcel;
+    type Parcel = TestParcel;
     type MailAuthToken = TestMailToken;
 
-    async fn commercial_parcel(&self, parcel_id: &str) -> Result<Self::Parcel, Self::Error> {
+    async fn parcel_by_id(&self, parcel_id: &str) -> Result<Self::Parcel, Self::Error> {
         let parcel = self.parcel();
         Ok(if parcel.parcel_id == parcel_id {
             parcel
@@ -982,7 +979,7 @@ impl LandStore for TestCommercialStore {
         })
     }
 
-    async fn claim_commercial_parcel(
+    async fn claim_parcel(
         &self,
         parcel_id: &str,
         owner_user: &str,
@@ -999,7 +996,7 @@ impl LandStore for TestCommercialStore {
         }))
     }
 
-    async fn transfer_commercial_parcel(
+    async fn transfer_parcel(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1032,9 +1029,9 @@ impl LandStore for TestCommercialStore {
     }
 }
 
-impl BuildStore for TestCommercialStore {
+impl BuildStore for TestParcelFixtureStore {
     type Error = TestCommerceError;
-    type Parcel = TestCommercialParcel;
+    type Parcel = TestParcel;
 
     async fn update_parcel_build_field(
         &self,
@@ -1072,9 +1069,9 @@ impl BuildStore for TestCommercialStore {
     }
 }
 
-impl ShopStore for TestCommercialStore {
+impl ParcelStore for TestParcelFixtureStore {
     type Error = TestCommerceError;
-    type Parcel = TestCommercialParcel;
+    type Parcel = TestParcel;
     type PaymentRequest = TestPaymentRequest;
     type InboxItem = TestInboxItem;
     type OperatorCommand = TestOperatorCommand;
@@ -1084,11 +1081,11 @@ impl ShopStore for TestCommercialStore {
     type MailingListPost = TestMailingListPost;
     type CommandRoute = TestCommandRoute;
     type WorkDesk = TestWorkDesk;
-    type Staff = TestShopStaff;
-    type Shift = TestShopShift;
-    type WorkItem = TestShopWorkItem;
-    type BadgeDefinition = TestShopBadge;
-    type BadgeAward = TestShopBadgeAward;
+    type Staff = TestParcelStaff;
+    type Shift = TestParcelShift;
+    type WorkItem = TestParcelWorkItem;
+    type BadgeDefinition = TestParcelBadge;
+    type BadgeAward = TestParcelBadgeAward;
 
     async fn save_operator_command<P>(
         &self,
@@ -1148,7 +1145,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn create_shop_mailing_list(
+    async fn create_parcel_mailing_list(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1166,7 +1163,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn shop_mailing_lists(
+    async fn parcel_mailing_lists(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1177,29 +1174,29 @@ impl ShopStore for TestCommercialStore {
             .push(format!("mailing-list-list:{parcel_id}:{owner_player_id}"));
         Ok(vec![TestMailingList {
             slug: "updates".to_owned(),
-            title: "Shop Updates".to_owned(),
+            title: "Parcel Updates".to_owned(),
             status: "open".to_owned(),
             subscriber_count: 1,
         }])
     }
 
-    async fn shop_mailing_list_subscribers(
+    async fn parcel_mailing_list_subscribers(
         &self,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
         _limit: i64,
-    ) -> Result<ShopMailingListSubscriberPage<Self::MailingListSubscriber>, Self::Error> {
+    ) -> Result<ParcelMailingListSubscriberPage<Self::MailingListSubscriber>, Self::Error> {
         self.calls.lock().unwrap().push(format!(
             "mailing-list-subscribers:{parcel_id}:{slug}:{owner_player_id}"
         ));
-        Ok(ShopMailingListSubscriberPage {
+        Ok(ParcelMailingListSubscriberPage {
             total: 1,
             subscribers: vec![TestMailingListSubscriber],
         })
     }
 
-    async fn close_shop_mailing_list(
+    async fn close_parcel_mailing_list(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1210,26 +1207,26 @@ impl ShopStore for TestCommercialStore {
         ));
         Ok(TestMailingList {
             slug: slug.to_owned(),
-            title: "Shop Updates".to_owned(),
+            title: "Parcel Updates".to_owned(),
             status: "closed".to_owned(),
             subscriber_count: 1,
         })
     }
 
-    async fn shop_mailing_list(
+    async fn parcel_mailing_list(
         &self,
         _target: &str,
         slug: &str,
     ) -> Result<Self::MailingList, Self::Error> {
         Ok(TestMailingList {
             slug: slug.to_owned(),
-            title: "Shop Updates".to_owned(),
+            title: "Parcel Updates".to_owned(),
             status: "open".to_owned(),
             subscriber_count: 1,
         })
     }
 
-    async fn subscribe_shop_mailing_list(
+    async fn subscribe_parcel_mailing_list(
         &self,
         target: &str,
         slug: &str,
@@ -1244,7 +1241,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn unsubscribe_shop_mailing_list(
+    async fn unsubscribe_parcel_mailing_list(
         &self,
         target: &str,
         slug: &str,
@@ -1259,7 +1256,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn shop_mailing_list_subscriptions(
+    async fn parcel_mailing_list_subscriptions(
         &self,
         subscriber_player_id: &str,
     ) -> Result<Vec<Self::MailingListSubscription>, Self::Error> {
@@ -1272,7 +1269,7 @@ impl ShopStore for TestCommercialStore {
         }])
     }
 
-    async fn send_shop_mailing_list_post(
+    async fn send_parcel_mailing_list_post(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1280,13 +1277,13 @@ impl ShopStore for TestCommercialStore {
         sender_player_id: &str,
         subject: &str,
         body: &str,
-    ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error> {
+    ) -> Result<ParcelMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error> {
         self.calls.lock().unwrap().push(format!(
             "mailing-list-send:{parcel_id}:{slug}:{sender_user}:{sender_player_id}:{subject}:{body}"
         ));
-        Ok(ShopMailingListSend {
+        Ok(ParcelMailingListSend {
             post: TestMailingListPost,
-            deliveries: vec![ShopMailingListDelivery {
+            deliveries: vec![ParcelMailingListDelivery {
                 recipient_player_id: "visitor-player".to_owned(),
                 inbox_item: TestInboxItem {
                     id: 7,
@@ -1299,7 +1296,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn add_shop_command_route(
+    async fn add_parcel_command_route(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1315,7 +1312,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn create_shop_work_desk(
+    async fn create_parcel_work_desk(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1331,7 +1328,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn shop_work_desks(
+    async fn parcel_work_desks(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1346,7 +1343,7 @@ impl ShopStore for TestCommercialStore {
         }])
     }
 
-    async fn add_shop_staff(
+    async fn add_parcel_staff(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1356,13 +1353,13 @@ impl ShopStore for TestCommercialStore {
         self.calls.lock().unwrap().push(format!(
             "staff-add:{parcel_id}:{slug}:{owner_player_id}:{username}"
         ));
-        Ok(TestShopStaff {
+        Ok(TestParcelStaff {
             staff_user: username.to_owned(),
             status: "active".to_owned(),
         })
     }
 
-    async fn shop_staff(
+    async fn parcel_staff(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1373,13 +1370,13 @@ impl ShopStore for TestCommercialStore {
             .lock()
             .unwrap()
             .push(format!("staff-list:{parcel_id}:{slug}:{owner_player_id}"));
-        Ok(vec![TestShopStaff {
+        Ok(vec![TestParcelStaff {
             staff_user: "worker".to_owned(),
             status: "active".to_owned(),
         }])
     }
 
-    async fn remove_shop_staff(
+    async fn remove_parcel_staff(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1389,13 +1386,13 @@ impl ShopStore for TestCommercialStore {
         self.calls.lock().unwrap().push(format!(
             "staff-remove:{parcel_id}:{slug}:{owner_player_id}:{username}"
         ));
-        Ok(TestShopStaff {
+        Ok(TestParcelStaff {
             staff_user: username.to_owned(),
             status: "removed".to_owned(),
         })
     }
 
-    async fn start_shop_shift(
+    async fn start_parcel_shift(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1405,12 +1402,12 @@ impl ShopStore for TestCommercialStore {
         self.calls.lock().unwrap().push(format!(
             "shift-start:{parcel_id}:{slug}:{worker_user}:{worker_player_id}"
         ));
-        Ok(TestShopShift {
+        Ok(TestParcelShift {
             slug: slug.to_owned(),
         })
     }
 
-    async fn end_shop_shift(
+    async fn end_parcel_shift(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1420,12 +1417,12 @@ impl ShopStore for TestCommercialStore {
         self.calls.lock().unwrap().push(format!(
             "shift-end:{parcel_id}:{slug}:{worker_user}:{worker_player_id}"
         ));
-        Ok(TestShopShift {
+        Ok(TestParcelShift {
             slug: slug.to_owned(),
         })
     }
 
-    async fn shop_work_items(
+    async fn parcel_work_items(
         &self,
         parcel_id: &str,
         worker_user: &str,
@@ -1437,14 +1434,14 @@ impl ShopStore for TestCommercialStore {
             "work-list:{parcel_id}:{worker_user}:{worker_player_id}:{}",
             slug.unwrap_or("*")
         ));
-        Ok(vec![TestShopWorkItem {
+        Ok(vec![TestParcelWorkItem {
             id: 3,
             slug: slug.unwrap_or("desk").to_owned(),
             status: "queued".to_owned(),
         }])
     }
 
-    async fn claim_shop_work(
+    async fn claim_parcel_work(
         &self,
         parcel_id: &str,
         worker_user: &str,
@@ -1454,14 +1451,14 @@ impl ShopStore for TestCommercialStore {
         self.calls.lock().unwrap().push(format!(
             "work-claim:{parcel_id}:{worker_user}:{worker_player_id}:{work_id}"
         ));
-        Ok(TestShopWorkItem {
+        Ok(TestParcelWorkItem {
             id: work_id,
             slug: "desk".to_owned(),
             status: "claimed".to_owned(),
         })
     }
 
-    async fn finish_shop_work(
+    async fn finish_parcel_work(
         &self,
         parcel_id: &str,
         worker_user: &str,
@@ -1472,14 +1469,14 @@ impl ShopStore for TestCommercialStore {
         self.calls.lock().unwrap().push(format!(
             "work-done:{parcel_id}:{worker_user}:{worker_player_id}:{work_id}:{result}"
         ));
-        Ok(TestShopWorkItem {
+        Ok(TestParcelWorkItem {
             id: work_id,
             slug: "desk".to_owned(),
             status: "done".to_owned(),
         })
     }
 
-    async fn shop_command_routes(
+    async fn parcel_command_routes(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1494,7 +1491,7 @@ impl ShopStore for TestCommercialStore {
         }])
     }
 
-    async fn remove_shop_command_route(
+    async fn remove_parcel_command_route(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1510,7 +1507,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn dispatch_shop_command_routes<P>(
+    async fn dispatch_parcel_command_routes<P>(
         &self,
         _parcel: &P,
         _command_id: i64,
@@ -1522,14 +1519,14 @@ impl ShopStore for TestCommercialStore {
             .lock()
             .unwrap()
             .push("dispatch-work:1".to_owned());
-        Ok(vec![TestShopWorkItem {
+        Ok(vec![TestParcelWorkItem {
             id: 1,
             slug: "desk".to_owned(),
             status: "queued".to_owned(),
         }])
     }
 
-    async fn create_shop_badge(
+    async fn create_parcel_badge(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1541,7 +1538,7 @@ impl ShopStore for TestCommercialStore {
             "badge-create:{parcel_id}:{owner_player_id}:{slug}:{title}:{}",
             description.unwrap_or_default()
         ));
-        Ok(TestShopBadge {
+        Ok(TestParcelBadge {
             slug: slug.to_owned(),
             title: title.to_owned(),
             description: description.map(str::to_owned),
@@ -1549,7 +1546,7 @@ impl ShopStore for TestCommercialStore {
         })
     }
 
-    async fn shop_badges(
+    async fn parcel_badges(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -1558,7 +1555,7 @@ impl ShopStore for TestCommercialStore {
             .lock()
             .unwrap()
             .push(format!("badge-list:{parcel_id}:{owner_player_id}"));
-        Ok(vec![TestShopBadge {
+        Ok(vec![TestParcelBadge {
             slug: "patron".to_owned(),
             title: "Good Patron".to_owned(),
             description: Some("Paid and polite".to_owned()),
@@ -1566,7 +1563,7 @@ impl ShopStore for TestCommercialStore {
         }])
     }
 
-    async fn award_shop_badge(
+    async fn award_parcel_badge(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1579,14 +1576,14 @@ impl ShopStore for TestCommercialStore {
             "badge-award:{parcel_id}:{slug}:{issuer_user}:{issuer_player_id}:{target}:{}",
             note.unwrap_or_default()
         ));
-        Ok(TestShopBadgeAward {
+        Ok(TestParcelBadgeAward {
             status: "active".to_owned(),
             recipient_user: target.to_owned(),
             note: note.map(str::to_owned),
         })
     }
 
-    async fn revoke_shop_badge(
+    async fn revoke_parcel_badge(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -1596,14 +1593,14 @@ impl ShopStore for TestCommercialStore {
         self.calls.lock().unwrap().push(format!(
             "badge-revoke:{parcel_id}:{slug}:{owner_player_id}:{target}"
         ));
-        Ok(TestShopBadgeAward {
+        Ok(TestParcelBadgeAward {
             status: "revoked".to_owned(),
             recipient_user: target.to_owned(),
             note: None,
         })
     }
 
-    async fn shop_badges_for_player(
+    async fn parcel_badges_for_player(
         &self,
         player_id: &str,
         _limit: i64,
@@ -1612,14 +1609,14 @@ impl ShopStore for TestCommercialStore {
             .lock()
             .unwrap()
             .push(format!("badge-player:{player_id}"));
-        Ok(vec![TestShopBadgeAward {
+        Ok(vec![TestParcelBadgeAward {
             status: "active".to_owned(),
             recipient_user: "visitor".to_owned(),
             note: Some("great work".to_owned()),
         }])
     }
 
-    async fn shop_badges_for_target(
+    async fn parcel_badges_for_target(
         &self,
         target: &str,
         _limit: i64,
@@ -1628,7 +1625,7 @@ impl ShopStore for TestCommercialStore {
             .lock()
             .unwrap()
             .push(format!("badge-target:{target}"));
-        Ok(vec![TestShopBadgeAward {
+        Ok(vec![TestParcelBadgeAward {
             status: "active".to_owned(),
             recipient_user: target.to_owned(),
             note: None,
@@ -1636,7 +1633,7 @@ impl ShopStore for TestCommercialStore {
     }
 }
 
-pub(super) struct TestParcel {
+pub(super) struct TestListedParcel {
     pub(super) parcel_id: &'static str,
     pub(super) view_id: &'static str,
     pub(super) district: &'static str,
@@ -1647,7 +1644,7 @@ pub(super) struct TestParcel {
     pub(super) title: Option<&'static str>,
 }
 
-impl ParcelView for TestParcel {
+impl ParcelView for TestListedParcel {
     fn parcel_id(&self) -> &str {
         self.parcel_id
     }

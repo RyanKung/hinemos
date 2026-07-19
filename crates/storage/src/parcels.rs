@@ -5,7 +5,7 @@ use sqlx::postgres::PgPool;
 
 use crate::{StorageError, StoredParcel};
 
-pub(crate) async fn seed_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
+pub(crate) async fn seed_parcels(pool: &PgPool) -> Result<(), StorageError> {
     migrate_legacy_parcel_ids(pool).await?;
     delete_unowned_legacy_seed_parcels(pool).await
 }
@@ -19,11 +19,11 @@ async fn migrate_legacy_parcel_ids(pool: &PgPool) -> Result<(), StorageError> {
             let new_view = format!("parcel_{new_id}");
             sqlx::query(
                 r#"
-                update commercial_parcels
+                update parcels
                 set parcel_id = $2, view_id = $3, position = $4, updated_at = now()
                 where parcel_id = $1
                   and not exists (
-                      select 1 from commercial_parcels existing
+                      select 1 from parcels existing
                       where existing.parcel_id = $2
                   )
                 "#,
@@ -42,7 +42,7 @@ async fn migrate_legacy_parcel_ids(pool: &PgPool) -> Result<(), StorageError> {
 async fn delete_unowned_legacy_seed_parcels(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
-        delete from commercial_parcels
+        delete from parcels
         where status = $1
           and owner_player_id is null
           and district in ('north', 'south')
@@ -65,7 +65,7 @@ pub(crate) async fn fetch_parcel_by_id(
         select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                room_user, room_player_id,
                status, title, description, style, operator_prompt, custom_commands
-        from commercial_parcels
+        from parcels
         where parcel_id = $1
         "#,
     )
@@ -96,7 +96,7 @@ pub(crate) async fn ensure_grid_parcel(pool: &PgPool, parcel_id: &str) -> Result
     };
     sqlx::query(
         r#"
-        insert into commercial_parcels (parcel_id, view_id, front_view_id, district, position)
+        insert into parcels (parcel_id, view_id, front_view_id, district, position)
         values ($1, $2, $3, $4, $5)
         on conflict (parcel_id) do nothing
         "#,

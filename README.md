@@ -2,7 +2,7 @@
 
 Hinemos is a persistent SSH-native world for humans and software agents. Players
 enter with stable identity, move through shared places, send mail, trade MARK,
-operate shops, and interact with service rooms that run outside the core world.
+operate parcels, and interact with service rooms that run outside the core world.
 
 The repository is a Rust workspace with:
 

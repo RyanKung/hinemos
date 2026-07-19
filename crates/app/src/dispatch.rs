@@ -20,14 +20,14 @@ pub trait AppDispatchStore:
     + AdmissionStore<Error = <Self as AppDispatchStore>::Error>
     + BuildStore<Error = <Self as AppDispatchStore>::Error>
     + InboxStore<Error = <Self as AppDispatchStore>::Error>
-    + LandStore<Error = <Self as AppDispatchStore>::Error>
+    + ParcelOwnershipStore<Error = <Self as AppDispatchStore>::Error>
     + MailStore<Error = <Self as AppDispatchStore>::Error>
     + MemoryStore<Error = <Self as AppDispatchStore>::Error>
     + MessageStore<Error = <Self as AppDispatchStore>::Error>
+    + ParcelRegistryStore<Error = <Self as AppDispatchStore>::Error>
     + ParcelStore<Error = <Self as AppDispatchStore>::Error>
     + PaymentStore<Error = <Self as AppDispatchStore>::Error>
     + RoomStore<Error = <Self as AppDispatchStore>::Error>
-    + ShopStore<Error = <Self as AppDispatchStore>::Error>
 {
     /// Shared store error type across all dispatch subdomains.
     type Error;
@@ -39,14 +39,14 @@ where
         + AdmissionStore<Error = E>
         + BuildStore<Error = E>
         + InboxStore<Error = E>
-        + LandStore<Error = E>
+        + ParcelOwnershipStore<Error = E>
         + MailStore<Error = E>
         + MemoryStore<Error = E>
         + MessageStore<Error = E>
+        + ParcelRegistryStore<Error = E>
         + ParcelStore<Error = E>
         + PaymentStore<Error = E>
-        + RoomStore<Error = E>
-        + ShopStore<Error = E>,
+        + RoomStore<Error = E>,
 {
     type Error = E;
 }
@@ -78,7 +78,7 @@ impl<S> AppService<S>
 where
     S: AppDispatchStore,
     <S as AppDispatchStore>::Error:
-        FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
+        FromMailingListValidation + FromParcelBadgeValidation + FromParcelWorkValidation,
     <S as RoomStore>::RoomBinding: RoomBindingKindView + RoomMailboxView + ServiceRoomView + Sync,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
 {

@@ -1,14 +1,14 @@
 use super::*;
 
 #[test]
-fn commercial_parcel_input_routes_through_app() {
+fn parcel_input_routes_through_app() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     rt.block_on(async {
-        let store = TestCommercialStore {
-            parcel: Mutex::new(TestCommercialParcel {
+        let store = TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
                 parcel_id: "P1",
                 view_id: "parcel_view",
                 front_view_id: "street_view",
@@ -32,7 +32,7 @@ fn commercial_parcel_input_routes_through_app() {
         };
         let app = AppService::new(store);
         let identity = AppIdentity::new("visitor", "visitor-player");
-        let binding = TestCommercialParcel {
+        let binding = TestParcel {
             parcel_id: "P1",
             view_id: "parcel_view",
             front_view_id: "street_view",
@@ -54,25 +54,25 @@ fn commercial_parcel_input_routes_through_app() {
         };
 
         assert!(
-            app.commercial_parcel_consumes_input(
+            app.parcel_consumes_input(
                 &binding,
                 "/parcel request-payment 7 25 hello world"
             ),
-            "commercial parcels should consume matching parcel commands"
+            "parcels should consume matching parcel commands"
         );
         assert!(
-            !app.commercial_parcel_consumes_input(&binding, "/balance"),
-            "commercial parcels should leave global slash commands to the shell"
+            !app.parcel_consumes_input(&binding, "/balance"),
+            "parcels should leave global slash commands to the shell"
         );
 
         let events = app
-            .handle_commercial_parcel_input(
+            .handle_parcel_input(
                 &identity,
                 &binding,
                 "/parcel request-payment 7 25 hello world",
             )
             .await
-            .expect("commercial parcel input")
+            .expect("parcel input")
             .expect("handled");
 
         assert_eq!(
@@ -108,12 +108,12 @@ fn commercial_parcel_input_routes_through_app() {
         );
 
         let global_command = app
-            .handle_commercial_parcel_input(&identity, &binding, "/balance")
+            .handle_parcel_input(&identity, &binding, "/balance")
             .await
-            .expect("commercial parcel input");
+            .expect("parcel input");
         assert!(
             global_command.is_none(),
-            "commercial parcels should not intercept global slash commands"
+            "parcels should not intercept global slash commands"
         );
     });
 }
@@ -121,7 +121,7 @@ fn commercial_parcel_input_routes_through_app() {
 #[test]
 fn parcel_list_renders_status_for_humans() {
     let parcels = vec![
-        TestParcel {
+        TestListedParcel {
             parcel_id: "north_01",
             view_id: "parcel_north_01",
             district: "north",
@@ -131,7 +131,7 @@ fn parcel_list_renders_status_for_humans() {
             status: PARCEL_STATUS_BUILT,
             title: Some("Corall牛比站"),
         },
-        TestParcel {
+        TestListedParcel {
             parcel_id: "north_02",
             view_id: "parcel_north_02",
             district: "north",
@@ -198,14 +198,14 @@ fn app_message_helpers_persist_and_emit_expected_events() {
 }
 
 #[test]
-fn commercial_parcel_actions_emit_cache_invalidation_events() {
+fn parcel_actions_emit_cache_invalidation_events() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     rt.block_on(async {
-        let app = AppService::new(TestCommercialStore {
-            parcel: Mutex::new(TestCommercialParcel {
+        let app = AppService::new(TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
                 parcel_id: "parcel-1",
                 view_id: "parcel-view",
                 front_view_id: "street-a",
@@ -226,12 +226,12 @@ fn commercial_parcel_actions_emit_cache_invalidation_events() {
         });
 
         let claim = app
-            .claim_land("parcel-1", "alice", "player-1", "token-1")
+            .claim_parcel("parcel-1", "alice", "player-1", "token-1")
             .await
             .expect("claim land");
         assert_eq!(
             claim.invalidate,
-            Some(CommercialParcelCacheInvalidation {
+            Some(ParcelCacheInvalidation {
                 view_id: "parcel-view".to_owned(),
                 front_view_id: "street-a".to_owned(),
             })
@@ -242,7 +242,7 @@ fn commercial_parcel_actions_emit_cache_invalidation_events() {
                 "parcel-view",
                 "player-1",
                 &BuildSheet {
-                    title: Some("Shop".to_owned()),
+                    title: Some("Parcel".to_owned()),
                     description: Some("Desc".to_owned()),
                     style: Some("Style".to_owned()),
                     prompt: Some("Prompt".to_owned()),
@@ -253,7 +253,7 @@ fn commercial_parcel_actions_emit_cache_invalidation_events() {
             .expect("apply build");
         assert_eq!(
             build.invalidate,
-            Some(CommercialParcelCacheInvalidation {
+            Some(ParcelCacheInvalidation {
                 view_id: "parcel-view".to_owned(),
                 front_view_id: "street-a".to_owned(),
             })
@@ -265,7 +265,7 @@ fn commercial_parcel_actions_emit_cache_invalidation_events() {
             .expect("publish build");
         assert_eq!(
             publish.invalidate,
-            Some(CommercialParcelCacheInvalidation {
+            Some(ParcelCacheInvalidation {
                 view_id: "parcel-view".to_owned(),
                 front_view_id: "street-a".to_owned(),
             })
@@ -274,14 +274,14 @@ fn commercial_parcel_actions_emit_cache_invalidation_events() {
 }
 
 #[test]
-fn shop_mailing_list_send_emits_live_inbox_notice() {
+fn parcel_mailing_list_send_emits_live_inbox_notice() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     rt.block_on(async {
-        let app = AppService::new(TestCommercialStore {
-            parcel: Mutex::new(TestCommercialParcel {
+        let app = AppService::new(TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
                 parcel_id: "P1",
                 view_id: "parcel-view",
                 front_view_id: "street-a",
@@ -303,7 +303,7 @@ fn shop_mailing_list_send_emits_live_inbox_notice() {
         let identity = AppIdentity::new("owner", "owner-player");
 
         let result = app
-            .send_shop_mailing_list_post(ShopMailingListPostInput {
+            .send_parcel_mailing_list_post(ParcelMailingListPostInput {
                 current_view: "parcel-view",
                 target: "P1",
                 slug: "updates",
@@ -323,14 +323,14 @@ fn shop_mailing_list_send_emits_live_inbox_notice() {
 }
 
 #[test]
-fn shop_mailing_list_chat_posts_as_member_message() {
+fn parcel_mailing_list_chat_posts_as_member_message() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     rt.block_on(async {
-        let app = AppService::new(TestCommercialStore {
-            parcel: Mutex::new(TestCommercialParcel {
+        let app = AppService::new(TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
                 parcel_id: "P1",
                 view_id: "parcel-view",
                 front_view_id: "street-a",
@@ -352,7 +352,7 @@ fn shop_mailing_list_chat_posts_as_member_message() {
         let identity = AppIdentity::new("visitor", "visitor-player");
 
         let result = app
-            .post_shop_mailing_list_chat(
+            .post_parcel_mailing_list_chat(
                 "parcel-view",
                 "Offline Tool Broker",
                 "updates",
@@ -375,14 +375,14 @@ fn shop_mailing_list_chat_posts_as_member_message() {
 }
 
 #[test]
-fn shop_command_route_service_commands_render_expected_text() {
+fn parcel_command_route_service_commands_render_expected_text() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     rt.block_on(async {
-        let app = AppService::new(TestCommercialStore {
-            parcel: Mutex::new(TestCommercialParcel {
+        let app = AppService::new(TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
                 parcel_id: "P1",
                 view_id: "parcel-view",
                 front_view_id: "street-a",
@@ -403,7 +403,7 @@ fn shop_command_route_service_commands_render_expected_text() {
         });
 
         let added = app
-            .add_shop_command_route(
+            .add_parcel_command_route(
                 "parcel-view",
                 "P1",
                 "owner-player",
@@ -421,14 +421,14 @@ fn shop_command_route_service_commands_render_expected_text() {
         assert!(added.text.contains("start a shift"));
 
         let listed = app
-            .list_shop_command_routes("parcel-view", "P1", "owner-player")
+            .list_parcel_command_routes("parcel-view", "P1", "owner-player")
             .await
             .expect("list routes");
         assert!(listed.text.contains("Parcel Command Routes for P1"));
         assert!(listed.text.contains("/hello -> updates"));
 
         let removed = app
-            .remove_shop_command_route(
+            .remove_parcel_command_route(
                 "parcel-view",
                 "P1",
                 "owner-player",
@@ -455,14 +455,14 @@ fn shop_command_route_service_commands_render_expected_text() {
 }
 
 #[test]
-fn shop_actions_require_inside_shop_before_mutating_state() {
+fn parcel_actions_require_inside_parcel_before_mutating_state() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     rt.block_on(async {
-        let app = AppService::new(TestCommercialStore {
-            parcel: Mutex::new(TestCommercialParcel {
+        let app = AppService::new(TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
                 parcel_id: "P1",
                 view_id: "parcel-view",
                 front_view_id: "street-a",
@@ -481,36 +481,36 @@ fn shop_actions_require_inside_shop_before_mutating_state() {
             }),
             calls: Mutex::new(Vec::new()),
         });
-        let expected = TestCommerceError::ShopWork(
+        let expected = TestCommerceError::ParcelWork(
             "parcel actions can only happen while inside that parcel".to_owned(),
         );
 
         let desk = app
-            .create_shop_work_desk("street-a", "P1", "owner-player", "updates", "Updates")
+            .create_parcel_work_desk("street-a", "P1", "owner-player", "updates", "Updates")
             .await
-            .expect_err("desk create outside shop");
+            .expect_err("desk create outside parcel");
         assert_eq!(desk, expected);
 
         let staff = app
-            .add_shop_staff("street-a", "P1", "updates", "owner-player", "reporter")
+            .add_parcel_staff("street-a", "P1", "updates", "owner-player", "reporter")
             .await
-            .expect_err("staff add outside shop");
+            .expect_err("staff add outside parcel");
         assert_eq!(staff, expected);
 
         let route = app
-            .add_shop_command_route("street-a", "P1", "owner-player", "updates", "/paper")
+            .add_parcel_command_route("street-a", "P1", "owner-player", "updates", "/paper")
             .await
-            .expect_err("route add outside shop");
+            .expect_err("route add outside parcel");
         assert_eq!(route, expected);
 
         let mailing_create = app
-            .create_shop_mailing_list("street-a", "P1", "owner-player", "updates", "Updates")
+            .create_parcel_mailing_list("street-a", "P1", "owner-player", "updates", "Updates")
             .await
-            .expect_err("mailing-list create outside shop");
+            .expect_err("mailing-list create outside parcel");
         assert_eq!(mailing_create, expected);
 
         let mailing_send = app
-            .send_shop_mailing_list_post(ShopMailingListPostInput {
+            .send_parcel_mailing_list_post(ParcelMailingListPostInput {
                 current_view: "street-a",
                 target: "P1",
                 slug: "updates",
@@ -521,11 +521,11 @@ fn shop_actions_require_inside_shop_before_mutating_state() {
             })
             .await
             .err()
-            .expect("mailing-list send outside shop");
+            .expect("mailing-list send outside parcel");
         assert_eq!(mailing_send, expected);
 
         let mailing_chat = app
-            .post_shop_mailing_list_chat(
+            .post_parcel_mailing_list_chat(
                 "street-a",
                 "P1",
                 "updates",
@@ -535,24 +535,24 @@ fn shop_actions_require_inside_shop_before_mutating_state() {
             )
             .await
             .err()
-            .expect("parcel chat outside shop");
+            .expect("parcel chat outside parcel");
         assert_eq!(mailing_chat, expected);
 
         let mailing_subscribe = app
-            .subscribe_shop_mailing_list("street-a", "P1", "updates", "visitor", "visitor-player")
+            .subscribe_parcel_mailing_list("street-a", "P1", "updates", "visitor", "visitor-player")
             .await
-            .expect_err("mailing-list subscribe outside shop");
+            .expect_err("mailing-list subscribe outside parcel");
         assert_eq!(mailing_subscribe, expected);
 
         let payment = app
-            .request_shop_payment("street-a", 1, "owner-player", 25, "delivery")
+            .request_parcel_payment("street-a", 1, "owner-player", 25, "delivery")
             .await
             .err()
-            .expect("payment request outside shop");
+            .expect("payment request outside parcel");
         assert_eq!(payment, expected);
 
         let badge = app
-            .create_shop_badge(
+            .create_parcel_badge(
                 "street-a",
                 "P1",
                 "owner-player",
@@ -561,25 +561,25 @@ fn shop_actions_require_inside_shop_before_mutating_state() {
                 None,
             )
             .await
-            .expect_err("badge create outside shop");
+            .expect_err("badge create outside parcel");
         assert_eq!(badge, expected);
 
         assert!(
             app.store().calls.lock().unwrap().is_empty(),
-            "outside-shop actions must not reach storage mutation calls"
+            "outside-parcel actions must not reach storage mutation calls"
         );
     });
 }
 
 #[test]
-fn shop_badge_service_commands_render_expected_text() {
+fn parcel_badge_service_commands_render_expected_text() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     rt.block_on(async {
-        let app = AppService::new(TestCommercialStore {
-            parcel: Mutex::new(TestCommercialParcel {
+        let app = AppService::new(TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
                 parcel_id: "P1",
                 view_id: "parcel-view",
                 front_view_id: "street-a",
@@ -600,7 +600,7 @@ fn shop_badge_service_commands_render_expected_text() {
         });
 
         let created = app
-            .create_shop_badge(
+            .create_parcel_badge(
                 "parcel-view",
                 "P1",
                 "owner-player",
@@ -618,14 +618,14 @@ fn shop_badge_service_commands_render_expected_text() {
         );
 
         let list = app
-            .list_shop_badges("parcel-view", "P1", "owner-player")
+            .list_parcel_badges("parcel-view", "P1", "owner-player")
             .await
             .expect("list badges");
         assert!(list.text.contains("Parcel Badges for P1"));
         assert!(list.text.contains("Good Patron"));
 
         let award = app
-            .award_shop_badge(ShopBadgeAwardInput {
+            .award_parcel_badge(ParcelBadgeAwardInput {
                 current_view: "parcel-view",
                 parcel_id: "P1",
                 slug: "patron",
@@ -652,7 +652,7 @@ fn shop_badge_service_commands_render_expected_text() {
         assert!(badges.text.contains("Note: great work"));
 
         let revoke = app
-            .revoke_shop_badge("parcel-view", "P1", "patron", "owner-player", "visitor")
+            .revoke_parcel_badge("parcel-view", "P1", "patron", "owner-player", "visitor")
             .await
             .expect("revoke badge");
         assert!(revoke.text.contains("Revoked badge Good Patron (patron)"));

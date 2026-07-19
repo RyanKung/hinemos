@@ -18,7 +18,7 @@ impl TestDatabase {
     fn create() -> Self {
         let base_url = database_url();
         let name = format!(
-            "hinemos_storage_shop_badges_{}_{}_{}",
+            "hinemos_storage_parcel_badges_{}_{}_{}",
             std::process::id(),
             epoch_nanos(),
             TEST_DATABASE_COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -118,7 +118,7 @@ fn skip_without_database() -> bool {
     }
 }
 
-async fn storage_with_built_shop() -> (TestDatabase, PgStorage) {
+async fn storage_with_built_parcel() -> (TestDatabase, PgStorage) {
     let db = TestDatabase::create();
     let storage = PgStorage::connect(&db.url).await.expect("connect");
     storage.migrate().await.expect("migrate");
@@ -135,11 +135,11 @@ async fn storage_with_built_shop() -> (TestDatabase, PgStorage) {
         .await
         .expect("customer identity");
     storage
-        .claim_commercial_parcel("E1-C0-01", "owner", "player:owner")
+        .claim_parcel("E1-C0-01", "owner", "player:owner")
         .await
-        .expect("claim grid shop parcel");
+        .expect("claim grid parcel parcel");
     db.query_value(
-        "update commercial_parcels
+        "update parcels
          set owner_user = 'owner',
              owner_player_id = 'player:owner',
              status = 'built',
@@ -158,22 +158,22 @@ async fn badge_actions_canonicalize_generated_grid_parcel_ids() {
     if skip_without_database() {
         return;
     }
-    let (db, storage) = storage_with_built_shop().await;
+    let (db, storage) = storage_with_built_parcel().await;
     db.query_value(
-        "update commercial_parcels
+        "update parcels
          set status = 'built',
-             title = 'Grid Shop'
+             title = 'Grid Parcel'
          where parcel_id = 'E1-C0-01'",
     );
 
     let badge = storage
-        .create_shop_badge("E1-C0-1", "player:owner", "patron", "Grid Patron", None)
+        .create_parcel_badge("E1-C0-1", "player:owner", "patron", "Grid Patron", None)
         .await
         .expect("create grid badge");
     assert_eq!(badge.parcel_id, "E1-C0-01");
 
     let award = storage
-        .award_shop_badge(
+        .award_parcel_badge(
             "e1-c0-1",
             "patron",
             "owner",
@@ -186,7 +186,7 @@ async fn badge_actions_canonicalize_generated_grid_parcel_ids() {
     assert_eq!(award.parcel_id, "E1-C0-01");
 
     let visible = storage
-        .shop_badges_for_player("player:customer", 10)
+        .parcel_badges_for_player("player:customer", 10)
         .await
         .expect("visible grid badge");
     assert_eq!(visible.len(), 1);
@@ -198,10 +198,10 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
     if skip_without_database() {
         return;
     }
-    let (db, storage) = storage_with_built_shop().await;
+    let (db, storage) = storage_with_built_parcel().await;
 
     let badge = storage
-        .create_shop_badge(
+        .create_parcel_badge(
             "E1-C0-01",
             "player:owner",
             "patron",
@@ -213,7 +213,7 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
     assert_eq!(badge.slug, "patron");
 
     let updated = storage
-        .create_shop_badge("E1-C0-01", "player:owner", "patron", "Great Patron", None)
+        .create_parcel_badge("E1-C0-01", "player:owner", "patron", "Great Patron", None)
         .await
         .expect("update badge");
     assert_eq!(updated.id, badge.id);
@@ -221,7 +221,7 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
 
     assert!(matches!(
         storage
-            .award_shop_badge(
+            .award_parcel_badge(
                 "E1-C0-01",
                 "patron",
                 "customer",
@@ -234,7 +234,7 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
     ));
 
     let award = storage
-        .award_shop_badge(
+        .award_parcel_badge(
             "E1-C0-01",
             "patron",
             "owner",
@@ -249,7 +249,7 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
     assert_eq!(award.status, PARCEL_BADGE_AWARD_ACTIVE);
 
     let duplicate = storage
-        .award_shop_badge(
+        .award_parcel_badge(
             "E1-C0-01",
             "patron",
             "owner",
@@ -261,12 +261,12 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
         .expect("duplicate award is idempotent");
     assert_eq!(duplicate.id, award.id);
     assert_eq!(
-        db.query_value("select count(*) from shop_badge_awards where status = 'active'"),
+        db.query_value("select count(*) from parcel_badge_awards where status = 'active'"),
         "1"
     );
 
     let visible = storage
-        .shop_badges_for_target("customer", 10)
+        .parcel_badges_for_target("customer", 10)
         .await
         .expect("badges for target");
     assert_eq!(visible.len(), 1);
@@ -274,13 +274,13 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
     assert_eq!(visible[0].parcel_id, "E1-C0-01");
 
     let revoked = storage
-        .revoke_shop_badge("E1-C0-01", "patron", "player:owner", "customer")
+        .revoke_parcel_badge("E1-C0-01", "patron", "player:owner", "customer")
         .await
         .expect("revoke badge");
     assert_eq!(revoked.status, PARCEL_BADGE_AWARD_REVOKED);
     assert_eq!(
         storage
-            .shop_badges_for_player("player:customer", 10)
+            .parcel_badges_for_player("player:customer", 10)
             .await
             .expect("badges after revoke")
             .len(),
@@ -288,7 +288,7 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
     );
 
     let reawarded = storage
-        .award_shop_badge(
+        .award_parcel_badge(
             "E1-C0-01",
             "patron",
             "owner",
@@ -304,26 +304,28 @@ async fn badge_award_lifecycle_is_persisted_and_idempotent() {
     );
     assert_eq!(reawarded.status, PARCEL_BADGE_AWARD_ACTIVE);
     assert_eq!(
-        db.query_value("select count(*) from shop_badge_awards where recipient_user = 'customer'"),
+        db.query_value(
+            "select count(*) from parcel_badge_awards where recipient_user = 'customer'"
+        ),
         "2"
     );
     assert_eq!(
-        db.query_value("select count(*) from shop_badge_awards where status = 'active'"),
+        db.query_value("select count(*) from parcel_badge_awards where status = 'active'"),
         "1"
     );
     assert_eq!(
-        db.query_value("select count(*) from shop_badge_awards where status = 'revoked'"),
+        db.query_value("select count(*) from parcel_badge_awards where status = 'revoked'"),
         "1"
     );
     assert_eq!(
         db.query_value(&format!(
-            "select revoked_at is not null from shop_badge_awards where id = {}",
+            "select revoked_at is not null from parcel_badge_awards where id = {}",
             award.id
         )),
         "t"
     );
     let visible_after_reaward = storage
-        .shop_badges_for_player("player:customer", 10)
+        .parcel_badges_for_player("player:customer", 10)
         .await
         .expect("badges after re-award");
     assert_eq!(visible_after_reaward.len(), 1);
@@ -335,13 +337,13 @@ async fn badge_owner_permission_follows_current_parcel_owner() {
     if skip_without_database() {
         return;
     }
-    let (db, storage) = storage_with_built_shop().await;
+    let (db, storage) = storage_with_built_parcel().await;
     storage
-        .create_shop_badge("E1-C0-01", "player:owner", "patron", "Good Patron", None)
+        .create_parcel_badge("E1-C0-01", "player:owner", "patron", "Good Patron", None)
         .await
         .expect("create badge");
     db.query_value(
-        "update commercial_parcels
+        "update parcels
          set owner_user = 'newowner',
              owner_player_id = 'player:newowner'
          where parcel_id = 'E1-C0-01'",
@@ -349,7 +351,7 @@ async fn badge_owner_permission_follows_current_parcel_owner() {
 
     assert!(matches!(
         storage
-            .award_shop_badge(
+            .award_parcel_badge(
                 "E1-C0-01",
                 "patron",
                 "owner",
@@ -361,7 +363,7 @@ async fn badge_owner_permission_follows_current_parcel_owner() {
         Err(StorageError::NotParcelOwner(_))
     ));
     let award = storage
-        .award_shop_badge(
+        .award_parcel_badge(
             "E1-C0-01",
             "patron",
             "newowner",

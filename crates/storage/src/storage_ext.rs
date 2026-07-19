@@ -630,14 +630,14 @@ impl PgStorage {
         Ok(())
     }
 
-    /// Lists all commercial parcels.
-    pub async fn list_commercial_parcels(&self) -> Result<Vec<StoredParcel>, StorageError> {
+    /// Lists all parcels.
+    pub async fn list_parcels(&self) -> Result<Vec<StoredParcel>, StorageError> {
         let parcels = sqlx::query_as::<_, StoredParcel>(
             r#"
             select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                    room_user, room_player_id,
                    status, title, description, style, operator_prompt, custom_commands
-            from commercial_parcels
+            from parcels
             order by district, position
             "#,
         )
@@ -646,8 +646,8 @@ impl PgStorage {
         Ok(parcels)
     }
 
-    /// Lists commercial parcels whose entrances are visible from a front view.
-    pub async fn commercial_parcels_by_front_view(
+    /// Lists parcels whose entrances are visible from a front view.
+    pub async fn parcels_by_front_view(
         &self,
         front_view_id: &str,
     ) -> Result<Vec<StoredParcel>, StorageError> {
@@ -656,7 +656,7 @@ impl PgStorage {
             select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                    room_user, room_player_id,
                    status, title, description, style, operator_prompt, custom_commands
-            from commercial_parcels
+            from parcels
             where front_view_id = $1
             order by district, position
             "#,
@@ -677,13 +677,13 @@ impl PgStorage {
             .collect())
     }
 
-    /// Loads a commercial parcel by parcel id.
-    pub async fn commercial_parcel(&self, parcel_id: &str) -> Result<StoredParcel, StorageError> {
+    /// Loads a parcel by parcel id.
+    pub async fn parcel_by_id(&self, parcel_id: &str) -> Result<StoredParcel, StorageError> {
         fetch_parcel_by_id(&self.pool, parcel_id).await
     }
 
-    /// Loads a commercial parcel by view id.
-    pub async fn commercial_parcel_by_view(
+    /// Loads a parcel by view id.
+    pub async fn parcel_by_view(
         &self,
         view_id: &str,
     ) -> Result<Option<StoredParcel>, StorageError> {
@@ -692,7 +692,7 @@ impl PgStorage {
             select parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id,
                    room_user, room_player_id,
                    status, title, description, style, operator_prompt, custom_commands
-            from commercial_parcels
+            from parcels
             where view_id = $1
             "#,
         )
@@ -705,8 +705,8 @@ impl PgStorage {
         Ok(virtual_grid_parcel_by_view(view_id))
     }
 
-    /// Claims a free commercial parcel.
-    pub async fn claim_commercial_parcel(
+    /// Claims a free parcel.
+    pub async fn claim_parcel(
         &self,
         parcel_id: &str,
         owner_user: &str,
@@ -716,7 +716,7 @@ impl PgStorage {
         ensure_grid_parcel(&self.pool, parcel_id.as_ref()).await?;
         let updated = sqlx::query_as::<_, StoredParcel>(
             r#"
-            update commercial_parcels
+            update parcels
             set owner_user = $2,
                 owner_player_id = $3,
                 room_user = coalesce(room_user, $4),
@@ -742,7 +742,7 @@ impl PgStorage {
             return Ok(parcel);
         }
 
-        let existing = self.commercial_parcel(parcel_id.as_ref()).await?;
+        let existing = self.parcel_by_id(parcel_id.as_ref()).await?;
         if existing.owner_player_id.is_some() {
             Err(StorageError::ParcelAlreadyOwned(parcel_id.into_owned()))
         } else {
@@ -750,8 +750,8 @@ impl PgStorage {
         }
     }
 
-    /// Transfers a commercial parcel to another known player.
-    pub async fn transfer_commercial_parcel(
+    /// Transfers a parcel to another known player.
+    pub async fn transfer_parcel(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -762,7 +762,7 @@ impl PgStorage {
         let target = resolve_payment_target(&mut tx, target).await?;
         let updated = sqlx::query_as::<_, StoredParcel>(
             r#"
-            update commercial_parcels
+            update parcels
             set owner_user = $3,
                 owner_player_id = $4,
                 updated_at = now()
@@ -801,7 +801,7 @@ impl PgStorage {
             _ => return Err(StorageError::UnknownBuildField(field.to_owned())),
         };
         let query = format!(
-            "update commercial_parcels set {column} = $3, updated_at = now() \
+            "update parcels set {column} = $3, updated_at = now() \
              where view_id = $1 and owner_player_id = $2 \
              returning parcel_id, view_id, front_view_id, district, position, owner_user, owner_player_id, \
                        room_user, room_player_id, \
@@ -825,7 +825,7 @@ impl PgStorage {
     ) -> Result<StoredParcel, StorageError> {
         let updated = sqlx::query_as::<_, StoredParcel>(
             r#"
-            update commercial_parcels
+            update parcels
             set status = 'built',
                 updated_at = now()
             where view_id = $1

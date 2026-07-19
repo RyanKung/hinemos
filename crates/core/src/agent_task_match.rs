@@ -200,25 +200,25 @@ fn parcel_action_matches(action: &ParcelAction, template: &ParcelAction) -> bool
                 && template_i64_matches(*amount, *template_amount)
         }
         (ParcelAction::MailingList { action }, ParcelAction::MailingList { action: template }) => {
-            shop_mailing_list_action_matches(action, template)
+            parcel_mailing_list_action_matches(action, template)
         }
         (ParcelAction::Desk { action }, ParcelAction::Desk { action: template }) => {
-            shop_desk_action_matches(action, template)
+            parcel_desk_action_matches(action, template)
         }
         (ParcelAction::Route { action }, ParcelAction::Route { action: template }) => {
-            shop_route_action_matches(action, template)
+            parcel_route_action_matches(action, template)
         }
         (ParcelAction::Staff { action }, ParcelAction::Staff { action: template }) => {
-            shop_staff_action_matches(action, template)
+            parcel_staff_action_matches(action, template)
         }
         (ParcelAction::Shift { action }, ParcelAction::Shift { action: template }) => {
-            shop_shift_action_matches(action, template)
+            parcel_shift_action_matches(action, template)
         }
         (ParcelAction::Work { action }, ParcelAction::Work { action: template }) => {
-            shop_work_action_matches(action, template)
+            parcel_work_action_matches(action, template)
         }
         (ParcelAction::Badge { action }, ParcelAction::Badge { action: template }) => {
-            shop_badge_action_matches(action, template)
+            parcel_badge_action_matches(action, template)
         }
         (ParcelAction::Subscriptions, ParcelAction::Subscriptions) => true,
         (
@@ -266,7 +266,7 @@ fn build_action_matches(action: &BuildAction, template: &BuildAction) -> bool {
     }
 }
 
-fn shop_mailing_list_action_matches(
+fn parcel_mailing_list_action_matches(
     action: &ParcelMailingListAction,
     template: &ParcelMailingListAction,
 ) -> bool {
@@ -318,7 +318,7 @@ fn shop_mailing_list_action_matches(
     }
 }
 
-fn shop_desk_action_matches(action: &ParcelDeskAction, template: &ParcelDeskAction) -> bool {
+fn parcel_desk_action_matches(action: &ParcelDeskAction, template: &ParcelDeskAction) -> bool {
     match (action, template) {
         (
             ParcelDeskAction::Create {
@@ -343,7 +343,7 @@ fn shop_desk_action_matches(action: &ParcelDeskAction, template: &ParcelDeskActi
     }
 }
 
-fn shop_route_action_matches(action: &ParcelRouteAction, template: &ParcelRouteAction) -> bool {
+fn parcel_route_action_matches(action: &ParcelRouteAction, template: &ParcelRouteAction) -> bool {
     match (action, template) {
         (
             ParcelRouteAction::Add {
@@ -383,7 +383,7 @@ fn shop_route_action_matches(action: &ParcelRouteAction, template: &ParcelRouteA
     }
 }
 
-fn shop_staff_action_matches(action: &ParcelStaffAction, template: &ParcelStaffAction) -> bool {
+fn parcel_staff_action_matches(action: &ParcelStaffAction, template: &ParcelStaffAction) -> bool {
     match (action, template) {
         (
             ParcelStaffAction::Add {
@@ -427,7 +427,7 @@ fn shop_staff_action_matches(action: &ParcelStaffAction, template: &ParcelStaffA
     }
 }
 
-fn shop_shift_action_matches(action: &ParcelShiftAction, template: &ParcelShiftAction) -> bool {
+fn parcel_shift_action_matches(action: &ParcelShiftAction, template: &ParcelShiftAction) -> bool {
     match (action, template) {
         (
             ParcelShiftAction::Start { parcel_id, slug },
@@ -450,7 +450,7 @@ fn shop_shift_action_matches(action: &ParcelShiftAction, template: &ParcelShiftA
     }
 }
 
-fn shop_work_action_matches(action: &ParcelWorkAction, template: &ParcelWorkAction) -> bool {
+fn parcel_work_action_matches(action: &ParcelWorkAction, template: &ParcelWorkAction) -> bool {
     match (action, template) {
         (
             ParcelWorkAction::List { parcel_id, slug },
@@ -489,7 +489,7 @@ fn shop_work_action_matches(action: &ParcelWorkAction, template: &ParcelWorkActi
     }
 }
 
-fn shop_badge_action_matches(action: &ParcelBadgeAction, template: &ParcelBadgeAction) -> bool {
+fn parcel_badge_action_matches(action: &ParcelBadgeAction, template: &ParcelBadgeAction) -> bool {
     match (action, template) {
         (
             ParcelBadgeAction::List { parcel_id },

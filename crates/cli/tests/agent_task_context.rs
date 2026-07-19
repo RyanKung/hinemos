@@ -344,7 +344,7 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     );
     let claimed_grid_parcel = test_database.query_value(&format!(
         "select concat_ws(':', parcel_id, front_view_id, owner_user)
-         from commercial_parcels
+         from parcels
          where parcel_id = 'E2-C0-01'
            and owner_user = '{user}'"
     ));

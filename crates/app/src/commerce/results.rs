@@ -1,5 +1,5 @@
-/// Result from creating a shop payment request.
-pub struct ShopPaymentRequestResult<I> {
+/// Result from creating a parcel payment request.
+pub struct ParcelPaymentRequestResult<I> {
     /// Text to display to the parcel operator.
     pub text: String,
     /// Payer player id for live delivery.
@@ -35,11 +35,11 @@ pub struct BusinessListResult {
 
 /// Result from a land operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LandCommandResult {
+pub struct ParcelOwnershipResult {
     /// Text to display to the user.
     pub text: String,
     /// Optional parcel cache invalidation.
-    pub invalidate: Option<CommercialParcelCacheInvalidation>,
+    pub invalidate: Option<ParcelCacheInvalidation>,
 }
 
 /// Result from a build operation.
@@ -48,12 +48,12 @@ pub struct BuildCommandResult {
     /// Text to display to the user.
     pub text: String,
     /// Optional parcel cache invalidation.
-    pub invalidate: Option<CommercialParcelCacheInvalidation>,
+    pub invalidate: Option<ParcelCacheInvalidation>,
 }
 
 /// Cache key for a parcel and its front view.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommercialParcelCacheInvalidation {
+pub struct ParcelCacheInvalidation {
     /// Parcel view id.
     pub view_id: String,
     /// Front/street view where the parcel is visible.

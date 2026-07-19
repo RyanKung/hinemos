@@ -5,7 +5,7 @@ use super::route::{InboxAppRequest, InboxMutation};
 
 impl<S, E> AppService<S>
 where
-    S: InboxStore<Error = E> + ShopStore<Error = E>,
+    S: InboxStore<Error = E>,
 {
     pub(super) async fn handle_inbox_request(
         &self,

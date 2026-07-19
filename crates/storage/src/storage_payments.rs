@@ -150,7 +150,7 @@ impl PgStorage {
         let payee_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: request.payee_player_id.clone(),
-                source: "shop".to_owned(),
+                source: "parcel".to_owned(),
                 event_type: "payment_request_created".to_owned(),
                 actors: json!([request.payee_user, request.payer_user]),
                 content: format!(
@@ -207,7 +207,7 @@ impl PgStorage {
         let payer_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: request.payer_player_id.clone(),
-                source: "shop".to_owned(),
+                source: "parcel".to_owned(),
                 event_type: "payment_request_received".to_owned(),
                 actors: json!([request.payee_user, request.payer_user]),
                 content: format!(
@@ -353,7 +353,7 @@ impl PgStorage {
             insert into world_ledger_entries (
                 asset, debit_account_id, credit_account_id, amount, reason, memo
             )
-            values ('MARK', $1, $2, $3, 'shop_payment_request', $4)
+            values ('MARK', $1, $2, $3, 'parcel_payment_request', $4)
             returning id
             "#,
         )

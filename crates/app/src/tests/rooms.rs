@@ -139,16 +139,16 @@ fn service_room_binding_helper_reads_room_binding_view() {
 fn visible_room_enter_events_returns_none_when_no_visible_binding_matches() {
     let app = AppService::new(TestRoomStore { service_room: None });
     let bindings = vec![TestRoomBinding {
-        view_id: "workshop_room",
-        front_entity_id: Some("workshop_door"),
+        view_id: "studio_room",
+        front_entity_id: Some("studio_door"),
         address: "XR4",
-        label: "External Workshop",
-        enter_aliases: vec!["workshop".to_owned()],
+        label: "External Studio",
+        enter_aliases: vec!["studio".to_owned()],
     }];
     let visible_entity_ids = Vec::<String>::new();
 
     assert!(
-        app.visible_room_enter_events("workshop", &visible_entity_ids, &bindings)
+        app.visible_room_enter_events("studio", &visible_entity_ids, &bindings)
             .is_none()
     );
 }
@@ -222,10 +222,10 @@ fn room_binding_accepts_input_honors_forward_all_and_prefix_matching() {
     assert!(app.room_binding_accepts_input(&policy_binding, "/anything"));
 
     let binding = TestRoomBinding {
-        view_id: "workshop_room",
-        front_entity_id: Some("workshop_door"),
+        view_id: "studio_room",
+        front_entity_id: Some("studio_door"),
         address: "XR4",
-        label: "External Workshop",
+        label: "External Studio",
         enter_aliases: vec!["/Room Status".to_owned(), "/room ask".to_owned()],
     };
     assert!(app.room_binding_accepts_input(&binding, "/ROOM STATUS"));
@@ -375,19 +375,19 @@ fn service_room_command_for_binding_quit_closes_session() {
 fn room_binding_enter_matching_uses_explicit_tokens_and_visibility() {
     let app = AppService::new(TestRoomStore { service_room: None });
     let binding = TestRoomBinding {
-        view_id: "workshop_room",
-        front_entity_id: Some("workshop_door"),
+        view_id: "studio_room",
+        front_entity_id: Some("studio_door"),
         address: "XR4",
-        label: "External Workshop",
-        enter_aliases: vec!["workshop".to_owned()],
+        label: "External Studio",
+        enter_aliases: vec!["studio".to_owned()],
     };
 
     assert!(app.room_binding_enter_matches(&binding, &app.normalize_enter_target("xr4")));
     assert!(
-        app.room_binding_enter_matches(&binding, &app.normalize_enter_target("External Workshop"))
+        app.room_binding_enter_matches(&binding, &app.normalize_enter_target("External Studio"))
     );
-    assert!(app.room_binding_enter_matches(&binding, &app.normalize_enter_target("workshop")));
+    assert!(app.room_binding_enter_matches(&binding, &app.normalize_enter_target("studio")));
     assert!(!app.room_binding_enter_matches(&binding, &app.normalize_enter_target("room")));
-    assert!(app.room_binding_is_visible(&binding, &["workshop_door".to_owned()]));
+    assert!(app.room_binding_is_visible(&binding, &["studio_door".to_owned()]));
     assert!(!app.room_binding_is_visible(&binding, &["other_door".to_owned()]));
 }

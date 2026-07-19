@@ -20,7 +20,7 @@ impl TestDatabase {
     fn create() -> Self {
         let base_url = database_url();
         let name = format!(
-            "hinemos_storage_shop_mailing_lists_{}_{}_{}",
+            "hinemos_storage_parcel_mailing_lists_{}_{}_{}",
             std::process::id(),
             epoch_nanos(),
             TEST_DATABASE_COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -122,7 +122,7 @@ fn skip_without_database() -> bool {
     }
 }
 
-async fn storage_with_built_shop() -> (TestDatabase, PgStorage) {
+async fn storage_with_built_parcel() -> (TestDatabase, PgStorage) {
     let db = TestDatabase::create();
     let storage = PgStorage::connect(&db.url).await.expect("connect");
     storage.migrate().await.expect("migrate");
@@ -143,11 +143,11 @@ async fn storage_with_built_shop() -> (TestDatabase, PgStorage) {
         .await
         .expect("late identity");
     storage
-        .claim_commercial_parcel("E1-C0-01", "owner", "player:owner")
+        .claim_parcel("E1-C0-01", "owner", "player:owner")
         .await
-        .expect("claim grid shop parcel");
+        .expect("claim grid parcel parcel");
     db.query_value(
-        "update commercial_parcels
+        "update parcels
          set owner_user = 'owner',
              owner_player_id = 'player:owner',
              status = 'built',
@@ -171,7 +171,7 @@ async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
     storage.migrate().await.expect("migrate");
 
     let virtual_parcels = storage
-        .commercial_parcels_by_front_view("grid_road_xp1_y0")
+        .parcels_by_front_view("grid_road_xp1_y0")
         .await
         .expect("virtual parcels");
     let parcel_ids = virtual_parcels
@@ -189,14 +189,14 @@ async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
     );
 
     let virtual_detail = storage
-        .commercial_parcel("e1-c0-1")
+        .parcel_by_id("e1-c0-1")
         .await
         .expect("canonical virtual parcel detail");
     assert_eq!(virtual_detail.parcel_id, "E1-C0-01");
     assert_eq!(virtual_detail.status, PARCEL_STATUS_VACANT);
 
     let claimed = storage
-        .claim_commercial_parcel("e1-c0-1", "owner", "player:owner")
+        .claim_parcel("e1-c0-1", "owner", "player:owner")
         .await
         .expect("claim canonicalized parcel");
     assert_eq!(claimed.parcel_id, "E1-C0-01");
@@ -209,7 +209,7 @@ async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
     assert_eq!(mail.username, "room-E1-C0-01");
 
     let stored = storage
-        .commercial_parcel("E1-C0-1")
+        .parcel_by_id("E1-C0-1")
         .await
         .expect("canonical stored parcel detail");
     assert_eq!(stored.parcel_id, "E1-C0-01");
@@ -217,29 +217,29 @@ async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
     assert_eq!(stored.room_user.as_deref(), Some("room-E1-C0-01"));
 
     db.query_value(
-        "update commercial_parcels
+        "update parcels
          set status = 'built',
-             title = 'Grid Shop'
+             title = 'Grid Parcel'
          where parcel_id = 'E1-C0-01'",
     );
     let list = storage
-        .create_shop_mailing_list("E1-C0-1", "player:owner", "updates", "Grid Updates")
+        .create_parcel_mailing_list("E1-C0-1", "player:owner", "updates", "Grid Updates")
         .await
         .expect("mailing-list create canonicalizes parcel id");
     assert_eq!(list.parcel_id, "E1-C0-01");
     let listed = storage
-        .shop_mailing_lists("e1-c0-1", "player:owner")
+        .parcel_mailing_lists("e1-c0-1", "player:owner")
         .await
         .expect("mailing-list list canonicalizes parcel id");
     assert_eq!(listed.len(), 1);
     let subscription = storage
-        .subscribe_shop_mailing_list("E1-C0-1", "updates", "customer", "player:customer")
+        .subscribe_parcel_mailing_list("E1-C0-1", "updates", "customer", "player:customer")
         .await
         .expect("mailing-list subscribe canonicalizes parcel id");
     assert_eq!(subscription.parcel_id, "E1-C0-01");
 
     let by_view = storage
-        .commercial_parcel_by_view("parcel_E1-C0-01")
+        .parcel_by_view("parcel_E1-C0-01")
         .await
         .expect("parcel by view")
         .expect("generated parcel binding");
@@ -247,7 +247,7 @@ async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
     assert_eq!(by_view.owner_player_id.as_deref(), Some("player:owner"));
 
     let overlaid = storage
-        .commercial_parcels_by_front_view("grid_road_xp1_y0")
+        .parcels_by_front_view("grid_road_xp1_y0")
         .await
         .expect("front-view overlay");
     let claimed_overlay = overlaid
@@ -271,7 +271,7 @@ async fn legacy_static_vacant_parcels_are_removed_without_deleting_built_history
     storage.migrate().await.expect("migrate");
 
     db.query_value(
-        "insert into commercial_parcels
+        "insert into parcels
             (parcel_id, view_id, front_view_id, district, position, status)
          values
             ('N1', 'parcel_N1', 'street_north_01', 'north', 1, 'vacant'),
@@ -281,14 +281,14 @@ async fn legacy_static_vacant_parcels_are_removed_without_deleting_built_history
 
     let legacy_count = db.query_value(
         "select count(*)
-         from commercial_parcels
+         from parcels
          where district in ('north', 'south')
            and owner_player_id is null
            and status = 'vacant'",
     );
     let built_count = db.query_value(
         "select count(*)
-         from commercial_parcels
+         from parcels
          where parcel_id = 'N3'
            and status = 'built'",
     );
@@ -296,7 +296,7 @@ async fn legacy_static_vacant_parcels_are_removed_without_deleting_built_history
     assert_eq!(legacy_count, "0");
     assert_eq!(built_count, "1");
     assert!(matches!(
-        storage.commercial_parcel("N1").await,
+        storage.parcel_by_id("N1").await,
         Err(StorageError::ParcelNotFound(parcel_id)) if parcel_id == "N1"
     ));
 }
@@ -311,16 +311,16 @@ async fn generated_grid_origin_parcel_is_not_virtual_or_claimable() {
     storage.migrate().await.expect("migrate");
 
     let detail = storage
-        .commercial_parcel("C0-C0-01")
+        .parcel_by_id("C0-C0-01")
         .await
         .expect_err("origin parcel should not exist");
     let claim = storage
-        .claim_commercial_parcel("C0-C0-01", "owner", "player:owner")
+        .claim_parcel("C0-C0-01", "owner", "player:owner")
         .await
         .expect_err("origin parcel should not be claimable");
     let stored_count = db.query_value(
         "select count(*)
-         from commercial_parcels
+         from parcels
          where parcel_id = 'C0-C0-01'",
     );
 
@@ -340,33 +340,33 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
     if skip_without_database() {
         return;
     }
-    let (db, storage) = storage_with_built_shop().await;
+    let (db, storage) = storage_with_built_parcel().await;
 
     let list = storage
-        .create_shop_mailing_list("E1-C0-01", "player:owner", "updates", "Shop Updates")
+        .create_parcel_mailing_list("E1-C0-01", "player:owner", "updates", "Parcel Updates")
         .await
         .expect("create list");
     assert_eq!(list.slug, "updates");
     assert!(matches!(
         storage
-            .create_shop_mailing_list("E1-C0-01", "player:owner", "updates", "Duplicate")
+            .create_parcel_mailing_list("E1-C0-01", "player:owner", "updates", "Duplicate")
             .await,
         Err(StorageError::MailingListAlreadyExists { .. })
     ));
 
     storage
-        .subscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
+        .subscribe_parcel_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("subscribe");
     assert!(matches!(
         storage
-            .subscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
+            .subscribe_parcel_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
             .await,
         Err(StorageError::MailingListAlreadySubscribed { .. })
     ));
     assert_eq!(
         storage
-            .shop_mailing_list_subscriptions("player:customer")
+            .parcel_mailing_list_subscriptions("player:customer")
             .await
             .expect("subscriptions")
             .len(),
@@ -374,7 +374,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
     );
 
     let sent = storage
-        .send_shop_mailing_list_post(
+        .send_parcel_mailing_list_post(
             "E1-C0-01",
             "updates",
             "owner",
@@ -392,14 +392,14 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
              from inbox_items
              where kind = 'mail'
                and source_kind = 'parcel_mailing_list_post'
-               and source_id = (select max(id) from shop_mailing_list_posts)"
+               and source_id = (select max(id) from parcel_mailing_list_posts)"
         ),
         "1"
     );
 
     assert!(matches!(
         storage
-            .send_shop_mailing_list_post(
+            .send_parcel_mailing_list_post(
                 "E1-C0-01",
                 "updates",
                 "late",
@@ -411,7 +411,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
         Err(StorageError::MailingListNotMember { .. })
     ));
     let chat = storage
-        .send_shop_mailing_list_post(
+        .send_parcel_mailing_list_post(
             "Offline Tool Broker",
             "updates",
             "customer",
@@ -437,7 +437,7 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
     );
 
     storage
-        .deliver_shop_mailing_list_post(sent.post.id)
+        .deliver_parcel_mailing_list_post(sent.post.id)
         .await
         .expect("retry delivery");
     assert_eq!(
@@ -446,19 +446,19 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
              from inbox_items
              where kind = 'mail'
                and source_kind = 'parcel_mailing_list_post'
-               and source_id = (select max(id) from shop_mailing_list_posts)"
+               and source_id = (select max(id) from parcel_mailing_list_posts)"
         ),
         "1",
         "retrying delivery should reuse the recipient inbox item"
     );
 
     storage
-        .unsubscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
+        .unsubscribe_parcel_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("unsubscribe");
     assert!(matches!(
         storage
-            .send_shop_mailing_list_post(
+            .send_parcel_mailing_list_post(
                 "E1-C0-01",
                 "updates",
                 "owner",
@@ -471,47 +471,47 @@ async fn mailing_list_subscription_delivery_and_retry_are_persisted() {
     ));
 
     storage
-        .subscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
+        .subscribe_parcel_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("resubscribe");
     storage
-        .close_shop_mailing_list("E1-C0-01", "updates", "player:owner")
+        .close_parcel_mailing_list("E1-C0-01", "updates", "player:owner")
         .await
         .expect("close list");
     assert!(matches!(
         storage
-            .subscribe_shop_mailing_list("E1-C0-01", "updates", "late", "player:late")
+            .subscribe_parcel_mailing_list("E1-C0-01", "updates", "late", "player:late")
             .await,
         Err(StorageError::MailingListClosed { .. })
     ));
     storage
-        .unsubscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
+        .unsubscribe_parcel_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("unsubscribe after close");
 }
 
 #[tokio::test]
-async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
+async fn parcel_command_routes_queue_operator_commands_for_in_parcel_workers() {
     if skip_without_database() {
         return;
     }
-    let (db, storage) = storage_with_built_shop().await;
+    let (db, storage) = storage_with_built_parcel().await;
     storage
-        .create_shop_work_desk("E1-C0-01", "player:owner", "submissions", "Submissions")
+        .create_parcel_work_desk("E1-C0-01", "player:owner", "submissions", "Submissions")
         .await
         .expect("create routed desk");
     storage
-        .add_shop_staff("E1-C0-01", "submissions", "player:owner", "customer")
+        .add_parcel_staff("E1-C0-01", "submissions", "player:owner", "customer")
         .await
         .expect("assign worker");
     let route = storage
-        .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/hello")
+        .add_parcel_command_route("E1-C0-01", "player:owner", "submissions", "/hello")
         .await
         .expect("add route");
     assert_eq!(route.command_prefix, "/hello");
     assert_eq!(
         storage
-            .shop_command_routes("E1-C0-01", "player:owner")
+            .parcel_command_routes("E1-C0-01", "player:owner")
             .await
             .expect("list routes")
             .len(),
@@ -519,15 +519,15 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
     );
 
     let parcel = storage
-        .commercial_parcel("E1-C0-01")
+        .parcel_by_id("E1-C0-01")
         .await
-        .expect("load shop parcel");
+        .expect("load parcel parcel");
     let command = storage
         .save_operator_command(&parcel, "late", "player:late", "/hello newsroom", true)
         .await
         .expect("operator command");
     let routed = storage
-        .dispatch_shop_command_routes(&parcel, command.id)
+        .dispatch_parcel_command_routes(&parcel, command.id)
         .await
         .expect("dispatch route");
     assert_eq!(routed.len(), 1);
@@ -539,7 +539,7 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
     assert_eq!(
         db.query_value(
             "select count(*)
-             from shop_work_items
+             from parcel_work_items
              where command_prefix = '/hello'
                and status = 'queued'"
         ),
@@ -554,7 +554,7 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
         "0"
     );
     let listed_without_shift = storage
-        .shop_work_items(
+        .parcel_work_items(
             "E1-C0-01",
             "customer",
             "player:customer",
@@ -565,14 +565,14 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
         .expect_err("worker must start shift before listing work");
     assert!(matches!(
         listed_without_shift,
-        StorageError::ShopShiftNotActive { .. }
+        StorageError::ParcelShiftNotActive { .. }
     ));
     storage
-        .start_shop_shift("E1-C0-01", "submissions", "customer", "player:customer")
+        .start_parcel_shift("E1-C0-01", "submissions", "customer", "player:customer")
         .await
         .expect("start shift");
     let visible = storage
-        .shop_work_items(
+        .parcel_work_items(
             "E1-C0-01",
             "customer",
             "player:customer",
@@ -583,12 +583,12 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
         .expect("list work during shift");
     assert_eq!(visible.len(), 1);
     let claimed = storage
-        .claim_shop_work("E1-C0-01", "customer", "player:customer", routed[0].id)
+        .claim_parcel_work("E1-C0-01", "customer", "player:customer", routed[0].id)
         .await
         .expect("claim work");
     assert_eq!(claimed.status, "claimed");
     let done = storage
-        .finish_shop_work(
+        .finish_parcel_work(
             "E1-C0-01",
             "customer",
             "player:customer",
@@ -600,7 +600,7 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
     assert_eq!(done.status, "done");
     assert_eq!(done.result.as_deref(), Some("accepted for daily"));
     let visible_after_done = storage
-        .shop_work_items(
+        .parcel_work_items(
             "E1-C0-01",
             "customer",
             "player:customer",
@@ -614,11 +614,11 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
     assert_eq!(completed_item.status, "done");
     assert_eq!(completed_item.result.as_deref(), Some("accepted for daily"));
     storage
-        .remove_shop_staff("E1-C0-01", "submissions", "player:owner", "customer")
+        .remove_parcel_staff("E1-C0-01", "submissions", "player:owner", "customer")
         .await
         .expect("remove worker");
     let listed_after_remove = storage
-        .shop_work_items(
+        .parcel_work_items(
             "E1-C0-01",
             "customer",
             "player:customer",
@@ -629,12 +629,12 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
         .expect_err("removed worker cannot list work during old shift");
     assert!(matches!(
         listed_after_remove,
-        StorageError::ShopShiftNotActive { .. }
+        StorageError::ParcelShiftNotActive { .. }
     ));
     assert_eq!(
         db.query_value(
             "select count(*)
-             from shop_work_shifts
+             from parcel_work_shifts
              where worker_user = 'customer'
                and status = 'active'"
         ),
@@ -642,7 +642,7 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
     );
 
     storage
-        .remove_shop_command_route("E1-C0-01", "player:owner", "submissions", "/hello")
+        .remove_parcel_command_route("E1-C0-01", "player:owner", "submissions", "/hello")
         .await
         .expect("remove route");
     let second = storage
@@ -650,47 +650,47 @@ async fn shop_command_routes_queue_operator_commands_for_in_shop_workers() {
         .await
         .expect("second operator command");
     let routed_after_remove = storage
-        .dispatch_shop_command_routes(&parcel, second.id)
+        .dispatch_parcel_command_routes(&parcel, second.id)
         .await
         .expect("dispatch after remove");
     assert!(routed_after_remove.is_empty());
 }
 
 #[tokio::test]
-async fn shop_command_routes_use_one_longest_match_per_work_desk() {
+async fn parcel_command_routes_use_one_longest_match_per_work_desk() {
     if skip_without_database() {
         return;
     }
-    let (db, storage) = storage_with_built_shop().await;
+    let (db, storage) = storage_with_built_parcel().await;
     storage
-        .create_shop_work_desk("E1-C0-01", "player:owner", "submissions", "Submissions")
+        .create_parcel_work_desk("E1-C0-01", "player:owner", "submissions", "Submissions")
         .await
         .expect("create submissions desk");
     storage
-        .create_shop_work_desk("E1-C0-01", "player:owner", "alerts", "Alerts")
+        .create_parcel_work_desk("E1-C0-01", "player:owner", "alerts", "Alerts")
         .await
         .expect("create alerts desk");
     storage
-        .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/paper")
+        .add_parcel_command_route("E1-C0-01", "player:owner", "submissions", "/paper")
         .await
         .expect("add broad route");
     storage
-        .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/paper submit")
+        .add_parcel_command_route("E1-C0-01", "player:owner", "submissions", "/paper submit")
         .await
         .expect("add specific route");
     storage
-        .add_shop_command_route("E1-C0-01", "player:owner", "submissions", "/PAPER SUBMIT")
+        .add_parcel_command_route("E1-C0-01", "player:owner", "submissions", "/PAPER SUBMIT")
         .await
         .expect("add same-length route");
     storage
-        .add_shop_command_route("E1-C0-01", "player:owner", "alerts", "/paper")
+        .add_parcel_command_route("E1-C0-01", "player:owner", "alerts", "/paper")
         .await
         .expect("add second stream route");
 
     let parcel = storage
-        .commercial_parcel("E1-C0-01")
+        .parcel_by_id("E1-C0-01")
         .await
-        .expect("load shop parcel");
+        .expect("load parcel parcel");
     let command = storage
         .save_operator_command(
             &parcel,
@@ -702,7 +702,7 @@ async fn shop_command_routes_use_one_longest_match_per_work_desk() {
         .await
         .expect("operator command");
     let routed = storage
-        .dispatch_shop_command_routes(&parcel, command.id)
+        .dispatch_parcel_command_routes(&parcel, command.id)
         .await
         .expect("dispatch routes");
 
@@ -720,7 +720,7 @@ async fn shop_command_routes_use_one_longest_match_per_work_desk() {
     assert_eq!(
         db.query_value(
             "select count(*)
-             from shop_work_items
+             from parcel_work_items
              where command_prefix = '/paper submit'"
         ),
         "1"
@@ -728,7 +728,7 @@ async fn shop_command_routes_use_one_longest_match_per_work_desk() {
     assert_eq!(
         db.query_value(
             "select count(*)
-             from shop_work_items
+             from parcel_work_items
              where command_prefix = '/PAPER SUBMIT'"
         ),
         "0"
@@ -740,11 +740,11 @@ async fn mailing_list_count_is_limited_per_parcel() {
     if skip_without_database() {
         return;
     }
-    let (_db, storage) = storage_with_built_shop().await;
+    let (_db, storage) = storage_with_built_parcel().await;
 
     for index in 0..PARCEL_MAILING_LISTS_PER_PARCEL_MAX {
         storage
-            .create_shop_mailing_list(
+            .create_parcel_mailing_list(
                 "E1-C0-01",
                 "player:owner",
                 &format!("list-{index}"),
@@ -756,7 +756,7 @@ async fn mailing_list_count_is_limited_per_parcel() {
 
     assert!(matches!(
         storage
-            .create_shop_mailing_list("E1-C0-01", "player:owner", "overflow", "Overflow")
+            .create_parcel_mailing_list("E1-C0-01", "player:owner", "overflow", "Overflow")
             .await,
         Err(StorageError::InvalidMailingList(message))
             if message.contains("mailing-list limit reached")
@@ -768,17 +768,17 @@ async fn mailing_list_owner_permission_follows_current_parcel_owner() {
     if skip_without_database() {
         return;
     }
-    let (db, storage) = storage_with_built_shop().await;
+    let (db, storage) = storage_with_built_parcel().await;
     storage
-        .create_shop_mailing_list("E1-C0-01", "player:owner", "updates", "Shop Updates")
+        .create_parcel_mailing_list("E1-C0-01", "player:owner", "updates", "Parcel Updates")
         .await
         .expect("create list");
     storage
-        .subscribe_shop_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
+        .subscribe_parcel_mailing_list("E1-C0-01", "updates", "customer", "player:customer")
         .await
         .expect("subscribe");
     db.query_value(
-        "update commercial_parcels
+        "update parcels
          set owner_user = 'newowner',
              owner_player_id = 'player:newowner'
          where parcel_id = 'E1-C0-01'",
@@ -786,7 +786,7 @@ async fn mailing_list_owner_permission_follows_current_parcel_owner() {
 
     assert!(matches!(
         storage
-            .send_shop_mailing_list_post(
+            .send_parcel_mailing_list_post(
                 "E1-C0-01",
                 "updates",
                 "owner",
@@ -798,7 +798,7 @@ async fn mailing_list_owner_permission_follows_current_parcel_owner() {
         Err(StorageError::MailingListNotMember { .. })
     ));
     let sent = storage
-        .send_shop_mailing_list_post(
+        .send_parcel_mailing_list_post(
             "E1-C0-01",
             "updates",
             "newowner",

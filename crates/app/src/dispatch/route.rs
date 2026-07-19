@@ -805,7 +805,7 @@ fn route_parcel_operation(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
         AppRequest::BadgesUser { target } => {
             RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::BadgesUser { target })
         }
-        _ => unreachable!("shop request route called with non-shop request"),
+        _ => unreachable!("parcel request route called with non-parcel request"),
     }
 }
 
@@ -907,7 +907,7 @@ mod tests {
     #[test]
     fn build_apply_preserves_sheet_reference() {
         let sheet = BuildSheet {
-            title: Some("Test Shop".to_owned()),
+            title: Some("Test Parcel".to_owned()),
             ..BuildSheet::default()
         };
         let routed = RoutedAppRequest::from(AppRequest::ParcelBuildApply {
@@ -921,7 +921,7 @@ mod tests {
                 sheet,
             }) => {
                 assert_eq!(current_view, "parcel-test");
-                assert_eq!(sheet.title.as_deref(), Some("Test Shop"));
+                assert_eq!(sheet.title.as_deref(), Some("Test Parcel"));
             }
             _ => panic!("expected build apply route"),
         }

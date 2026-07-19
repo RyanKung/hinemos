@@ -642,13 +642,13 @@ fn parcel_line(action: &ParcelAction) -> Option<String> {
         } => Some(format!(
             "/parcel request-payment {command_id} {amount} {delivery}"
         )),
-        ParcelAction::MailingList { action } => Some(shop_mailing_list_line(action)),
-        ParcelAction::Desk { action } => Some(shop_desk_line(action)),
-        ParcelAction::Route { action } => Some(shop_route_line(action)),
-        ParcelAction::Staff { action } => Some(shop_staff_line(action)),
-        ParcelAction::Shift { action } => Some(shop_shift_line(action)),
-        ParcelAction::Work { action } => Some(shop_work_line(action)),
-        ParcelAction::Badge { action } => Some(shop_badge_line(action)),
+        ParcelAction::MailingList { action } => Some(parcel_mailing_list_line(action)),
+        ParcelAction::Desk { action } => Some(parcel_desk_line(action)),
+        ParcelAction::Route { action } => Some(parcel_route_line(action)),
+        ParcelAction::Staff { action } => Some(parcel_staff_line(action)),
+        ParcelAction::Shift { action } => Some(parcel_shift_line(action)),
+        ParcelAction::Work { action } => Some(parcel_work_line(action)),
+        ParcelAction::Badge { action } => Some(parcel_badge_line(action)),
         ParcelAction::Subscribe { target, slug } => {
             Some(format!("/parcel subscribe {target} {slug}"))
         }
@@ -671,7 +671,7 @@ fn build_line(action: &BuildAction) -> Option<String> {
     }
 }
 
-fn shop_mailing_list_line(action: &ParcelMailingListAction) -> String {
+fn parcel_mailing_list_line(action: &ParcelMailingListAction) -> String {
     match action {
         ParcelMailingListAction::Create {
             parcel_id,
@@ -700,7 +700,7 @@ fn shop_mailing_list_line(action: &ParcelMailingListAction) -> String {
     }
 }
 
-fn shop_desk_line(action: &ParcelDeskAction) -> String {
+fn parcel_desk_line(action: &ParcelDeskAction) -> String {
     match action {
         ParcelDeskAction::Create {
             parcel_id,
@@ -713,7 +713,7 @@ fn shop_desk_line(action: &ParcelDeskAction) -> String {
     }
 }
 
-fn shop_route_line(action: &ParcelRouteAction) -> String {
+fn parcel_route_line(action: &ParcelRouteAction) -> String {
     match action {
         ParcelRouteAction::Add {
             parcel_id,
@@ -733,7 +733,7 @@ fn shop_route_line(action: &ParcelRouteAction) -> String {
     }
 }
 
-fn shop_staff_line(action: &ParcelStaffAction) -> String {
+fn parcel_staff_line(action: &ParcelStaffAction) -> String {
     match action {
         ParcelStaffAction::Add {
             parcel_id,
@@ -755,7 +755,7 @@ fn shop_staff_line(action: &ParcelStaffAction) -> String {
     }
 }
 
-fn shop_shift_line(action: &ParcelShiftAction) -> String {
+fn parcel_shift_line(action: &ParcelShiftAction) -> String {
     match action {
         ParcelShiftAction::Start { parcel_id, slug } => {
             format!("/parcel shift start {parcel_id} {slug}")
@@ -766,7 +766,7 @@ fn shop_shift_line(action: &ParcelShiftAction) -> String {
     }
 }
 
-fn shop_work_line(action: &ParcelWorkAction) -> String {
+fn parcel_work_line(action: &ParcelWorkAction) -> String {
     match action {
         ParcelWorkAction::List { parcel_id, slug } => match slug {
             Some(slug) => format!("/parcel work list {parcel_id} {slug}"),
@@ -785,7 +785,7 @@ fn shop_work_line(action: &ParcelWorkAction) -> String {
     }
 }
 
-fn shop_badge_line(action: &ParcelBadgeAction) -> String {
+fn parcel_badge_line(action: &ParcelBadgeAction) -> String {
     match action {
         ParcelBadgeAction::List { parcel_id } => format!("/parcel badge list {parcel_id}"),
         ParcelBadgeAction::Create {

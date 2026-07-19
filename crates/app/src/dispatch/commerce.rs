@@ -1,11 +1,11 @@
 use crate::*;
 
-use super::events::{commercial_parcel_cache_event, text_events};
+use super::events::{parcel_cache_event, text_events};
 use super::route::{ParcelBuildAppRequest, ParcelOperationAppRequest, ParcelRegistryAppRequest};
 
 impl<S, E> AppService<S>
 where
-    S: LandStore<Error = E> + ParcelStore<Error = E>,
+    S: ParcelOwnershipStore<Error = E> + ParcelRegistryStore<Error = E>,
 {
     pub(super) async fn handle_parcel_registry_request(
         &self,
@@ -13,13 +13,13 @@ where
         request: ParcelRegistryAppRequest<'_>,
     ) -> Result<Vec<UiEvent>, E> {
         let (text, cache) = match request {
-            ParcelRegistryAppRequest::List => (self.land_list().await?.text, None),
+            ParcelRegistryAppRequest::List => (self.parcel_list().await?.text, None),
             ParcelRegistryAppRequest::Info { parcel_id } => {
-                (self.land_info(parcel_id).await?.text, None)
+                (self.parcel_info(parcel_id).await?.text, None)
             }
             ParcelRegistryAppRequest::Claim { parcel_id, token } => {
                 let result = self
-                    .claim_land(parcel_id, &identity.user, &identity.player_id, token)
+                    .claim_parcel(parcel_id, &identity.user, &identity.player_id, token)
                     .await?;
                 (result.text, result.invalidate)
             }
@@ -29,24 +29,24 @@ where
                 token,
             } => {
                 let result = self
-                    .transfer_land(parcel_id, &identity.player_id, target, token)
+                    .transfer_parcel(parcel_id, &identity.player_id, target, token)
                     .await?;
                 (result.text, result.invalidate)
             }
             ParcelRegistryAppRequest::RotateToken { parcel_id, token } => {
                 let result = self
-                    .rotate_land_token(parcel_id, &identity.player_id, token)
+                    .rotate_parcel_token(parcel_id, &identity.player_id, token)
                     .await?;
                 (result.text, None)
             }
         };
-        Ok(text_events(text, cache.map(commercial_parcel_cache_event)))
+        Ok(text_events(text, cache.map(parcel_cache_event)))
     }
 }
 
 impl<S, E> AppService<S>
 where
-    S: BuildStore<Error = E> + ShopStore<Error = E>,
+    S: BuildStore<Error = E>,
 {
     pub(super) async fn handle_parcel_build_request(
         &self,
@@ -79,15 +79,15 @@ where
         };
         Ok(text_events(
             result.text,
-            result.invalidate.map(commercial_parcel_cache_event),
+            result.invalidate.map(parcel_cache_event),
         ))
     }
 }
 
 impl<S, E> AppService<S>
 where
-    S: ShopStore<Error = E> + LandStore<Error = E>,
-    E: FromMailingListValidation + FromShopBadgeValidation + FromShopWorkValidation,
+    S: ParcelStore<Error = E> + ParcelOwnershipStore<Error = E>,
+    E: FromMailingListValidation + FromParcelBadgeValidation + FromParcelWorkValidation,
 {
     pub(super) async fn handle_parcel_operation_request(
         &self,
@@ -96,7 +96,7 @@ where
     ) -> Result<Vec<UiEvent>, E> {
         match request {
             ParcelOperationAppRequest::Inbox => Ok(text_events(
-                self.shop_inbox(&identity.player_id).await?.text,
+                self.parcel_inbox(&identity.player_id).await?.text,
                 None,
             )),
             ParcelOperationAppRequest::RequestPayment {
@@ -106,7 +106,7 @@ where
                 delivery,
             } => {
                 let result = self
-                    .request_shop_payment(
+                    .request_parcel_payment(
                         current_view,
                         command_id,
                         &identity.player_id,
@@ -129,7 +129,7 @@ where
                 title,
             } => {
                 let text = self
-                    .create_shop_mailing_list(
+                    .create_parcel_mailing_list(
                         current_view,
                         parcel_id,
                         &identity.player_id,
@@ -140,14 +140,14 @@ where
                     .text;
                 Ok(text_events(
                     text,
-                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                    Some(self.parcel_invalidation(parcel_id).await?),
                 ))
             }
             ParcelOperationAppRequest::MailingListList {
                 current_view,
                 parcel_id,
             } => Ok(text_events(
-                self.list_shop_mailing_lists(current_view, parcel_id, &identity.player_id)
+                self.list_parcel_mailing_lists(current_view, parcel_id, &identity.player_id)
                     .await?
                     .text,
                 None,
@@ -157,7 +157,7 @@ where
                 parcel_id,
                 slug,
             } => Ok(text_events(
-                self.shop_mailing_list_subscribers(
+                self.parcel_mailing_list_subscribers(
                     current_view,
                     parcel_id,
                     slug,
@@ -175,7 +175,7 @@ where
                 body,
             } => {
                 let result = self
-                    .send_shop_mailing_list_post(ShopMailingListPostInput {
+                    .send_parcel_mailing_list_post(ParcelMailingListPostInput {
                         current_view,
                         target: parcel_id,
                         slug,
@@ -206,7 +206,7 @@ where
                 body,
             } => {
                 let result = self
-                    .post_shop_mailing_list_chat(
+                    .post_parcel_mailing_list_chat(
                         current_view,
                         target,
                         slug,
@@ -235,12 +235,12 @@ where
                 slug,
             } => {
                 let text = self
-                    .close_shop_mailing_list(current_view, parcel_id, slug, &identity.player_id)
+                    .close_parcel_mailing_list(current_view, parcel_id, slug, &identity.player_id)
                     .await?
                     .text;
                 Ok(text_events(
                     text,
-                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                    Some(self.parcel_invalidation(parcel_id).await?),
                 ))
             }
             ParcelOperationAppRequest::MailingListSubscribe {
@@ -248,7 +248,7 @@ where
                 target,
                 slug,
             } => Ok(text_events(
-                self.subscribe_shop_mailing_list(
+                self.subscribe_parcel_mailing_list(
                     current_view,
                     target,
                     slug,
@@ -264,7 +264,7 @@ where
                 target,
                 slug,
             } => Ok(text_events(
-                self.unsubscribe_shop_mailing_list(
+                self.unsubscribe_parcel_mailing_list(
                     current_view,
                     target,
                     slug,
@@ -276,7 +276,7 @@ where
                 None,
             )),
             ParcelOperationAppRequest::MailingListSubscriptions => Ok(text_events(
-                self.shop_mailing_list_subscriptions(&identity.player_id)
+                self.parcel_mailing_list_subscriptions(&identity.player_id)
                     .await?
                     .text,
                 None,
@@ -288,7 +288,7 @@ where
                 title,
             } => {
                 let text = self
-                    .create_shop_work_desk(
+                    .create_parcel_work_desk(
                         current_view,
                         parcel_id,
                         &identity.player_id,
@@ -299,14 +299,14 @@ where
                     .text;
                 Ok(text_events(
                     text,
-                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                    Some(self.parcel_invalidation(parcel_id).await?),
                 ))
             }
             ParcelOperationAppRequest::DeskList {
                 current_view,
                 parcel_id,
             } => Ok(text_events(
-                self.list_shop_work_desks(current_view, parcel_id, &identity.player_id)
+                self.list_parcel_work_desks(current_view, parcel_id, &identity.player_id)
                     .await?
                     .text,
                 None,
@@ -317,7 +317,7 @@ where
                 slug,
                 username,
             } => Ok(text_events(
-                self.add_shop_staff(current_view, parcel_id, slug, &identity.player_id, username)
+                self.add_parcel_staff(current_view, parcel_id, slug, &identity.player_id, username)
                     .await?
                     .text,
                 None,
@@ -327,7 +327,7 @@ where
                 parcel_id,
                 slug,
             } => Ok(text_events(
-                self.list_shop_staff(current_view, parcel_id, slug, &identity.player_id)
+                self.list_parcel_staff(current_view, parcel_id, slug, &identity.player_id)
                     .await?
                     .text,
                 None,
@@ -338,7 +338,7 @@ where
                 slug,
                 username,
             } => Ok(text_events(
-                self.remove_shop_staff(
+                self.remove_parcel_staff(
                     current_view,
                     parcel_id,
                     slug,
@@ -354,7 +354,7 @@ where
                 parcel_id,
                 slug,
             } => Ok(text_events(
-                self.start_shop_shift(
+                self.start_parcel_shift(
                     current_view,
                     parcel_id,
                     slug,
@@ -370,7 +370,7 @@ where
                 parcel_id,
                 slug,
             } => Ok(text_events(
-                self.end_shop_shift(
+                self.end_parcel_shift(
                     current_view,
                     parcel_id,
                     slug,
@@ -386,7 +386,7 @@ where
                 parcel_id,
                 slug,
             } => Ok(text_events(
-                self.list_shop_work(
+                self.list_parcel_work(
                     current_view,
                     parcel_id,
                     slug,
@@ -402,7 +402,7 @@ where
                 parcel_id,
                 work_id,
             } => Ok(text_events(
-                self.claim_shop_work(
+                self.claim_parcel_work(
                     current_view,
                     parcel_id,
                     &identity.user,
@@ -419,7 +419,7 @@ where
                 work_id,
                 result,
             } => Ok(text_events(
-                self.finish_shop_work(
+                self.finish_parcel_work(
                     current_view,
                     parcel_id,
                     &identity.user,
@@ -438,7 +438,7 @@ where
                 command_prefix,
             } => {
                 let text = self
-                    .add_shop_command_route(
+                    .add_parcel_command_route(
                         current_view,
                         parcel_id,
                         &identity.player_id,
@@ -449,14 +449,14 @@ where
                     .text;
                 Ok(text_events(
                     text,
-                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                    Some(self.parcel_invalidation(parcel_id).await?),
                 ))
             }
             ParcelOperationAppRequest::RouteList {
                 current_view,
                 parcel_id,
             } => Ok(text_events(
-                self.list_shop_command_routes(current_view, parcel_id, &identity.player_id)
+                self.list_parcel_command_routes(current_view, parcel_id, &identity.player_id)
                     .await?
                     .text,
                 None,
@@ -468,7 +468,7 @@ where
                 command_prefix,
             } => {
                 let text = self
-                    .remove_shop_command_route(
+                    .remove_parcel_command_route(
                         current_view,
                         parcel_id,
                         &identity.player_id,
@@ -479,14 +479,14 @@ where
                     .text;
                 Ok(text_events(
                     text,
-                    Some(self.commercial_parcel_invalidation(parcel_id).await?),
+                    Some(self.parcel_invalidation(parcel_id).await?),
                 ))
             }
             ParcelOperationAppRequest::BadgeList {
                 current_view,
                 parcel_id,
             } => Ok(text_events(
-                self.list_shop_badges(current_view, parcel_id, &identity.player_id)
+                self.list_parcel_badges(current_view, parcel_id, &identity.player_id)
                     .await?
                     .text,
                 None,
@@ -498,7 +498,7 @@ where
                 title,
                 description,
             } => Ok(text_events(
-                self.create_shop_badge(
+                self.create_parcel_badge(
                     current_view,
                     parcel_id,
                     &identity.player_id,
@@ -517,7 +517,7 @@ where
                 target,
                 note,
             } => Ok(text_events(
-                self.award_shop_badge(ShopBadgeAwardInput {
+                self.award_parcel_badge(ParcelBadgeAwardInput {
                     current_view,
                     parcel_id,
                     slug,
@@ -536,9 +536,15 @@ where
                 slug,
                 target,
             } => Ok(text_events(
-                self.revoke_shop_badge(current_view, parcel_id, slug, &identity.player_id, target)
-                    .await?
-                    .text,
+                self.revoke_parcel_badge(
+                    current_view,
+                    parcel_id,
+                    slug,
+                    &identity.player_id,
+                    target,
+                )
+                .await?
+                .text,
                 None,
             )),
             ParcelOperationAppRequest::BadgesMine => Ok(text_events(
@@ -553,13 +559,11 @@ where
         }
     }
 
-    async fn commercial_parcel_invalidation(&self, parcel_id: &str) -> Result<UiEvent, E> {
-        let parcel = self.store.commercial_parcel(parcel_id).await?;
-        Ok(commercial_parcel_cache_event(
-            CommercialParcelCacheInvalidation {
-                view_id: parcel.view_id().to_owned(),
-                front_view_id: parcel.front_view_id().to_owned(),
-            },
-        ))
+    async fn parcel_invalidation(&self, parcel_id: &str) -> Result<UiEvent, E> {
+        let parcel = self.store.parcel_by_id(parcel_id).await?;
+        Ok(parcel_cache_event(ParcelCacheInvalidation {
+            view_id: parcel.view_id().to_owned(),
+            front_view_id: parcel.front_view_id().to_owned(),
+        }))
     }
 }

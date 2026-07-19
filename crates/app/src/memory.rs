@@ -532,7 +532,7 @@ fn default_resident_current_state(clock: ResidentLoopClock, action: ResidentLoop
     json!({
         "shortTerm": "Wander through visible streets, search for residents, and write a daily report when the virtual day turns.",
         "priority": "Prefer visible commands that find residents, create useful social contact, write daily reports, or change stale state.",
-        "constraint": "The baseline world disables hunger, jobs, and shop loops. Do not route through money, food, or work unless the world visibly enables them.",
+        "constraint": "The baseline world disables hunger, jobs, and parcel loops. Do not route through money, food, or work unless the world visibly enables them.",
         "virtualTime": default_virtual_time_state(clock, None, action),
     })
 }

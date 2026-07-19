@@ -107,8 +107,8 @@ impl RoomBindingEntryView for StoredRoomBinding {
 }
 
 impl RoomBindingKindView for StoredRoomBinding {
-    fn is_commercial_parcel(&self) -> bool {
-        matches!(self.kind, crate::StoredRoomBindingKind::CommercialParcel)
+    fn is_parcel(&self) -> bool {
+        matches!(self.kind, crate::StoredRoomBindingKind::Parcel)
     }
 
     fn is_service_room(&self) -> bool {

@@ -174,15 +174,15 @@ pub(crate) fn overlay_parcel_observation(
                 observation.title = title.to_owned();
             }
             if let Some(description) = binding.parcel_description.as_deref() {
-                let shop_commands = format_shop_commands(binding);
+                let parcel_commands = format_parcel_commands(binding);
                 let style =
                     sentence_terminated(binding.parcel_style.as_deref().unwrap_or("unspecified"));
                 observation.description = format!(
                     "{description}\nOwner: {owner}. Parcel: {}. Style: {}\nParcel commands: {}.\nMailing lists: {}.\nOperator prompt: {}",
                     binding.address,
                     style,
-                    shop_commands.as_deref().unwrap_or("not specified"),
-                    format_shop_mailing_lists(binding)
+                    parcel_commands.as_deref().unwrap_or("not specified"),
+                    format_parcel_mailing_lists(binding)
                         .as_deref()
                         .unwrap_or("none"),
                     binding
@@ -207,7 +207,7 @@ pub(crate) fn overlay_parcel_observation(
             observation
                 .available_commands
                 .extend(
-                    open_shop_mailing_lists(binding).map(|list| SemanticCommand::Parcel {
+                    open_parcel_mailing_lists(binding).map(|list| SemanticCommand::Parcel {
                         action: ParcelAction::Subscribe {
                             target: binding.address.clone(),
                             slug: list.slug.clone(),
@@ -352,18 +352,18 @@ pub(crate) fn command_inputs(commands: Option<&str>) -> impl Iterator<Item = Str
         })
 }
 
-fn format_shop_commands(binding: &StoredRoomBinding) -> Option<String> {
+fn format_parcel_commands(binding: &StoredRoomBinding) -> Option<String> {
     let rendered = binding
         .parcel_custom_commands
         .as_deref()?
         .split(['\n', ';'])
-        .filter_map(format_shop_command_entry)
+        .filter_map(format_parcel_command_entry)
         .collect::<Vec<_>>();
     (!rendered.is_empty()).then(|| rendered.join("; "))
 }
 
-fn format_shop_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
-    let rendered = open_shop_mailing_lists(binding)
+fn format_parcel_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
+    let rendered = open_parcel_mailing_lists(binding)
         .map(|list| {
             format!(
                 "{} ({}) join: /parcel subscribe {} {}; chat after joining: /parcel chat {} {} -- <message>",
@@ -374,16 +374,16 @@ fn format_shop_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
     (!rendered.is_empty()).then(|| rendered.join("; "))
 }
 
-fn open_shop_mailing_lists(
+fn open_parcel_mailing_lists(
     binding: &StoredRoomBinding,
-) -> impl Iterator<Item = &hinemos_storage::StoredShopMailingList> {
+) -> impl Iterator<Item = &hinemos_storage::StoredParcelMailingList> {
     binding
         .parcel_mailing_lists
         .iter()
         .filter(|list| list.status == PARCEL_MAILING_LIST_STATUS_OPEN)
 }
 
-fn format_shop_command_entry(entry: &str) -> Option<String> {
+fn format_parcel_command_entry(entry: &str) -> Option<String> {
     let entry = entry.trim();
     let command = entry.split_whitespace().next()?;
     if !command.starts_with('/') {
