@@ -118,12 +118,12 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     assert_contains(
         &output,
         "Parcel E2-C0-01",
-        "dynamic doorplates can be inspected as virtual land",
+        "dynamic doorplates can be inspected as virtual parcels",
     );
     assert_contains(
         &output,
         "Status: vacant",
-        "dynamic doorplates can be inspected as virtual vacant land",
+        "dynamic doorplates can be inspected as virtual vacant parcels",
     );
     assert_contains(
         &output,

@@ -66,8 +66,11 @@ pub enum AppRequest<'a> {
         /// Inbox item id.
         item_id: i64,
     },
-    /// Show the current player's parcel operator inbox.
-    ParcelInbox,
+    /// Show the current parcel's operator inbox while inside that parcel.
+    ParcelInbox {
+        /// Current runtime view id.
+        current_view: &'a str,
+    },
     /// Show pending payment requests for the current player.
     PendingPayRequests,
     /// Transfer MARK directly to another account.

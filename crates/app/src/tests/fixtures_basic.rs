@@ -979,6 +979,11 @@ impl ParcelOwnershipStore for TestParcelFixtureStore {
         })
     }
 
+    async fn parcel_by_view(&self, view_id: &str) -> Result<Option<Self::Parcel>, Self::Error> {
+        let parcel = self.parcel();
+        Ok((parcel.view_id == view_id).then_some(parcel))
+    }
+
     async fn claim_parcel(
         &self,
         parcel_id: &str,
@@ -1107,9 +1112,14 @@ impl ParcelStore for TestParcelFixtureStore {
 
     async fn recent_operator_commands(
         &self,
-        _owner_player_id: &str,
+        parcel_id: &str,
+        owner_player_id: &str,
         _limit: i64,
     ) -> Result<Vec<Self::OperatorCommand>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("operator-list:{parcel_id}:{owner_player_id}"));
         Ok(Vec::new())
     }
 

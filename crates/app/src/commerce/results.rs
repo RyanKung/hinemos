@@ -33,7 +33,7 @@ pub struct BusinessListResult {
     pub text: String,
 }
 
-/// Result from a land operation.
+/// Result from a parcel ownership operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParcelOwnershipResult {
     /// Text to display to the user.

@@ -124,20 +124,20 @@ mod tests {
     #[test]
     fn extension_command_input_matching_honors_exact_and_placeholder_templates() {
         assert!(extension_command_input_matches_template(
-            "/position list",
-            "/POSITION list"
+            "/paper status",
+            "/PAPER status"
         ));
         assert!(extension_command_input_matches_template(
-            "/position start <position>",
-            "/position start greeter"
+            "/paper submit <article>",
+            "/paper submit market-report"
         ));
         assert!(!extension_command_input_matches_template(
-            "/position start <position>",
-            "/position start"
+            "/paper submit <article>",
+            "/paper submit"
         ));
         assert!(!extension_command_input_matches_template(
-            "/position list",
-            "/position list extra"
+            "/paper status",
+            "/paper status extra"
         ));
     }
 }

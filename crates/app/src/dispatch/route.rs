@@ -120,7 +120,9 @@ pub(super) enum ParcelBuildAppRequest<'a> {
 }
 
 pub(super) enum ParcelOperationAppRequest<'a> {
-    Inbox,
+    Inbox {
+        current_view: &'a str,
+    },
     RequestPayment {
         current_view: &'a str,
         command_id: i64,
@@ -337,7 +339,7 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             | AppRequest::ParcelBuildApply { .. }
             | AppRequest::ParcelBuildSet { .. }
             | AppRequest::ParcelBuildPublish { .. }) => route_parcel_build(request),
-            request @ (AppRequest::ParcelInbox
+            request @ (AppRequest::ParcelInbox { .. }
             | AppRequest::ParcelRequestPayment { .. }
             | AppRequest::ParcelMailingListCreate { .. }
             | AppRequest::ParcelMailingListList { .. }
@@ -503,7 +505,7 @@ fn route_parcel_registry(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
                 token,
             })
         }
-        _ => unreachable!("land request route called with non-land request"),
+        _ => unreachable!("parcel registry request route called with non-parcel request"),
     }
 }
 
@@ -535,8 +537,8 @@ fn route_parcel_build(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
 
 fn route_parcel_operation(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
     match request {
-        AppRequest::ParcelInbox => {
-            RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::Inbox)
+        AppRequest::ParcelInbox { current_view } => {
+            RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::Inbox { current_view })
         }
         AppRequest::ParcelRequestPayment {
             current_view,

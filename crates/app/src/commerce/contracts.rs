@@ -101,7 +101,7 @@ pub trait ParcelView {
     fn custom_commands(&self) -> Option<&str>;
 }
 
-/// Storage boundary for land ownership actions.
+/// Storage boundary for parcel ownership actions.
 pub trait ParcelOwnershipStore {
     /// Store error type.
     type Error;
@@ -112,6 +112,9 @@ pub trait ParcelOwnershipStore {
 
     /// Loads a parcel by id.
     async fn parcel_by_id(&self, parcel_id: &str) -> Result<Self::Parcel, Self::Error>;
+
+    /// Loads a parcel by runtime view id.
+    async fn parcel_by_view(&self, view_id: &str) -> Result<Option<Self::Parcel>, Self::Error>;
 
     /// Claims a free parcel for a player.
     async fn claim_parcel(
@@ -599,9 +602,10 @@ pub trait ParcelStore {
     where
         P: ParcelView + Sync;
 
-    /// Lists recent operator commands for a parcel owner.
+    /// Lists recent operator commands for one owned parcel.
     async fn recent_operator_commands(
         &self,
+        parcel_id: &str,
         owner_player_id: &str,
         limit: i64,
     ) -> Result<Vec<Self::OperatorCommand>, Self::Error>;

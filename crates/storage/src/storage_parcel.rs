@@ -321,9 +321,10 @@ impl PgStorage {
         Ok(())
     }
 
-    /// Loads recent raw visitor commands for parcels owned by a player.
+    /// Loads recent raw visitor commands for one parcel owned by a player.
     pub async fn recent_operator_commands(
         &self,
+        parcel_id: &str,
         owner_player_id: &str,
         limit: i64,
     ) -> Result<Vec<StoredOperatorCommand>, StorageError> {
@@ -333,11 +334,13 @@ impl PgStorage {
                    owner_user, owner_player_id, raw_input, status,
                    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             from operator_commands
-            where owner_player_id = $1
+            where parcel_id = $1
+              and owner_player_id = $2
             order by id desc
-            limit $2
+            limit $3
             "#,
         )
+        .bind(parcel_id)
         .bind(owner_player_id)
         .bind(limit)
         .fetch_all(&self.pool)

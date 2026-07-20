@@ -20,8 +20,8 @@ fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
             text: String::new(),
         },
         SemanticCommand::Extension {
-            name: "position".to_owned(),
-            input: "/position start <position>".to_owned(),
+            name: "paper".to_owned(),
+            input: "/paper submit <article>".to_owned(),
         },
     ]);
     let snapshot = task.snapshot(
@@ -39,13 +39,13 @@ fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
         .validate_command(
             &snapshot,
             SemanticCommand::Extension {
-                name: "position".to_owned(),
-                input: "/position start greeter".to_owned(),
+                name: "paper".to_owned(),
+                input: "/paper submit market-report".to_owned(),
             },
         )
-        .expect("position command is available");
+        .expect("paper command is available");
 
-    assert_eq!(command.line(), "/position start greeter");
+    assert_eq!(command.line(), "/paper submit market-report");
     assert!(!command.line().contains("earn MARK"));
     assert!(!command.line().to_ascii_lowercase().contains("/plan"));
     assert!(!command.line().to_ascii_lowercase().contains("/act"));
@@ -337,8 +337,8 @@ fn multiline_commands_are_rejected_before_execution() {
                 text: String::new(),
             },
             SemanticCommand::Extension {
-                name: "position".to_owned(),
-                input: "/position start <position>".to_owned(),
+                name: "paper".to_owned(),
+                input: "/paper submit <article>".to_owned(),
             },
         ]),
         ObservedTaskState::default(),
@@ -360,8 +360,8 @@ fn multiline_commands_are_rejected_before_execution() {
     let extension = task.validate_command(
         &snapshot,
         SemanticCommand::Extension {
-            name: "position".to_owned(),
-            input: "/position start greeter\n/pay bob 10".to_owned(),
+            name: "paper".to_owned(),
+            input: "/paper submit market-report\n/pay bob 10".to_owned(),
         },
     );
 

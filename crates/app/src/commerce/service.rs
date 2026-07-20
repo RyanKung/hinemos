@@ -16,7 +16,7 @@ use super::results::{
     default_build_commands,
 };
 use crate::{
-    AppIdentity, AppService, BuildSheet, LiveInboxNotice, MailAuthTokenView, OperatorCommandView,
+    AppIdentity, AppService, BuildSheet, MailAuthTokenView, OperatorCommandView,
     PARCEL_STATUS_BUILT, RoomBindingKindView, UiEvent, parcel_badge_description_is_valid,
     parcel_badge_note_is_valid, parcel_badge_slug_is_valid, parcel_badge_title_is_valid,
     parcel_command_route_prefix_is_valid, parcel_mailing_list_body_is_valid,
@@ -42,13 +42,32 @@ where
             && is_custom_command_input(binding, raw_line)
     }
 
-    /// Builds the parcel operator inbox text.
-    pub async fn parcel_inbox(&self, owner_player_id: &str) -> Result<BusinessListResult, E> {
+    /// Builds the current parcel operator inbox text.
+    pub async fn parcel_inbox(
+        &self,
+        current_view: &str,
+        owner_player_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        let parcel = self
+            .store
+            .parcel_by_view(current_view)
+            .await?
+            .ok_or_else(|| {
+                E::invalid_parcel_work("parcel inbox can only be read while inside that parcel")
+            })?;
+        if parcel.owner_player_id() != Some(owner_player_id) {
+            return Err(E::invalid_parcel_work(
+                "parcel inbox can only be read by the parcel owner inside that parcel",
+            ));
+        }
         let commands = self
             .store
-            .recent_operator_commands(owner_player_id, 20)
+            .recent_operator_commands(parcel.parcel_id(), owner_player_id, 20)
             .await?;
-        let mut lines = vec![String::new(), "Parcel Inbox".to_owned()];
+        let mut lines = vec![
+            String::new(),
+            format!("Parcel Inbox for {}", parcel.parcel_id()),
+        ];
         if commands.is_empty() {
             lines.push("No parcel commands.".to_owned());
         } else {
@@ -794,7 +813,7 @@ where
         if owner_player_id == identity.player_id.as_str() {
             if is_custom_command_input(binding, raw_line) {
                 return Ok(Some(vec![UiEvent::Text(format!(
-                    "You own this parcel. Visitors use {} here; their requests arrive in your inbox and /parcel inbox.\r\n",
+                    "You own this parcel. Visitors use {} here; their requests stay in this parcel mailbox and /parcel inbox while you are here.\r\n",
                     raw_line.split_whitespace().next().unwrap_or("this command")
                 ))]));
             }
@@ -807,11 +826,6 @@ where
         let command = self
             .store
             .save_operator_command(binding, &identity.user, &identity.player_id, raw_line, true)
-            .await?;
-        let inbox_player_id = ParcelView::room_player_id(binding).unwrap_or(owner_player_id);
-        let inbox_item = self
-            .store
-            .inbox_item_by_source(inbox_player_id, "operator_command", command.id())
             .await?;
         let work_items = self
             .store
@@ -835,10 +849,6 @@ where
                 .map(|preview| format!("Preview: {preview}\r\n"))
                 .unwrap_or_default()
         ))];
-        events.push(UiEvent::LiveInboxNotice {
-            target_player_id: owner_player_id.to_owned(),
-            notice: LiveInboxNotice::from_item(&inbox_item),
-        });
         if queued_work_items > 0 {
             events.push(UiEvent::LiveViewMessage {
                 view_id: ParcelView::view_id(binding).to_owned(),

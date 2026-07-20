@@ -558,11 +558,11 @@ mod tests {
         let store = store(HUNGER_THRESHOLD_POINTS, 0, Vec::new());
         let app = AppService::new(store);
         let room = TestRoom {
-            recovery_commands: "/position apply <position>\n/position finish",
+            recovery_commands: "/paper submit <article>\n/paper finish",
         };
 
         let outcome = app
-            .check_hunger_room_line("player", "/position apply greeter", &room)
+            .check_hunger_room_line("player", "/paper submit market-report", &room)
             .await
             .expect("hunger check");
 
@@ -579,17 +579,17 @@ mod tests {
         );
         let app = AppService::new(store);
         let room = TestRoom {
-            recovery_commands: "/position apply <position>",
+            recovery_commands: "/paper submit <article>",
         };
 
         let missing = app
-            .check_hunger_room_line("player", "/position apply", &room)
+            .check_hunger_room_line("player", "/paper submit", &room)
             .await
-            .expect("missing position");
+            .expect("missing article");
         let blank = app
-            .check_hunger_room_line("player", "/position apply   ", &room)
+            .check_hunger_room_line("player", "/paper submit   ", &room)
             .await
-            .expect("blank position");
+            .expect("blank article");
 
         assert!(matches!(missing, HungerGateOutcome::Block(text) if text.contains("Food costs")));
         assert!(matches!(blank, HungerGateOutcome::Block(text) if text.contains("Food costs")));

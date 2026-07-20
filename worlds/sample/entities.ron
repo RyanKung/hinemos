@@ -4,7 +4,7 @@
         kind: object,
         name: "Island Trade Guild",
         description: "A modest coastal registry counter of wood and plaster. Rolled parcel maps, brush records, and pinned names sit in quiet order; salt has softened the paper edges.",
-        aliases: ["guild", "chamber", "commerce", "land", "registry"],
+        aliases: ["guild", "chamber", "commerce", "parcel", "registry"],
         actions: [inspect, read],
         collection: Some((
             kind: "bulletinBoard",
@@ -17,7 +17,7 @@
                 (
                     id: "build_sheet",
                     title: "Build Sheet",
-                    body: "After claiming a lot, move to the street beside it, /enter <lot>, then use one JSON build sheet: /parcel build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /parcel build publish. Claiming returns a room mail account token; use /parcel token <parcel> to rotate it later. After publishing, visitor commands arrive through the room mailbox.",
+                    body: "After claiming a parcel, move to the street beside it, /enter <parcel>, then use one JSON build sheet: /parcel build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /parcel build publish. Claiming returns a room mail account token; use /parcel token <parcel> to rotate it later. After publishing, visitor commands arrive through the room mailbox.",
                 ),
                 (
                     id: "parcel_operator_skill",

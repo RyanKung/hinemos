@@ -82,16 +82,6 @@ fn parcel_input_routes_through_app() {
                     "Parcel request #1 sent to owner owner for parcel P1.\r\nStatus: delivered. Payment and fulfillment are pending owner reply; check /mailbox and /pay requests.\r\nQueued 1 parcel work item(s). Workers must be inside the parcel with an active shift to list, claim, or complete them.\r\nPreview: hello\r\n"
                         .to_owned()
                 ),
-                UiEvent::LiveInboxNotice {
-                    target_player_id: "owner-player".to_owned(),
-                    notice: LiveInboxNotice {
-                        id: 1,
-                        kind: "parcel_command".to_owned(),
-                        sender_user: "alice".to_owned(),
-                        subject: "hello".to_owned(),
-                        body: "body".to_owned(),
-                    },
-                },
                 UiEvent::LiveViewMessage {
                     view_id: "parcel_view".to_owned(),
                     text: "[parcel work] 1 new item(s) queued for parcel P1.".to_owned(),
@@ -228,7 +218,7 @@ fn parcel_actions_emit_cache_invalidation_events() {
         let claim = app
             .claim_parcel("parcel-1", "alice", "player-1", "token-1")
             .await
-            .expect("claim land");
+            .expect("claim parcel");
         assert_eq!(
             claim.invalidate,
             Some(ParcelCacheInvalidation {
@@ -503,6 +493,17 @@ fn parcel_actions_require_inside_parcel_before_mutating_state() {
             .expect_err("route add outside parcel");
         assert_eq!(route, expected);
 
+        let inbox = app
+            .parcel_inbox("street-a", "owner-player")
+            .await
+            .expect_err("parcel inbox outside parcel");
+        assert_eq!(
+            inbox,
+            TestCommerceError::ParcelWork(
+                "parcel inbox can only be read while inside that parcel".to_owned()
+            )
+        );
+
         let mailing_create = app
             .create_parcel_mailing_list("street-a", "P1", "owner-player", "updates", "Updates")
             .await
@@ -567,6 +568,58 @@ fn parcel_actions_require_inside_parcel_before_mutating_state() {
         assert!(
             app.store().calls.lock().unwrap().is_empty(),
             "outside-parcel actions must not reach storage mutation calls"
+        );
+    });
+}
+
+#[test]
+fn parcel_inbox_only_lists_current_owned_parcel() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let app = AppService::new(TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
+                parcel_id: "P1",
+                view_id: "parcel-view",
+                front_view_id: "street-a",
+                district: "north",
+                position: 1,
+                owner_user: Some("owner".to_owned()),
+                owner_player_id: Some("owner-player".to_owned()),
+                room_user: Some("room-user".to_owned()),
+                room_player_id: Some("room-player".to_owned()),
+                status: PARCEL_STATUS_BUILT,
+                title: Some("Parcel".to_owned()),
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: None,
+            }),
+            calls: Mutex::new(Vec::new()),
+        });
+
+        let inbox = app
+            .parcel_inbox("parcel-view", "owner-player")
+            .await
+            .expect("parcel inbox inside owned parcel");
+
+        assert!(inbox.text.contains("Parcel Inbox for P1"));
+        assert_eq!(
+            app.store().calls.lock().unwrap().clone(),
+            vec!["operator-list:P1:owner-player".to_owned()]
+        );
+
+        let denied = app
+            .parcel_inbox("parcel-view", "visitor-player")
+            .await
+            .expect_err("non-owner cannot read parcel inbox");
+        assert_eq!(
+            denied,
+            TestCommerceError::ParcelWork(
+                "parcel inbox can only be read by the parcel owner inside that parcel".to_owned()
+            )
         );
     });
 }

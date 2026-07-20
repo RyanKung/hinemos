@@ -592,6 +592,10 @@ impl ParcelOwnershipStore for PgStorage {
         PgStorage::parcel_by_id(self, parcel_id).await
     }
 
+    async fn parcel_by_view(&self, view_id: &str) -> Result<Option<Self::Parcel>, Self::Error> {
+        PgStorage::parcel_by_view(self, view_id).await
+    }
+
     async fn claim_parcel(
         &self,
         parcel_id: &str,
@@ -685,10 +689,11 @@ impl ParcelStore for PgStorage {
 
     async fn recent_operator_commands(
         &self,
+        parcel_id: &str,
         owner_player_id: &str,
         limit: i64,
     ) -> Result<Vec<Self::OperatorCommand>, Self::Error> {
-        PgStorage::recent_operator_commands(self, owner_player_id, limit).await
+        PgStorage::recent_operator_commands(self, parcel_id, owner_player_id, limit).await
     }
 
     async fn operator_command(

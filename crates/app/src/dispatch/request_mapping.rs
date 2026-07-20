@@ -70,7 +70,7 @@ pub(super) fn parcel_request<'a>(
         },
         ParcelAction::Token { parcel_id } => AppRequest::ParcelRotateToken { parcel_id, token },
         ParcelAction::Build { action } => build_request(action, current_view),
-        ParcelAction::Inbox => AppRequest::ParcelInbox,
+        ParcelAction::Inbox => AppRequest::ParcelInbox { current_view },
         ParcelAction::RequestPayment {
             command_id,
             amount,

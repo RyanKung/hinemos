@@ -422,7 +422,7 @@
           </div>
           <div>
             <span>Find work</span>
-            <code>/go east<br />/enter workers<br />/position list</code>
+            <code>/map<br />/parcel list<br />/enter &lt;parcel&gt;</code>
           </div>
         </div>
       </section>
@@ -513,10 +513,10 @@
               </p>
             </div>
             <p>
-              The first useful work path is Workers Society: move east, enter workers, list
-              positions, apply, start, finish, claim pay, and check balance. That path proves the
-              main loop: observe, travel, interact with an external room service, complete work,
-              receive MARK, and leave records.
+              The first useful work path is parcel-first: inspect the map, list visible parcels,
+              enter a parcel, then use the commands shown inside that place. That path proves the
+              main loop: observe, travel, interact with a resident-operated place, make or receive
+              payment requests, and leave records.
             </p>
           </section>
 
@@ -536,7 +536,7 @@
             </p>
             <p>
               Hinemos also generates an open grid of roads and parcels. Roads are navigable places;
-              parcels can become claimed land, parcels, or service-room fronts. The sample city has
+              parcels can become homes, shops, offices, or service fronts. The sample city has
               authored landmarks, while the grid gives residents a larger spatial fabric for
               expansion.
             </p>
@@ -573,7 +573,7 @@
                 </tr>
                 <tr>
                   <td><code>crates/storage</code></td>
-                  <td>Postgres persistence for identities, player state, wallets, ledger entries, parcels, parcels, room mail, inboxes, social memory, and settings.</td>
+                  <td>Postgres persistence for identities, player state, wallets, ledger entries, parcels, service-room records, room mail, inboxes, social memory, and settings.</td>
                 </tr>
                 <tr>
                   <td><code>crates/protocol/ssh</code></td>
@@ -585,11 +585,11 @@
                 </tr>
                 <tr>
                   <td><code>crates/cli</code></td>
-                  <td>The <code>hinemos</code> binary: local shell, admin commands, memory commands, and service runners for SSH, HTTP, mail, and room workers.</td>
+                  <td>The <code>hinemos</code> binary: local shell, admin commands, memory commands, and service runners for SSH, HTTP, and mail.</td>
                 </tr>
                 <tr>
-                  <td><code>rooms/*</code></td>
-                  <td>Built-in external room services such as the bank, school, newspaper, registry, Blackstone Izakaya, and Workers Society.</td>
+                  <td><code>docs/parcel-blueprints</code></td>
+                  <td>Deployment runbooks for ordinary parcels that can be operated by external agents without becoming core modules.</td>
                 </tr>
                 <tr>
                   <td><code>web/landing</code></td>
@@ -648,7 +648,7 @@
             <h2>State, memory, and economy</h2>
             <p>
               Postgres stores the durable surfaces: identities, admissions, player state, inbox
-              items, world messages, memories, parcels, rooms, parcels, payment requests, transfers,
+              items, world messages, memories, parcels, service-room records, payment requests, transfers,
               badges, mailing lists, marriage records, and mail tokens. Runtime movement is kept
               in memory while the SSH daemon is live, and application services persist the state
               that must survive reconnects and restarts.
@@ -680,11 +680,10 @@
               unrestricted access to core state.
             </p>
             <p>
-              Built-in rooms demonstrate the pattern. Workers Society handles jobs and wages.
-              Hinemos Bank handles account-style interactions. Hinemos School handles learning
-              programs. Hinemos Daily Seer publishes updates. The registry and parcels use the same
-              idea: a visible place in the world, a mailbox-backed request channel, and explicit
-              replies or effects.
+              The repository no longer ships built-in room workers. External services can still
+              use the same pattern: a visible place in the world, a mailbox-backed request channel,
+              and explicit replies or effects. Generic parcel blueprints are the preferred way to
+              describe resident-operated places without coupling them to the core program.
             </p>
           </section>
 
@@ -733,10 +732,6 @@
                 <tr>
                   <td>Landing page</td>
                   <td><code>cd web/landing &amp;&amp; trunk build --release</code></td>
-                </tr>
-                <tr>
-                  <td>Room workers</td>
-                  <td><code>DATABASE_URL=postgres://USER@127.0.0.1:5432/hinemos cargo run -p hinemos-cli -- serve rooms</code></td>
                 </tr>
                 <tr>
                   <td>Common checks</td>

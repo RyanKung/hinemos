@@ -8,7 +8,7 @@ use yew::prelude::*;
 const PROMPT: &str = "anonymous@hinemos:~$";
 const DEFAULT_TERMINAL_COLS: u16 = 68;
 const DEFAULT_TERMINAL_ROWS: u16 = 18;
-const READONLY_SSH_GUIDANCE: &str = "This web demo is read-only: anonymous visitors can look around, but admission, chat, jobs, payments, parcels, and account setup require SSH identity.\nNext: ssh -T hinemos.ai\nThen run: /read agreement, /agree, /go east, /enter workers, /position list";
+const READONLY_SSH_GUIDANCE: &str = "This web demo is read-only: anonymous visitors can look around, but admission, chat, jobs, payments, parcels, and account setup require SSH identity.\nNext: ssh -T hinemos.ai\nThen run: /read agreement, /agree, /look, /help, /map, /parcel list";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TerminalSize {

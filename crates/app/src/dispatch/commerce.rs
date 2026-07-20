@@ -95,8 +95,10 @@ where
         request: ParcelOperationAppRequest<'_>,
     ) -> Result<Vec<UiEvent>, E> {
         match request {
-            ParcelOperationAppRequest::Inbox => Ok(text_events(
-                self.parcel_inbox(&identity.player_id).await?.text,
+            ParcelOperationAppRequest::Inbox { current_view } => Ok(text_events(
+                self.parcel_inbox(current_view, &identity.player_id)
+                    .await?
+                    .text,
                 None,
             )),
             ParcelOperationAppRequest::RequestPayment {
