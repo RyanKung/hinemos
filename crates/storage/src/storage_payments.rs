@@ -11,6 +11,11 @@ use crate::{
     StoredOperatorCommand, StoredPaymentRequest,
 };
 
+struct PaymentRequestCreation {
+    request: StoredPaymentRequest,
+    created: bool,
+}
+
 impl PgStorage {
     /// Creates a payment request from a parcel command owned by the operator.
     pub async fn create_payment_request(
@@ -23,11 +28,14 @@ impl PgStorage {
         if amount <= 0 {
             return Err(StorageError::InvalidAmount(amount));
         }
-        let request = self
+        let creation = self
             .insert_payment_request(operator_command_id, owner_player_id, amount, delivery)
             .await?;
+        let request = creation.request;
         self.create_payment_request_inbox_item(&request).await?;
-        self.record_payment_request_created_memory(&request).await?;
+        if creation.created {
+            self.record_payment_request_created_memory(&request).await?;
+        }
         Ok(request)
     }
 
@@ -37,7 +45,7 @@ impl PgStorage {
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<StoredPaymentRequest, StorageError> {
+    ) -> Result<PaymentRequestCreation, StorageError> {
         let mut tx = self.pool.begin().await?;
         let command = sqlx::query_as::<_, StoredOperatorCommand>(
             r#"
@@ -56,6 +64,27 @@ impl PgStorage {
 
         if command.owner_player_id != owner_player_id {
             return Err(StorageError::NotParcelOwner(command.parcel_id));
+        }
+
+        if let Some(request) = sqlx::query_as::<_, StoredPaymentRequest>(
+            r#"
+            select id, operator_command_id, parcel_id, payer_user, payer_player_id,
+                   payee_user, payee_player_id, asset, amount, memo, delivery,
+                   status, ledger_id,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from payment_requests
+            where operator_command_id = $1
+            "#,
+        )
+        .bind(command.id)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(PaymentRequestCreation {
+                request,
+                created: false,
+            });
         }
 
         let memo = format!("parcel command #{}", command.id);
@@ -95,7 +124,10 @@ impl PgStorage {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(request)
+        Ok(PaymentRequestCreation {
+            request,
+            created: true,
+        })
     }
 
     async fn create_payment_request_inbox_item(

@@ -856,6 +856,15 @@ async fn migrate_parcel_payments(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        r#"
+            create unique index if not exists payment_requests_operator_command_unique_idx
+            on payment_requests (operator_command_id)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
 

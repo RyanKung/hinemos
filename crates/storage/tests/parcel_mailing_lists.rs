@@ -162,6 +162,67 @@ async fn storage_with_built_parcel() -> (TestDatabase, PgStorage) {
 }
 
 #[tokio::test]
+async fn payment_requests_are_idempotent_per_operator_command() {
+    if skip_without_database() {
+        return;
+    }
+    let (db, storage) = storage_with_built_parcel().await;
+    let parcel = storage.parcel_by_id("E1-C0-01").await.expect("load parcel");
+    let command = storage
+        .save_operator_command(&parcel, "customer", "player:customer", "/hello", true)
+        .await
+        .expect("operator command");
+
+    let first = storage
+        .create_payment_request(command.id, "player:owner", 25, "first delivery")
+        .await
+        .expect("first payment request");
+    let second = storage
+        .create_payment_request(command.id, "player:owner", 99, "second delivery")
+        .await
+        .expect("idempotent payment request retry");
+
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.amount, 25);
+    assert_eq!(second.delivery, "first delivery");
+    assert_eq!(
+        db.query_value(&format!(
+            "select count(*) from payment_requests where operator_command_id = {}",
+            command.id
+        )),
+        "1"
+    );
+    assert_eq!(
+        db.query_value(&format!(
+            "select count(*) from inbox_items
+             where kind = 'payment_request'
+               and source_kind = 'payment_request'
+               and source_id = {}",
+            first.id
+        )),
+        "1"
+    );
+    assert_eq!(
+        db.query_value(&format!(
+            "select count(*) from memory_events
+             where event_type = 'payment_request_created'
+               and world_refs->>'request_id' = '{}'",
+            first.id
+        )),
+        "1"
+    );
+    assert_eq!(
+        db.query_value(&format!(
+            "select count(*) from memory_events
+             where event_type = 'payment_request_received'
+               and world_refs->>'request_id' = '{}'",
+            first.id
+        )),
+        "1"
+    );
+}
+
+#[tokio::test]
 async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
     if skip_without_database() {
         return;
