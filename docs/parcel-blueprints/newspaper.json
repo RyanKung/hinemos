@@ -1,18 +1,18 @@
 {
   "$schema": "https://hinemos.local/schemas/parcel-blueprint/v1.json",
   "kind": "parcelBlueprint",
-  "version": 2,
+  "version": 3,
   "id": "oracle-daily-newspaper",
   "displayName": "Oracle Daily",
   "localNames": [
     "预言家日报",
     "预言家时报"
   ],
-  "summary": "A private newspaper loop deployed on top of generic Hinemos parcel, work-desk route, inbox, payment, mail, and optional publication-list primitives.",
+  "summary": "A private newspaper loop deployed on top of generic Hinemos parcel, work-desk route, mailing-list, inbox, payment, and mail primitives.",
   "boundary": {
     "notBuiltinRoom": true,
     "notOfficialService": true,
-    "coreDependency": "generic-parcel-view-work-desk-route-inbox-payment-mail-only",
+    "coreDependency": "generic-parcel-view-work-desk-route-mailing-list-inbox-payment-mail-only",
     "ownerAgentRequired": true,
     "notes": [
       "This file is a deployment blueprint, not a core room registration.",
@@ -63,6 +63,54 @@
       "slug": "ledger",
       "title": "Debt Ledger",
       "purpose": "Payroll, reward, bounty, and settlement audit work."
+    }
+  ],
+  "communicationLists": [
+    {
+      "slug": "submissions",
+      "title": "Submissions Chat",
+      "purpose": "Editors and the chief editor discuss unsolicited submissions, revision requests, and acceptance decisions.",
+      "requiredRoles": [
+        "chiefEditor",
+        "editor"
+      ]
+    },
+    {
+      "slug": "bounties",
+      "title": "Bounty Chat",
+      "purpose": "Editors, reporters, and the chief editor coordinate commissioned articles and bounty claims.",
+      "requiredRoles": [
+        "chiefEditor",
+        "editor",
+        "reporter"
+      ]
+    },
+    {
+      "slug": "newsroom",
+      "title": "Newsroom Staff",
+      "purpose": "Reporters, editors, and the chief editor coordinate assignments, daily filings, and field reports.",
+      "requiredRoles": [
+        "chiefEditor",
+        "editor",
+        "reporter"
+      ]
+    },
+    {
+      "slug": "editorial",
+      "title": "Editorial Desk",
+      "purpose": "Editors and the chief editor coordinate reviews, daily digest assembly, and publication decisions.",
+      "requiredRoles": [
+        "chiefEditor",
+        "editor"
+      ]
+    },
+    {
+      "slug": "weekly",
+      "title": "Weekly Subscribers",
+      "purpose": "Optional publication channel for users who explicitly join; the newspaper-local opt-out registry remains authoritative for default weekly delivery.",
+      "requiredRoles": [
+        "chiefEditor"
+      ]
     }
   ],
   "commandRoutes": [
@@ -124,6 +172,29 @@
     ],
     "contributor": [],
     "weeklySubscriber": []
+  },
+  "roleCommunicationLists": {
+    "chiefEditor": [
+      "submissions",
+      "bounties",
+      "newsroom",
+      "editorial",
+      "weekly"
+    ],
+    "editor": [
+      "submissions",
+      "bounties",
+      "newsroom",
+      "editorial"
+    ],
+    "reporter": [
+      "bounties",
+      "newsroom"
+    ],
+    "contributor": [],
+    "weeklySubscriber": [
+      "weekly"
+    ]
   },
   "publicationDelivery": {
     "weeklyPolicy": "opt-out",
@@ -289,6 +360,13 @@
       "/parcel desk create <parcel> weekly Weekly Desk",
       "/parcel desk create <parcel> ledger Debt Ledger"
     ],
+    "createCommunicationLists": [
+      "/parcel mailing-list create <parcel> submissions Submissions Chat",
+      "/parcel mailing-list create <parcel> bounties Bounty Chat",
+      "/parcel mailing-list create <parcel> newsroom Newsroom Staff",
+      "/parcel mailing-list create <parcel> editorial Editorial Desk",
+      "/parcel mailing-list create <parcel> weekly Weekly Subscribers"
+    ],
     "createRoutes": [
       "/parcel route add <parcel> frontdesk /paper help",
       "/parcel route add <parcel> weekly /paper weekly latest",
@@ -305,6 +383,13 @@
       "/parcel staff add <parcel> editorial <editor-username>",
       "/parcel staff add <parcel> newsroom <reporter-username>",
       "/parcel staff add <parcel> bounties <reporter-username>"
+    ],
+    "staffCommunicationSubscriptions": [
+      "/parcel subscribe <parcel> submissions",
+      "/parcel subscribe <parcel> bounties",
+      "/parcel subscribe <parcel> newsroom",
+      "/parcel subscribe <parcel> editorial",
+      "/parcel chat <parcel> newsroom -- <coordination-message>"
     ],
     "workerShiftCommands": [
       "/enter <parcel>",

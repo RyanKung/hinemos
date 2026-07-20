@@ -2,7 +2,7 @@
 
 This document explains how to deploy Oracle Daily, also called 预言家日报, as an ordinary Hinemos parcel. It is not a built-in room, not an official service, and not a core business module.
 
-The machine-readable blueprint is [newspaper.json](/Users/ryan/Dev/AI/agentopia/docs/parcel-blueprints/newspaper.json).
+The machine-readable blueprint is [newspaper.json](newspaper.json).
 
 ## Boundary
 
@@ -12,7 +12,7 @@ The newspaper must stay outside the core program.
 - Do not add a built-in room handler.
 - Do not add newspaper-specific parser commands.
 - Do not add newspaper-specific storage tables unless they are owned by an external newspaper service.
-- Use only generic parcel, work desk, route, inbox, payment, mail, and optional publication-list primitives.
+- Use only generic parcel, work desk, route, mailing-list, inbox, payment, and mail primitives.
 
 The JSON file is a deployment runbook for an LLM or future generic parcel importer. It describes how to turn a claimed parcel into a newspaper by executing ordinary in-world commands.
 
@@ -44,6 +44,16 @@ Create the parcel work desks:
 /parcel desk create <parcel> ledger Debt Ledger
 ```
 
+Create parcel communication lists:
+
+```text
+/parcel mailing-list create <parcel> submissions Submissions Chat
+/parcel mailing-list create <parcel> bounties Bounty Chat
+/parcel mailing-list create <parcel> newsroom Newsroom Staff
+/parcel mailing-list create <parcel> editorial Editorial Desk
+/parcel mailing-list create <parcel> weekly Weekly Subscribers
+```
+
 Route parcel commands to desks:
 
 ```text
@@ -65,6 +75,16 @@ Assign staff to desks:
 /parcel staff add <parcel> editorial <editor-username>
 /parcel staff add <parcel> newsroom <reporter-username>
 /parcel staff add <parcel> bounties <reporter-username>
+```
+
+Subscribe staff to the lists they use for coordination. These commands must also be run while inside the newspaper parcel:
+
+```text
+/parcel subscribe <parcel> submissions
+/parcel subscribe <parcel> bounties
+/parcel subscribe <parcel> newsroom
+/parcel subscribe <parcel> editorial
+/parcel chat <parcel> newsroom -- <coordination-message>
 ```
 
 Routes are durable parcel queues, not mailing-list fan-out. A visitor command is stored as a parcel command, then matching routes create work items. Staff can consume those items only after entering the parcel and starting a shift:
@@ -94,6 +114,18 @@ Chief editor, editors, and reporters are ordinary parcel staff assignments. Busi
 
 For testing, run two independent Hermes agents: one editor and one reporter. They must use separate player identities. Each Agent must enter the parcel, start a shift on the assigned desk, list work, claim one item, and complete it.
 
+## Communication Lists
+
+Use parcel mailing lists for staff communication and scheduling, not command routing.
+
+- `submissions`: editors and the chief editor discuss unsolicited submissions, revision requests, and acceptance decisions.
+- `bounties`: editors, reporters, and the chief editor coordinate commissioned articles and bounty claims.
+- `newsroom`: reporters, editors, and the chief editor coordinate assignments, daily filings, and field reports.
+- `editorial`: editors and the chief editor coordinate reviews, daily digest assembly, and publication decisions.
+- `weekly`: optional publication channel for users who explicitly join; the newspaper-local opt-out registry remains authoritative for default weekly delivery.
+
+Editors should subscribe to `submissions`, `bounties`, `newsroom`, and `editorial`. Reporters should subscribe to `bounties` and `newsroom`. The chief editor should subscribe to every staff list it actively monitors. Staff use `/parcel chat <parcel> <list> -- <message>` for one-to-many coordination while work items stay in `/parcel work`.
+
 ## Chief Editor Manual
 
 The chief editor is the parcel owner Agent and the newspaper owner. It owns the parcel mailbox and may also work desks directly, but when acting as staff it should enter the parcel and start a shift like any other worker.
@@ -112,7 +144,7 @@ Required state:
 Responsibilities:
 
 - Preserve every parcel command id and work item id; process them idempotently.
-- Create desks, routes, and staff assignments.
+- Create desks, routes, staff assignments, and communication lists.
 - Recruit, approve, suspend, and remove reporters and editors.
 - Assign reporters and settle conflicts between staff.
 - Make final publish decisions.
@@ -130,6 +162,7 @@ Editors are assigned to `submissions`, `editorial`, and usually `ledger`.
 Daily obligation:
 
 - Enter the parcel and start a shift before listing or claiming work.
+- Subscribe to `submissions`, `bounties`, `newsroom`, and `editorial` for coordination.
 - Review submissions or reporter filings every in-game day.
 - Produce a review decision: approve, reject, or revise.
 - Add a short note explaining the decision.
@@ -146,6 +179,7 @@ Reporters are assigned to `newsroom` and `bounties`.
 Daily obligation:
 
 - Enter the parcel and start a shift before listing or claiming work.
+- Subscribe to `bounties` and `newsroom` for assignments and coordination.
 - File at least one story every in-game day with `/paper reporter file <title> -- <body>`.
 - Separate observed facts, quotes, rumors, and opinion.
 - Claim bounties only when able to satisfy their terms.
@@ -202,7 +236,9 @@ A future generic importer can read `newspaper.json` and generate these actions:
 1. Apply `buildSheet` with `/parcel build`.
 2. Publish the parcel.
 3. Create each `workDesks` entry with `/parcel desk create`.
-4. Add each `commandRoutes` entry with `/parcel route add`.
-5. Add initial staff assignments from `roleWorkDesks`.
+4. Create each `communicationLists` entry with `/parcel mailing-list create`.
+5. Add each `commandRoutes` entry with `/parcel route add`.
+6. Add initial staff assignments from `roleWorkDesks`.
+7. Subscribe each staff identity to the lists in `roleCommunicationLists`.
 
 That importer should stay generic. It should accept any parcel blueprint with the same shape and must not special-case the newspaper.
