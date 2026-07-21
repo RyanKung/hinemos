@@ -223,6 +223,91 @@ async fn payment_requests_are_idempotent_per_operator_command() {
 }
 
 #[tokio::test]
+async fn migration_deduplicates_unpaid_payment_request_retries_before_unique_index() {
+    if skip_without_database() {
+        return;
+    }
+    let (db, storage) = storage_with_built_parcel().await;
+    let parcel = storage.parcel_by_id("E1-C0-01").await.expect("load parcel");
+    let command = storage
+        .save_operator_command(&parcel, "customer", "player:customer", "/hello", true)
+        .await
+        .expect("operator command");
+    let canonical = storage
+        .create_payment_request(command.id, "player:owner", 25, "first delivery")
+        .await
+        .expect("canonical request");
+
+    db.query_value("drop index if exists payment_requests_operator_command_unique_idx");
+    let duplicate_id = db.query_value(&format!(
+        "with inserted as (
+             insert into payment_requests (
+                 operator_command_id, parcel_id, payer_user, payer_player_id,
+                 payee_user, payee_player_id, asset, amount, memo, delivery
+             )
+             values (
+                 {command_id}, 'E1-C0-01', 'customer', 'player:customer',
+                 'owner', 'player:owner', 'MARK', 99, 'retry', 'duplicate delivery'
+             )
+             returning id
+         )
+         select id from inserted",
+        command_id = command.id
+    ));
+    db.query_value(&format!(
+        "insert into inbox_items (
+             kind, recipient_user, recipient_player_id, sender_user, sender_player_id,
+             subject, body, source_kind, source_id, payload
+         )
+         values (
+             'payment_request', 'customer', 'player:customer', 'owner', 'player:owner',
+             'Payment request #{duplicate_id}', 'duplicate delivery',
+             'payment_request', {duplicate_id}, jsonb_build_object('requestId', {duplicate_id})
+         )"
+    ));
+
+    storage.migrate().await.expect("rerun migration");
+
+    assert_eq!(
+        db.query_value(&format!(
+            "select count(*) from payment_requests where operator_command_id = {}",
+            command.id
+        )),
+        "1"
+    );
+    assert_eq!(
+        db.query_value(&format!(
+            "select amount || ':' || delivery
+             from payment_requests
+             where operator_command_id = {}",
+            command.id
+        )),
+        "25:first delivery"
+    );
+    assert_eq!(
+        db.query_value(&format!(
+            "select count(*) from payment_requests where id = {duplicate_id}"
+        )),
+        "0"
+    );
+    assert_eq!(
+        db.query_value(&format!(
+            "select status || ':' || (payload->>'duplicateOfPaymentRequestId')
+             from inbox_items
+             where source_kind = 'payment_request_duplicate'
+               and source_id = {duplicate_id}"
+        )),
+        format!("archived:{}", canonical.id)
+    );
+    assert_eq!(
+        db.query_value(
+            "select (to_regclass('payment_requests_operator_command_unique_idx') is not null)::text"
+        ),
+        "true"
+    );
+}
+
+#[tokio::test]
 async fn generated_grid_parcels_are_virtual_until_claimed_and_canonicalized() {
     if skip_without_database() {
         return;

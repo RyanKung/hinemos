@@ -856,10 +856,114 @@ async fn migrate_parcel_payments(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    deduplicate_payment_requests_before_unique_index(pool).await?;
+
     sqlx::query(
         r#"
             create unique index if not exists payment_requests_operator_command_unique_idx
             on payment_requests (operator_command_id)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn deduplicate_payment_requests_before_unique_index(
+    pool: &PgPool,
+) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            do $$
+            begin
+                if exists (
+                    select 1
+                    from payment_requests
+                    where status = 'paid'
+                    group by operator_command_id
+                    having count(*) > 1
+                ) then
+                    raise exception
+                        'cannot add payment_requests_operator_command_unique_idx: multiple paid payment_requests exist for one operator_command_id';
+                end if;
+            end $$;
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            with ranked as (
+                select id,
+                       first_value(id) over (
+                           partition by operator_command_id
+                           order by case status
+                                        when 'paid' then 0
+                                        when 'pending' then 1
+                                        else 2
+                                    end,
+                                    id
+                       ) as canonical_id
+                from payment_requests
+            ),
+            duplicates as (
+                select id, canonical_id
+                from ranked
+                where id <> canonical_id
+            )
+            update inbox_items item
+            set status = 'archived',
+                source_kind = 'payment_request_duplicate',
+                payload = item.payload || jsonb_build_object(
+                    'duplicateOfPaymentRequestId', duplicates.canonical_id
+                )
+            from duplicates
+            where item.source_kind = 'payment_request'
+              and item.source_id = duplicates.id
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            with ranked as (
+                select id,
+                       first_value(id) over (
+                           partition by operator_command_id
+                           order by case status
+                                        when 'paid' then 0
+                                        when 'pending' then 1
+                                        else 2
+                                    end,
+                                    id
+                       ) as canonical_id
+                from payment_requests
+            ),
+            duplicates as (
+                select id
+                from ranked
+                where id <> canonical_id
+            )
+            delete from payment_requests request
+            using duplicates
+            where request.id = duplicates.id
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            update operator_commands command
+            set status = 'handled'
+            where exists (
+                select 1
+                from payment_requests request
+                where request.operator_command_id = command.id
+            )
             "#,
     )
     .execute(pool)
