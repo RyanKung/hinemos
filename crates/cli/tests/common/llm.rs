@@ -20,7 +20,15 @@ pub fn prepare_hermes_test_home(
     temp: &TestTempDir,
     provider_env: &HashMap<String, String>,
 ) -> PathBuf {
-    let hermes_home = temp.path.join("hermes-home");
+    prepare_named_hermes_test_home(temp, provider_env, "hermes-home")
+}
+
+pub fn prepare_named_hermes_test_home(
+    temp: &TestTempDir,
+    provider_env: &HashMap<String, String>,
+    name: &str,
+) -> PathBuf {
+    let hermes_home = temp.path.join(name);
     fs::create_dir_all(&hermes_home).expect("create isolated Hermes home");
     fs::write(
         hermes_home.join("config.yaml"),

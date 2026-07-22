@@ -709,6 +709,8 @@ async fn migrate_parcels(pool: &PgPool) -> Result<(), StorageError> {
         .execute(pool)
         .await?;
 
+    copy_legacy_commercial_parcels(pool).await?;
+
     sqlx::query(
         r#"
             update parcels
@@ -740,6 +742,54 @@ async fn migrate_parcels(pool: &PgPool) -> Result<(), StorageError> {
     .await?;
 
     seed_parcels(pool).await?;
+
+    Ok(())
+}
+
+async fn copy_legacy_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            do $$
+            begin
+                if to_regclass(format('%I.%I', current_schema(), 'commercial_parcels')) is not null then
+                    alter table commercial_parcels
+                    add column if not exists front_view_id text;
+
+                    insert into parcels (
+                        parcel_id, view_id, front_view_id, district, position,
+                        owner_user, owner_player_id, room_user, room_player_id,
+                        status, title, description, style, operator_prompt,
+                        custom_commands, created_at, updated_at
+                    )
+                    select parcel_id, view_id, front_view_id, district, position,
+                           owner_user, owner_player_id, room_user, room_player_id,
+                           status, title, description, style, operator_prompt,
+                           custom_commands, created_at, updated_at
+                    from commercial_parcels
+                    on conflict (parcel_id) do update
+                    set view_id = excluded.view_id,
+                        front_view_id = excluded.front_view_id,
+                        district = excluded.district,
+                        position = excluded.position,
+                        owner_user = excluded.owner_user,
+                        owner_player_id = excluded.owner_player_id,
+                        room_user = excluded.room_user,
+                        room_player_id = excluded.room_player_id,
+                        status = excluded.status,
+                        title = excluded.title,
+                        description = excluded.description,
+                        style = excluded.style,
+                        operator_prompt = excluded.operator_prompt,
+                        custom_commands = excluded.custom_commands,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at;
+                end if;
+            end
+            $$;
+            "#,
+    )
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
@@ -1249,9 +1299,137 @@ async fn migrate_parcel_mailing_lists(pool: &PgPool) -> Result<(), StorageError>
     .execute(pool)
     .await?;
 
+    copy_legacy_shop_mailing_lists(pool).await?;
+
     sqlx::query("drop table if exists parcel_command_routes")
         .execute(pool)
         .await?;
+
+    Ok(())
+}
+
+async fn copy_legacy_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            do $$
+            begin
+                if to_regclass(format('%I.%I', current_schema(), 'shop_mailing_lists')) is not null then
+                    insert into parcel_mailing_lists (
+                        id, parcel_id, owner_player_id, slug, title, description,
+                        status, created_at, updated_at
+                    )
+                    select id, parcel_id, owner_player_id, slug, title, description,
+                           status, created_at, updated_at
+                    from shop_mailing_lists
+                    on conflict (id) do update
+                    set parcel_id = excluded.parcel_id,
+                        owner_player_id = excluded.owner_player_id,
+                        slug = excluded.slug,
+                        title = excluded.title,
+                        description = excluded.description,
+                        status = excluded.status,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at;
+                end if;
+
+                if to_regclass(format('%I.%I', current_schema(), 'shop_mailing_list_subscriptions')) is not null then
+                    insert into parcel_mailing_list_subscriptions (
+                        id, list_id, subscriber_user, subscriber_player_id,
+                        status, created_at, updated_at
+                    )
+                    select id, list_id, subscriber_user, subscriber_player_id,
+                           status, created_at, updated_at
+                    from shop_mailing_list_subscriptions
+                    on conflict (id) do update
+                    set list_id = excluded.list_id,
+                        subscriber_user = excluded.subscriber_user,
+                        subscriber_player_id = excluded.subscriber_player_id,
+                        status = excluded.status,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at;
+                end if;
+
+                if to_regclass(format('%I.%I', current_schema(), 'shop_mailing_list_posts')) is not null then
+                    insert into parcel_mailing_list_posts (
+                        id, list_id, sender_user, sender_player_id, subject, body,
+                        recipient_count, created_at
+                    )
+                    select id, list_id, sender_user, sender_player_id, subject, body,
+                           recipient_count, created_at
+                    from shop_mailing_list_posts
+                    on conflict (id) do update
+                    set list_id = excluded.list_id,
+                        sender_user = excluded.sender_user,
+                        sender_player_id = excluded.sender_player_id,
+                        subject = excluded.subject,
+                        body = excluded.body,
+                        recipient_count = excluded.recipient_count,
+                        created_at = excluded.created_at;
+                end if;
+
+                if to_regclass(format('%I.%I', current_schema(), 'shop_mailing_list_deliveries')) is not null then
+                    insert into parcel_mailing_list_deliveries (
+                        id, post_id, recipient_user, recipient_player_id,
+                        inbox_item_id, created_at
+                    )
+                    select id, post_id, recipient_user, recipient_player_id,
+                           inbox_item_id, created_at
+                    from shop_mailing_list_deliveries
+                    on conflict (id) do update
+                    set post_id = excluded.post_id,
+                        recipient_user = excluded.recipient_user,
+                        recipient_player_id = excluded.recipient_player_id,
+                        inbox_item_id = excluded.inbox_item_id,
+                        created_at = excluded.created_at;
+                end if;
+
+                perform setval(
+                    pg_get_serial_sequence('parcel_mailing_lists', 'id'),
+                    coalesce((select max(id) from parcel_mailing_lists), 1),
+                    exists(select 1 from parcel_mailing_lists)
+                );
+                perform setval(
+                    pg_get_serial_sequence('parcel_mailing_list_subscriptions', 'id'),
+                    coalesce((select max(id) from parcel_mailing_list_subscriptions), 1),
+                    exists(select 1 from parcel_mailing_list_subscriptions)
+                );
+                perform setval(
+                    pg_get_serial_sequence('parcel_mailing_list_posts', 'id'),
+                    coalesce((select max(id) from parcel_mailing_list_posts), 1),
+                    exists(select 1 from parcel_mailing_list_posts)
+                );
+                perform setval(
+                    pg_get_serial_sequence('parcel_mailing_list_deliveries', 'id'),
+                    coalesce((select max(id) from parcel_mailing_list_deliveries), 1),
+                    exists(select 1 from parcel_mailing_list_deliveries)
+                );
+
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_mailing_list_deliveries'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_mailing_list_posts'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_mailing_list_subscriptions'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_mailing_lists'
+                );
+            end
+            $$;
+            "#,
+    )
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
@@ -1305,6 +1483,8 @@ async fn migrate_parcel_badges(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    copy_legacy_shop_badges(pool).await?;
+
     sqlx::query(
         r#"
             alter table parcel_badge_awards
@@ -1328,6 +1508,88 @@ async fn migrate_parcel_badges(pool: &PgPool) -> Result<(), StorageError> {
         r#"
             create index if not exists parcel_badge_awards_recipient_idx
             on parcel_badge_awards (recipient_player_id, status, awarded_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn copy_legacy_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            do $$
+            begin
+                if to_regclass(format('%I.%I', current_schema(), 'shop_badges')) is not null then
+                    insert into parcel_badges (
+                        id, parcel_id, owner_player_id, slug, title, description,
+                        created_at, updated_at
+                    )
+                    select id, parcel_id, owner_player_id, slug, title, description,
+                           created_at, updated_at
+                    from shop_badges
+                    on conflict (id) do update
+                    set parcel_id = excluded.parcel_id,
+                        owner_player_id = excluded.owner_player_id,
+                        slug = excluded.slug,
+                        title = excluded.title,
+                        description = excluded.description,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at;
+                end if;
+
+                if to_regclass(format('%I.%I', current_schema(), 'shop_badge_awards')) is not null then
+                    insert into parcel_badge_awards (
+                        id, badge_id, issuer_user, issuer_player_id,
+                        recipient_user, recipient_player_id, note, status,
+                        awarded_at, revoked_at, updated_at
+                    )
+                    select id, badge_id, issuer_user, issuer_player_id,
+                           recipient_user, recipient_player_id, note, status,
+                           awarded_at, revoked_at, updated_at
+                    from shop_badge_awards
+                    on conflict (id) do update
+                    set badge_id = excluded.badge_id,
+                        issuer_user = excluded.issuer_user,
+                        issuer_player_id = excluded.issuer_player_id,
+                        recipient_user = excluded.recipient_user,
+                        recipient_player_id = excluded.recipient_player_id,
+                        note = excluded.note,
+                        status = excluded.status,
+                        awarded_at = excluded.awarded_at,
+                        revoked_at = excluded.revoked_at,
+                        updated_at = excluded.updated_at;
+                end if;
+
+                perform setval(
+                    pg_get_serial_sequence('parcel_badges', 'id'),
+                    coalesce((select max(id) from parcel_badges), 1),
+                    exists(select 1 from parcel_badges)
+                );
+                perform setval(
+                    pg_get_serial_sequence('parcel_badge_awards', 'id'),
+                    coalesce((select max(id) from parcel_badge_awards), 1),
+                    exists(select 1 from parcel_badge_awards)
+                );
+
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_badge_awards'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_badges'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'commercial_parcels'
+                );
+            end
+            $$;
             "#,
     )
     .execute(pool)

@@ -3,9 +3,12 @@ mod common;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use std::thread;
 use std::time::Duration;
 
 use common::*;
+
+const FAST_VIRTUAL_DAY_SECONDS: u64 = 8;
 
 static LLM_WORLD_BEHAVIOR_LOCK: Mutex<()> = Mutex::new(());
 
@@ -17,7 +20,7 @@ fn serial_llm_world_behavior() -> MutexGuard<'static, ()> {
 
 #[test]
 #[ignore = "requires Hermes CLI, DATABASE_URL, and a reachable LLM provider"]
-fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
+fn hermes_recovers_resident_loop_across_isolated_wake_up_episodes() {
     let _serial = serial_llm_world_behavior();
     let root = workspace_root();
     let env = load_local_env(&root);
@@ -31,9 +34,6 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     let user = format!("hermes_loop_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
     let world = prepare_fast_resident_world(&root, &temp);
-    let hermes_home = prepare_hermes_test_home(&temp, &env);
-    let hermes_cwd = temp.path.join("hermes-cwd");
-    fs::create_dir_all(&hermes_cwd).expect("create isolated Hermes cwd");
 
     let mut server = spawn_hinemos_server_with_options(HinemosServerOptions {
         root: &root,
@@ -51,50 +51,91 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     let key_path = key.display().to_string();
     let ssh_command = hinemos_ssh_command(host, ssh_port, &user, &key_path);
     let shipped_guidance = shipped_agent_guidance(&root);
-    let prompt = world_only_self_loop_prompt(&shipped_guidance, host, ssh_port, &user, &key_path);
-    assert_prompt_has_no_external_loop_guidance(&prompt);
-    let output = run_hermes_agent_until(
-        &prompt,
+    let first_prompt = first_wake_up_prompt(&shipped_guidance, host, ssh_port, &user, &key_path);
+    let first_stdout = run_wake_up_episode(
+        "wake-1",
+        &first_prompt,
         &env,
+        &temp,
+        &ssh_command,
         Duration::from_secs(600),
+    );
+    assert_first_wake_up_evidence(&first_stdout, &temp);
+    assert_llm_self_loop_database_effects(&test_database, &user);
+    let checkpoint = resident_loop_checkpoint(&test_database, &user);
+
+    thread::sleep(Duration::from_secs(FAST_VIRTUAL_DAY_SECONDS + 2));
+
+    let second_prompt =
+        returning_wake_up_prompt(&shipped_guidance, host, ssh_port, &user, &key_path);
+    let second_stdout = run_wake_up_episode(
+        "wake-2",
+        &second_prompt,
+        &env,
+        &temp,
+        &ssh_command,
+        Duration::from_secs(600),
+    );
+
+    terminate(&mut server);
+
+    assert_second_wake_up_evidence(&second_stdout, &temp);
+    assert_second_wake_up_recovered_from_persisted_state(&test_database, &checkpoint);
+
+    temp.remove_on_drop();
+}
+
+fn run_wake_up_episode(
+    label: &str,
+    prompt: &str,
+    env: &std::collections::HashMap<String, String>,
+    temp: &TestTempDir,
+    ssh_command: &str,
+    timeout: Duration,
+) -> String {
+    assert_prompt_has_no_external_loop_guidance(prompt);
+    let hermes_home = prepare_named_hermes_test_home(temp, env, &format!("hermes-home-{label}"));
+    let hermes_cwd = temp.path.join(format!("hermes-cwd-{label}"));
+    fs::create_dir_all(&hermes_cwd).expect("create isolated Hermes cwd");
+    let output = run_hermes_agent_until(
+        prompt,
+        env,
+        timeout,
         &hermes_home,
         &hermes_cwd,
         &["terminal", "file", "cronjob"],
         never_stop_before_agent_exit,
     );
 
-    terminate(&mut server);
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     fs::write(
-        temp.path.join("hermes-task-loop-stdout.log"),
+        temp.path
+            .join(format!("hermes-task-loop-{label}-stdout.log")),
         stdout.as_bytes(),
     )
     .ok();
     fs::write(
-        temp.path.join("hermes-task-loop-stderr.log"),
+        temp.path
+            .join(format!("hermes-task-loop-{label}-stderr.log")),
         stderr.as_bytes(),
     )
     .ok();
 
     assert!(
         output.success,
-        "Hermes task-loop verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
+        "Hermes {label} verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
         if output.timed_out { " by timeout" } else { "" },
         stderr,
         stdout,
         temp.path.display()
     );
     let hermes_session = hermes_latest_session_json(&hermes_home);
-    assert_hermes_tool_surface_is_bounded(&hermes_session, &temp);
-    assert_hermes_used_only_foreground_ssh_batches(&hermes_session, &ssh_command, &temp);
-    assert_hermes_created_no_local_control_files(&hermes_cwd, &temp);
-    assert_hermes_created_no_cron_jobs(&hermes_home, &temp);
-    assert_llm_self_loop_evidence(&stdout, &temp);
-    assert_llm_self_loop_database_effects(&test_database, &user);
-
-    temp.remove_on_drop();
+    assert_hermes_tool_surface_is_bounded(&hermes_session, temp);
+    assert_hermes_used_only_foreground_ssh_batches(&hermes_session, ssh_command, temp);
+    assert_hermes_created_no_local_control_files(&hermes_cwd, temp);
+    assert_hermes_created_no_cron_jobs(&hermes_home, temp);
+    stdout
 }
 
 fn prepare_fast_resident_world(root: &std::path::Path, temp: &TestTempDir) -> PathBuf {
@@ -139,7 +180,7 @@ fn never_stop_before_agent_exit(_stdout: &str) -> bool {
     false
 }
 
-fn world_only_self_loop_prompt(
+fn first_wake_up_prompt(
     shipped_guidance: &str,
     host: &str,
     ssh_port: u16,
@@ -148,7 +189,7 @@ fn world_only_self_loop_prompt(
 ) -> String {
     let ssh_command = hinemos_ssh_command(host, ssh_port, user, key_path);
     format!(
-        r#"You are a first-time autonomous Hinemos resident running one scheduled wake-up episode.
+        r#"You are a first-time autonomous Hinemos resident running the first scheduled wake-up episode in this test.
 
 This is the shipped Hinemos agent guidance you must follow:
 <shipped-agent-guidance>
@@ -180,6 +221,53 @@ REPEAT1=<first completed repetition evidence>
 REPEAT2=<second completed repetition evidence>
 REPEAT3=<third completed repetition evidence>
 SUSTAIN=<evidence that the repeated activity changed durable game state>
+SSH=<evidence that you used SSH>
+"#
+    )
+}
+
+fn returning_wake_up_prompt(
+    shipped_guidance: &str,
+    host: &str,
+    ssh_port: u16,
+    user: &str,
+    key_path: &str,
+) -> String {
+    let ssh_command = hinemos_ssh_command(host, ssh_port, user, key_path);
+    format!(
+        r#"You are the same autonomous Hinemos resident in a later scheduled wake-up episode.
+
+This is a fresh agent invocation. You do not have the previous wake-up transcript, previous chat context, or local files. Recover only from SSH-observed game state and in-world memory.
+
+This is the shipped Hinemos agent guidance you must follow:
+<shipped-agent-guidance>
+{shipped_guidance}
+</shipped-agent-guidance>
+
+Allowed tools:
+- ssh only for the Hinemos world.
+
+Use this exact SSH command form when you enter the world:
+{ssh_command}
+
+Use finite foreground ssh -T batches with here-documents when sending multiple commands. Do not keep an SSH process running after a batch completes. Every terminal command you run must start with the ssh command above, and stdin to SSH must contain only slash-prefixed Hinemos world commands.
+
+Assume an external alarm or scheduler woke you for this later episode. Do not create, modify, or inspect that scheduler in this test. Do not use printf, curl, cat, grep, sed, sleep, local control files, local scripts, wrapper programs, cron entries, crontab entries, launchd or systemd units, background shell loops, resident state files, HTTP APIs, or non-SSH network tools. Do not use shell exec commands inside SSH. Use only slash-prefixed Hinemos world commands.
+
+Goal:
+1. Enter the world and inspect the current observation.
+2. Run /memory self and /memory search resident loop before choosing the repeated activity.
+3. Use only in-world memory or current game output to reconstruct the useful repeated activity from the previous wake-up.
+4. Continue that reconstructed activity at least two times.
+5. Write a new /memory report <text> before ending the episode.
+6. Quote the game output that proved memory recovery and continuation. Do not use any fact that was not visible through SSH in this wake-up.
+
+Return a concise report with these exact labels:
+ENTRY=<evidence from entering the game>
+RECALL=<evidence from /memory output that reconstructed the prior loop>
+CONTINUE1=<first continued repetition evidence>
+CONTINUE2=<second continued repetition evidence>
+REPORT=<evidence that a new memory report was recorded>
 SSH=<evidence that you used SSH>
 "#
     )
@@ -270,7 +358,7 @@ fn hinemos_ssh_command(host: &str, ssh_port: u16, user: &str, key_path: &str) ->
     )
 }
 
-fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
+fn assert_first_wake_up_evidence(stdout: &str, temp: &TestTempDir) {
     for label in [
         "ENTRY=",
         "DISCOVERY=",
@@ -311,6 +399,38 @@ fn assert_llm_self_loop_evidence(stdout: &str, temp: &TestTempDir) {
             "memory search",
         ],
         "evidence that the resident loop produced observable in-world state",
+        temp,
+    );
+    require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
+}
+
+fn assert_second_wake_up_evidence(stdout: &str, temp: &TestTempDir) {
+    for label in [
+        "ENTRY=",
+        "RECALL=",
+        "CONTINUE1=",
+        "CONTINUE2=",
+        "REPORT=",
+        "SSH=",
+    ] {
+        assert_contains(stdout, label, "resident recovery report label");
+    }
+    require_output(
+        stdout,
+        &["RECALL=", "/memory", "resident loop"],
+        "evidence that the second wake-up used in-world memory recovery",
+        temp,
+    );
+    require_output(
+        stdout,
+        &["CONTINUE1=", "CONTINUE2=", "/go", "/who"],
+        "evidence that the second wake-up continued the resident loop",
+        temp,
+    );
+    require_output(
+        stdout,
+        &["REPORT=", "Daily report recorded"],
+        "evidence that the second wake-up wrote a new daily report",
         temp,
     );
     require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
@@ -549,6 +669,155 @@ fn assert_hermes_created_no_local_control_files(hermes_cwd: &Path, temp: &TestTe
         "Hermes created local files while operating the resident loop: {entries:?}\nlogs: {}",
         temp.path.display()
     );
+}
+
+#[derive(Debug, Clone)]
+struct ResidentLoopCheckpoint {
+    player_id: String,
+    max_version: i64,
+    max_virtual_day: i64,
+}
+
+fn resident_loop_checkpoint(test_database: &TestDatabase, user: &str) -> ResidentLoopCheckpoint {
+    let player_id = test_database.query_value(&format!(
+        "select player_id from ssh_identities where username = '{user}'"
+    ));
+    let max_version = query_i64(
+        test_database,
+        &format!(
+            "select coalesce(max(version), 0)
+             from agent_self_models
+             where agent_id = '{player_id}'"
+        ),
+        "first wake-up max self-model version",
+    );
+    let max_virtual_day = query_i64(
+        test_database,
+        &format!(
+            "select coalesce(max((current_state->'virtualTime'->>'currentDay')::bigint), 0)
+             from agent_self_models
+             where agent_id = '{player_id}'"
+        ),
+        "first wake-up max virtual day",
+    );
+    ResidentLoopCheckpoint {
+        player_id,
+        max_version,
+        max_virtual_day,
+    }
+}
+
+fn assert_second_wake_up_recovered_from_persisted_state(
+    test_database: &TestDatabase,
+    checkpoint: &ResidentLoopCheckpoint,
+) {
+    let latest = resident_loop_checkpoint_for_player(test_database, &checkpoint.player_id);
+    assert!(
+        latest.max_version > checkpoint.max_version,
+        "second wake-up should record new self-model versions after checkpoint {:?}, got {:?}",
+        checkpoint,
+        latest
+    );
+    assert!(
+        latest.max_virtual_day > checkpoint.max_virtual_day,
+        "second wake-up should run after a virtual-day transition; checkpoint {:?}, got {:?}",
+        checkpoint,
+        latest
+    );
+
+    let memory_recovery_steps = query_i64(
+        test_database,
+        &format!(
+            "select count(*)
+             from agent_self_models
+             where agent_id = '{}'
+               and version > {}
+               and (
+                    current_state->'lastStep'->>'commandLine' = '/memory self'
+                 or current_state->'lastStep'->>'commandLine' = '/memory commitments'
+                 or current_state->'lastStep'->>'commandLine' like '/memory recall %'
+                 or current_state->'lastStep'->>'commandLine' like '/memory search %'
+               )",
+            checkpoint.player_id, checkpoint.max_version
+        ),
+        "second wake-up memory recovery steps",
+    );
+    let continuation_steps = query_i64(
+        test_database,
+        &format!(
+            "select count(*)
+             from agent_self_models
+             where agent_id = '{}'
+               and version > {}
+               and current_state->'lastStep'->>'commandLine' in (
+                   '/go north', '/go south', '/go east', '/go west', '/who', '/look', '/map'
+               )",
+            checkpoint.player_id, checkpoint.max_version
+        ),
+        "second wake-up continuation steps",
+    );
+    let second_report_steps = query_i64(
+        test_database,
+        &format!(
+            "select count(*)
+             from agent_self_models
+             where agent_id = '{}'
+               and version > {}
+               and current_state->'lastStep'->>'commandLine' like '/memory report %'
+               and current_state->'virtualTime'->>'reportDue' = 'false'",
+            checkpoint.player_id, checkpoint.max_version
+        ),
+        "second wake-up report completion steps",
+    );
+
+    assert!(
+        memory_recovery_steps >= 2,
+        "second wake-up should recover from persisted in-world memory at least twice, got {memory_recovery_steps}"
+    );
+    assert!(
+        continuation_steps >= 2,
+        "second wake-up should continue the resident loop after memory recovery, got {continuation_steps}"
+    );
+    assert!(
+        second_report_steps >= 1,
+        "second wake-up should write a fresh daily report after the virtual-day transition"
+    );
+}
+
+fn resident_loop_checkpoint_for_player(
+    test_database: &TestDatabase,
+    player_id: &str,
+) -> ResidentLoopCheckpoint {
+    let max_version = query_i64(
+        test_database,
+        &format!(
+            "select coalesce(max(version), 0)
+             from agent_self_models
+             where agent_id = '{player_id}'"
+        ),
+        "latest self-model version",
+    );
+    let max_virtual_day = query_i64(
+        test_database,
+        &format!(
+            "select coalesce(max((current_state->'virtualTime'->>'currentDay')::bigint), 0)
+             from agent_self_models
+             where agent_id = '{player_id}'"
+        ),
+        "latest virtual day",
+    );
+    ResidentLoopCheckpoint {
+        player_id: player_id.to_owned(),
+        max_version,
+        max_virtual_day,
+    }
+}
+
+fn query_i64(test_database: &TestDatabase, sql: &str, description: &str) -> i64 {
+    let value = test_database.query_value(sql);
+    value
+        .parse::<i64>()
+        .unwrap_or_else(|error| panic!("invalid {description} `{value}`: {error}"))
 }
 
 fn assert_llm_self_loop_database_effects(test_database: &TestDatabase, user: &str) {
