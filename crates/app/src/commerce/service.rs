@@ -1,6 +1,7 @@
 use super::contracts::{
-    BuildStore, FromMailingListValidation, FromParcelBadgeValidation, FromParcelWorkValidation,
-    ParcelBadgeAwardInput, ParcelBadgeAwardView, ParcelBadgeDefinitionView, ParcelCommandRouteView,
+    BuildStore, FromMailingListValidation, FromParcelBadgeValidation, FromParcelJobGuideValidation,
+    FromParcelWorkValidation, ParcelBadgeAwardInput, ParcelBadgeAwardView,
+    ParcelBadgeDefinitionView, ParcelCommandRouteView, ParcelJobGuidePublish, ParcelJobGuideView,
     ParcelMailingListPostInput, ParcelMailingListSubscriberView, ParcelMailingListSubscriptionView,
     ParcelMailingListView, ParcelOwnershipStore, ParcelRegistryStore, ParcelShiftView,
     ParcelStaffView, ParcelStore, ParcelView, ParcelWorkDeskView, ParcelWorkItemView,
@@ -19,16 +20,20 @@ use crate::{
     AppIdentity, AppService, BuildSheet, MailAuthTokenView, OperatorCommandView,
     PARCEL_STATUS_BUILT, RoomBindingKindView, UiEvent, parcel_badge_description_is_valid,
     parcel_badge_note_is_valid, parcel_badge_slug_is_valid, parcel_badge_title_is_valid,
-    parcel_command_route_prefix_is_valid, parcel_mailing_list_body_is_valid,
-    parcel_mailing_list_slug_is_valid, parcel_mailing_list_subject_is_valid,
-    parcel_mailing_list_title_is_valid, parcel_work_desk_slug_is_valid,
-    parcel_work_desk_title_is_valid, parcel_work_result_is_valid,
+    parcel_command_route_prefix_is_valid, parcel_job_guide_body_is_valid,
+    parcel_job_guide_slug_is_valid, parcel_job_guide_title_is_valid,
+    parcel_mailing_list_body_is_valid, parcel_mailing_list_slug_is_valid,
+    parcel_mailing_list_subject_is_valid, parcel_mailing_list_title_is_valid,
+    parcel_work_desk_slug_is_valid, parcel_work_desk_title_is_valid, parcel_work_result_is_valid,
 };
 
 impl<S, E> AppService<S>
 where
     S: ParcelStore<Error = E> + ParcelOwnershipStore<Error = E>,
-    E: FromMailingListValidation + FromParcelBadgeValidation + FromParcelWorkValidation,
+    E: FromMailingListValidation
+        + FromParcelBadgeValidation
+        + FromParcelWorkValidation
+        + FromParcelJobGuideValidation,
 {
     /// Returns true when a parcel will consume this raw input line.
     #[must_use]
@@ -383,6 +388,58 @@ where
             .await?;
         Ok(BusinessListResult {
             text: render_parcel_work_desks(parcel_id, &desks).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Publishes or replaces a parcel job guide.
+    pub async fn publish_parcel_job_guide(
+        &self,
+        current_view: &str,
+        input: ParcelJobGuidePublish<'_>,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_parcel(current_view, input.parcel_id)
+            .await?;
+        validate_job_guide_slug(input.slug)?;
+        validate_job_guide_title(input.title)?;
+        validate_job_guide_body(input.body)?;
+        let guide = self.store.publish_parcel_job_guide(input).await?;
+        Ok(BusinessListResult {
+            text: format!(
+                "Published parcel job guide {} for parcel {}: {}.\r\nRead: /parcel job read {} {}\r\n",
+                guide.slug(),
+                guide.parcel_id(),
+                guide.title(),
+                guide.parcel_id(),
+                guide.slug()
+            ),
+        })
+    }
+
+    /// Lists parcel-published job guides while inside the parcel.
+    pub async fn list_parcel_job_guides(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
+        let guides = self.store.parcel_job_guides(parcel_id).await?;
+        Ok(BusinessListResult {
+            text: render_parcel_job_guides(parcel_id, &guides).replace('\n', "\r\n"),
+        })
+    }
+
+    /// Reads one parcel-published job guide while inside the parcel.
+    pub async fn read_parcel_job_guide(
+        &self,
+        current_view: &str,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<BusinessListResult, E> {
+        self.ensure_inside_parcel(current_view, parcel_id).await?;
+        validate_job_guide_slug(slug)?;
+        let guide = self.store.parcel_job_guide(parcel_id, slug).await?;
+        Ok(BusinessListResult {
+            text: render_parcel_job_guide(&guide).replace('\n', "\r\n"),
         })
     }
 
@@ -935,6 +992,41 @@ where
     }
 }
 
+fn validate_job_guide_slug<E>(slug: &str) -> Result<(), E>
+where
+    E: FromParcelJobGuideValidation,
+{
+    if parcel_job_guide_slug_is_valid(slug) {
+        Ok(())
+    } else {
+        Err(E::invalid_parcel_job_guide("invalid parcel job-guide slug"))
+    }
+}
+
+fn validate_job_guide_title<E>(title: &str) -> Result<(), E>
+where
+    E: FromParcelJobGuideValidation,
+{
+    if parcel_job_guide_title_is_valid(title) {
+        Ok(())
+    } else {
+        Err(E::invalid_parcel_job_guide(
+            "invalid parcel job-guide title",
+        ))
+    }
+}
+
+fn validate_job_guide_body<E>(body: &str) -> Result<(), E>
+where
+    E: FromParcelJobGuideValidation,
+{
+    if parcel_job_guide_body_is_valid(body) {
+        Ok(())
+    } else {
+        Err(E::invalid_parcel_job_guide("invalid parcel job-guide body"))
+    }
+}
+
 fn validate_work_result<E>(result: &str) -> Result<(), E>
 where
     E: FromParcelWorkValidation,
@@ -1107,6 +1199,51 @@ fn render_parcel_work_desks(parcel_id: &str, desks: &[impl ParcelWorkDeskView]) 
         }
     }
     lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_parcel_job_guides(parcel_id: &str, guides: &[impl ParcelJobGuideView]) -> String {
+    let mut lines = vec![format!("Parcel Job Guides for {parcel_id}")];
+    if guides.is_empty() {
+        lines.push(
+            "No job guides. Publish one with /parcel job publish <parcel> <job> <title> -- <body>."
+                .to_owned(),
+        );
+    } else {
+        for guide in guides {
+            lines.push(format!(
+                "- {} [{}] {} updated={}. Read: /parcel job read {} {}",
+                guide.slug(),
+                guide.status(),
+                guide.title(),
+                guide.updated_at(),
+                guide.parcel_id(),
+                guide.slug()
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_parcel_job_guide(guide: &impl ParcelJobGuideView) -> String {
+    let lines = [
+        format!(
+            "Parcel Job Guide for {} {}",
+            guide.parcel_id(),
+            guide.slug()
+        ),
+        format!("Title: {}", guide.title()),
+        format!(
+            "Published by {}. Created: {}. Updated: {}.",
+            guide.publisher_user(),
+            guide.created_at(),
+            guide.updated_at()
+        ),
+        String::new(),
+        guide.body().to_owned(),
+        String::new(),
+    ];
     lines.join("\n")
 }
 

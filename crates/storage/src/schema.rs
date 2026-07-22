@@ -17,6 +17,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_parcels(pool).await?;
     migrate_service_rooms(pool).await?;
     migrate_parcel_mailing_lists(pool).await?;
+    migrate_parcel_job_guides(pool).await?;
     migrate_parcel_badges(pool).await?;
     migrate_parcel_payments(pool).await?;
     migrate_parcel_work(pool).await?;
@@ -1115,6 +1116,41 @@ async fn migrate_parcel_work(pool: &PgPool) -> Result<(), StorageError> {
         r#"
             create index if not exists parcel_work_items_desk_status_idx
             on parcel_work_items (desk_id, status, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn migrate_parcel_job_guides(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists parcel_job_guides (
+                id bigserial primary key,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
+                owner_player_id text not null,
+                slug text not null,
+                title text not null,
+                body text not null,
+                publisher_user text not null,
+                publisher_player_id text not null,
+                status text not null default 'published'
+                    check (status in ('published')),
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (parcel_id, slug)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists parcel_job_guides_parcel_idx
+            on parcel_job_guides (parcel_id, slug)
             "#,
     )
     .execute(pool)

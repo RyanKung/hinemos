@@ -29,9 +29,10 @@ pub fn load_local_env(root: &Path) -> HashMap<String, String> {
 
     for key in [
         "DATABASE_URL",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_MODEL",
+        "HERMES_TEST_PROVIDER",
+        "HERMES_TEST_MODEL",
+        "HERMES_TEST_BASE_URL",
+        "HERMES_TEST_API_MODE",
     ] {
         if let Ok(value) = std::env::var(key) {
             values.insert(key.to_owned(), value);
@@ -62,35 +63,6 @@ fn parse_env_line(line: &str) -> Option<(String, String)> {
         })
         .unwrap_or(value);
     Some((key.to_owned(), value.to_owned()))
-}
-
-pub fn assert_provider_env(values: &HashMap<String, String>) {
-    let missing = [
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_MODEL",
-    ]
-    .into_iter()
-    .filter(|key| values.get(*key).is_none_or(String::is_empty))
-    .collect::<Vec<_>>();
-
-    assert!(
-        missing.is_empty(),
-        "Claude provider environment is incomplete. Missing: {}. Set them in your shell or local-only .env.local.",
-        missing.join(", ")
-    );
-}
-
-pub fn assert_gpt_provider_env(values: &HashMap<String, String>) {
-    assert_provider_env(values);
-
-    let model = values
-        .get("ANTHROPIC_MODEL")
-        .expect("ANTHROPIC_MODEL was checked by assert_provider_env");
-    assert!(
-        model.to_ascii_lowercase().contains("gpt"),
-        "LLM provider must use a GPT model through the rotom provider. Set ANTHROPIC_MODEL to a GPT-backed model; current model is `{model}`."
-    );
 }
 
 pub(crate) fn assert_database_env(values: &HashMap<String, String>) -> String {

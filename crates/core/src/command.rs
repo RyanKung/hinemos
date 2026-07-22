@@ -579,6 +579,11 @@ pub enum ParcelAction {
         /// Work-desk owner action.
         action: ParcelDeskAction,
     },
+    /// Manage parcel-published job descriptions and role guides.
+    Job {
+        /// Job guide owner or reader action.
+        action: ParcelJobAction,
+    },
     /// Manage parcel command routing into parcel-local work desks.
     Route {
         /// Command-route owner action.
@@ -693,6 +698,35 @@ pub enum ParcelDeskAction {
     List {
         /// Parcel id.
         parcel_id: String,
+    },
+}
+
+/// Parcel-published job description and role-guide actions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ParcelJobAction {
+    /// Publish or replace one job guide for an owned parcel.
+    Publish {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable job slug.
+        slug: String,
+        /// Player-facing job title.
+        title: String,
+        /// Role instructions or job description body.
+        body: String,
+    },
+    /// List job guides published by a parcel.
+    List {
+        /// Parcel id.
+        parcel_id: String,
+    },
+    /// Read one job guide published by a parcel.
+    Read {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable job slug.
+        slug: String,
     },
 }
 
@@ -881,6 +915,18 @@ pub const PARCEL_WORK_DESK_SLUG_MAX_CHARS: usize = PARCEL_MAILING_LIST_SLUG_MAX_
 /// Maximum work-desk title length, counted in Unicode scalar values.
 pub const PARCEL_WORK_DESK_TITLE_MAX_CHARS: usize = PARCEL_MAILING_LIST_TITLE_MAX_CHARS;
 
+/// Maximum job-guide slug length, counted in Unicode scalar values.
+pub const PARCEL_JOB_GUIDE_SLUG_MAX_CHARS: usize = PARCEL_MAILING_LIST_SLUG_MAX_CHARS;
+
+/// Maximum job-guide title length, counted in Unicode scalar values.
+pub const PARCEL_JOB_GUIDE_TITLE_MAX_CHARS: usize = PARCEL_MAILING_LIST_TITLE_MAX_CHARS;
+
+/// Maximum job-guide body length, counted in Unicode scalar values.
+pub const PARCEL_JOB_GUIDE_BODY_MAX_CHARS: usize = 4_000;
+
+/// Maximum number of published job guides a single parcel can own.
+pub const PARCEL_JOB_GUIDES_PER_PARCEL_MAX: usize = 50;
+
 /// Maximum number of work desks a single parcel can own.
 pub const PARCEL_WORK_DESKS_PER_PARCEL_MAX: usize = 20;
 
@@ -935,6 +981,25 @@ pub fn parcel_work_desk_slug_is_valid(slug: &str) -> bool {
 #[must_use]
 pub fn parcel_work_desk_title_is_valid(title: &str) -> bool {
     parcel_mailing_list_title_is_valid(title)
+}
+
+/// Returns true when a parcel job-guide slug is admissible.
+#[must_use]
+pub fn parcel_job_guide_slug_is_valid(slug: &str) -> bool {
+    parcel_mailing_list_slug_is_valid(slug)
+}
+
+/// Returns true when a parcel job-guide title is admissible.
+#[must_use]
+pub fn parcel_job_guide_title_is_valid(title: &str) -> bool {
+    parcel_mailing_list_title_is_valid(title)
+}
+
+/// Returns true when a parcel job-guide body is admissible.
+#[must_use]
+pub fn parcel_job_guide_body_is_valid(body: &str) -> bool {
+    let body = body.trim();
+    !body.is_empty() && body.chars().count() <= PARCEL_JOB_GUIDE_BODY_MAX_CHARS
 }
 
 /// Returns true when a parcel work result is admissible.

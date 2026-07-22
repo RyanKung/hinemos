@@ -183,6 +183,22 @@ pub(super) enum ParcelOperationAppRequest<'a> {
         current_view: &'a str,
         parcel_id: &'a str,
     },
+    JobPublish {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: &'a str,
+        title: &'a str,
+        body: &'a str,
+    },
+    JobList {
+        current_view: &'a str,
+        parcel_id: &'a str,
+    },
+    JobRead {
+        current_view: &'a str,
+        parcel_id: &'a str,
+        slug: &'a str,
+    },
     StaffAdd {
         current_view: &'a str,
         parcel_id: &'a str,
@@ -352,6 +368,9 @@ impl<'a> From<AppRequest<'a>> for RoutedAppRequest<'a> {
             | AppRequest::ParcelMailingListSubscriptions
             | AppRequest::ParcelDeskCreate { .. }
             | AppRequest::ParcelDeskList { .. }
+            | AppRequest::ParcelJobPublish { .. }
+            | AppRequest::ParcelJobList { .. }
+            | AppRequest::ParcelJobRead { .. }
             | AppRequest::ParcelStaffAdd { .. }
             | AppRequest::ParcelStaffList { .. }
             | AppRequest::ParcelStaffRemove { .. }
@@ -649,6 +668,35 @@ fn route_parcel_operation(request: AppRequest<'_>) -> RoutedAppRequest<'_> {
         } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::DeskList {
             current_view,
             parcel_id,
+        }),
+        AppRequest::ParcelJobPublish {
+            current_view,
+            parcel_id,
+            slug,
+            title,
+            body,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::JobPublish {
+            current_view,
+            parcel_id,
+            slug,
+            title,
+            body,
+        }),
+        AppRequest::ParcelJobList {
+            current_view,
+            parcel_id,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::JobList {
+            current_view,
+            parcel_id,
+        }),
+        AppRequest::ParcelJobRead {
+            current_view,
+            parcel_id,
+            slug,
+        } => RoutedAppRequest::ParcelOperation(ParcelOperationAppRequest::JobRead {
+            current_view,
+            parcel_id,
+            slug,
         }),
         AppRequest::ParcelStaffAdd {
             current_view,

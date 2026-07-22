@@ -45,12 +45,13 @@ Optional mail sidecar configuration:
 HINEMOS_MAIL_DOMAIN=hinemos.local
 ```
 
-Optional LLM integration-test provider configuration:
+Optional Hermes LLM integration-test provider configuration:
 
 ```sh
-ANTHROPIC_BASE_URL=http://127.0.0.1:<port>
-ANTHROPIC_AUTH_TOKEN=<token>
-ANTHROPIC_MODEL=<model>
+HERMES_TEST_PROVIDER=rotom
+HERMES_TEST_MODEL=gpt-5.5
+HERMES_TEST_BASE_URL=http://127.0.0.1:14550/v1
+HERMES_TEST_API_MODE=codex_responses
 ```
 
 Do not commit real credentials. Keep them in ignored local env files or the
@@ -167,8 +168,13 @@ cargo test -p hinemos-cli --test commerce_flow
 cargo test -p hinemos-cli --test mail_sidecar
 ```
 
-LLM-oriented integration tests also require the `ANTHROPIC_*` provider
-variables shown above.
+Live LLM-oriented integration tests are ignored by default. They require
+`DATABASE_URL`, local SSH tooling, the `hermes` CLI, and the `HERMES_TEST_*`
+provider variables shown above:
+
+```sh
+cargo test -p hinemos-cli --test llm_world_behavior -- --ignored --test-threads=1
+```
 
 ## Deployment
 

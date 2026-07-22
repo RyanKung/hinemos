@@ -7,62 +7,18 @@ use std::time::Duration;
 
 use common::*;
 
-static CLAUDE_WORLD_BEHAVIOR_LOCK: Mutex<()> = Mutex::new(());
+static LLM_WORLD_BEHAVIOR_LOCK: Mutex<()> = Mutex::new(());
 
-fn serial_claude_world_behavior() -> MutexGuard<'static, ()> {
-    CLAUDE_WORLD_BEHAVIOR_LOCK
+fn serial_llm_world_behavior() -> MutexGuard<'static, ()> {
+    LLM_WORLD_BEHAVIOR_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[test]
-fn claude_can_discover_and_explore_world_over_ssh() {
-    let _serial = serial_claude_world_behavior();
-    let root = workspace_root();
-    let env = load_local_env(&root);
-    assert_provider_env(&env);
-    let test_database = TestDatabase::create(&env);
-    assert_command_exists("claude");
-
-    let temp = TestTempDir::new("hinemos-claude-world");
-    let host = "127.0.0.1";
-    let port = free_local_port();
-    let user = format!("probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("hinemos-server.log");
-
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
-    wait_for_server(host, port, &mut server, &server_log);
-
-    let prompt = format!(
-        "Please connect to {host} on SSH port {port}, figure out what it is, and try to explore it. You may use username {user}. If the world presents a safe setup or ownership workflow, decide whether to exercise it and report what happened."
-    );
-    let output = run_claude_agent(&prompt, &env, Duration::from_secs(180));
-
-    terminate(&mut server);
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    fs::write(temp.path.join("claude-stdout.log"), stdout.as_bytes()).ok();
-    fs::write(temp.path.join("claude-stderr.log"), stderr.as_bytes()).ok();
-
-    assert!(
-        output.success,
-        "claude verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
-        if output.timed_out { " by timeout" } else { "" },
-        stderr,
-        stdout,
-        temp.path.display()
-    );
-
-    assert_claude_world_evidence(&stdout, &temp);
-
-    println!("claude verifier evidence captured: {} bytes", stdout.len());
-    temp.remove_on_drop();
-}
-
-#[test]
+#[ignore = "requires Hermes CLI, DATABASE_URL, and a reachable LLM provider"]
 fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
-    let _serial = serial_claude_world_behavior();
+    let _serial = serial_llm_world_behavior();
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -75,7 +31,7 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     let user = format!("hermes_loop_{}_{}", std::process::id(), epoch_seconds());
     let server_log = temp.path.join("hinemos-server.log");
     let world = prepare_fast_resident_world(&root, &temp);
-    let hermes_home = prepare_hermes_test_home(&temp);
+    let hermes_home = prepare_hermes_test_home(&temp, &env);
     let hermes_cwd = temp.path.join("hermes-cwd");
     fs::create_dir_all(&hermes_cwd).expect("create isolated Hermes cwd");
 
@@ -141,134 +97,6 @@ fn hermes_can_discover_and_repeat_self_loop_without_host_scheduler() {
     temp.remove_on_drop();
 }
 
-#[test]
-fn scripted_llm_protocol_check_for_three_agent_message_visibility_over_ssh() {
-    let _serial = serial_claude_world_behavior();
-    let root = workspace_root();
-    let env = load_local_env(&root);
-    assert_gpt_provider_env(&env);
-    let test_database = TestDatabase::create(&env);
-    assert_command_exists("claude");
-    assert_command_exists("ssh");
-
-    let temp = TestTempDir::new("hinemos-llm-message-visibility");
-    let host = "127.0.0.1";
-    let port = free_local_port();
-    let speaker = format!("gpt_speaker_{}_{}", std::process::id(), epoch_seconds());
-    let peer = format!("gpt_peer_{}_{}", std::process::id(), epoch_seconds());
-    let bystander = format!("gpt_bystander_{}_{}", std::process::id(), epoch_seconds());
-    let direct_message = format!(
-        "gpt_private_probe_{}_{}",
-        std::process::id(),
-        epoch_seconds()
-    );
-    let view_message = format!("gpt_view_probe_{}_{}", std::process::id(), epoch_seconds());
-    let server_log = temp.path.join("hinemos-server.log");
-
-    let mut server = spawn_hinemos_server(&root, host, port, &server_log, &test_database.url);
-    wait_for_server(host, port, &mut server, &server_log);
-
-    let speaker_key = admitted_key(&temp, host, port, &speaker);
-    let peer_key = admitted_key(&temp, host, port, &peer);
-    let bystander_key = admitted_key(&temp, host, port, &bystander);
-
-    let mut peer_session = SshSession::spawn_with_key(host, port, &peer, &peer_key);
-    peer_session.wait_for_stdout("Available:", Duration::from_secs(10));
-    let mut bystander_session = SshSession::spawn_with_key(host, port, &bystander, &bystander_key);
-    bystander_session.wait_for_stdout("Available:", Duration::from_secs(10));
-
-    let speaker_key_path = speaker_key.display().to_string();
-    let prompt = message_visibility_prompt(&MessageVisibilityScenario {
-        host,
-        port,
-        speaker: &speaker,
-        key_path: &speaker_key_path,
-        peer: &peer,
-        bystander: &bystander,
-        direct_message: &direct_message,
-        view_message: &view_message,
-    });
-    let output = run_claude_agent_until(&prompt, &env, Duration::from_secs(240), |stdout| {
-        stdout.contains("Online here")
-            && stdout.contains(&peer)
-            && stdout.contains(&bystander)
-            && stdout.contains(&format!("You mail {peer}: {direct_message}"))
-            && stdout.contains(&format!("You say: {view_message}"))
-    });
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    fs::write(temp.path.join("llm-message-stdout.log"), stdout.as_bytes()).ok();
-    fs::write(temp.path.join("llm-message-stderr.log"), stderr.as_bytes()).ok();
-
-    assert!(
-        output.success,
-        "LLM message visibility verifier failed{}\nstderr:\n{}\nstdout:\n{}\nlogs: {}",
-        if output.timed_out { " by timeout" } else { "" },
-        stderr,
-        stdout,
-        temp.path.display()
-    );
-
-    peer_session.wait_for_stdout(
-        &format!("Mail from {speaker}: Private mail"),
-        Duration::from_secs(10),
-    );
-    peer_session.wait_for_stdout(&direct_message, Duration::from_secs(10));
-    peer_session.wait_for_stdout(
-        &format!("[say from {speaker}] {view_message}"),
-        Duration::from_secs(10),
-    );
-    bystander_session.wait_for_stdout(
-        &format!("[say from {speaker}] {view_message}"),
-        Duration::from_secs(10),
-    );
-
-    bystander_session.write_line("/mailbox");
-    bystander_session.wait_for_stdout("Mailbox", Duration::from_secs(10));
-    assert_not_contains(
-        &bystander_session.stdout_text(),
-        &direct_message,
-        "bystander sees LLM private mail body",
-    );
-
-    assert_llm_message_visibility_evidence(
-        &stdout,
-        &temp,
-        &peer,
-        &bystander,
-        &direct_message,
-        &view_message,
-    );
-    assert_llm_message_visibility_database_effects(
-        &test_database,
-        &speaker,
-        &peer,
-        &bystander,
-        &direct_message,
-        &view_message,
-    );
-
-    peer_session.write_line("/quit");
-    bystander_session.write_line("/quit");
-    let _ = peer_session.wait_success(Duration::from_secs(10));
-    let _ = bystander_session.wait_success(Duration::from_secs(10));
-
-    terminate(&mut server);
-    temp.remove_on_drop();
-}
-
-struct MessageVisibilityScenario<'a> {
-    host: &'a str,
-    port: u16,
-    speaker: &'a str,
-    key_path: &'a str,
-    peer: &'a str,
-    bystander: &'a str,
-    direct_message: &'a str,
-    view_message: &'a str,
-}
-
 fn prepare_fast_resident_world(root: &std::path::Path, temp: &TestTempDir) -> PathBuf {
     let world_dir = temp.path.join("fast-resident-world");
     copy_dir_recursive(&root.join("worlds/sample"), &world_dir);
@@ -305,114 +133,6 @@ fn contains_ascii_word(haystack: &str, needle: &str) -> bool {
     haystack
         .split(|ch: char| !ch.is_ascii_alphanumeric())
         .any(|word| word == needle)
-}
-
-fn message_visibility_prompt(scenario: &MessageVisibilityScenario<'_>) -> String {
-    let MessageVisibilityScenario {
-        host,
-        port,
-        speaker,
-        key_path,
-        peer,
-        bystander,
-        direct_message,
-        view_message,
-    } = scenario;
-
-    format!(
-        r#"Verify Hinemos online presence and message visibility over SSH.
-
-Use this exact SSH command form, with one finite here-document batch:
-ssh -T -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {port} {speaker}@{host}
-
-Do not use printf, curl, cat, grep, sed, sleep, or files. Use only the ssh command above.
-
-Run exactly these world commands in one SSH batch:
-/who
-/mail {peer} {direct_message}
-/say {view_message}
-/quit
-
-Return a concise report with these exact labels:
-WHO=<evidence that {peer} and {bystander} were visible online>
-MAIL=<evidence that the private mail was sent only to {peer}>
-SAY=<evidence that the same-view message was sent>
-SSH=<evidence that you used SSH>
-"#
-    )
-}
-
-fn assert_llm_message_visibility_evidence(
-    stdout: &str,
-    temp: &TestTempDir,
-    peer: &str,
-    bystander: &str,
-    direct_message: &str,
-    view_message: &str,
-) {
-    require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
-    require_output(stdout, &[peer], "evidence that the peer was online", temp);
-    require_output(
-        stdout,
-        &[bystander],
-        "evidence that the bystander was online",
-        temp,
-    );
-    assert_contains(
-        stdout,
-        &format!("You mail {peer}: {direct_message}"),
-        "evidence that LLM sent private mail through the world",
-    );
-    assert_contains(
-        stdout,
-        &format!("You say: {view_message}"),
-        "evidence that LLM sent same-view chat through the world",
-    );
-}
-
-fn assert_llm_message_visibility_database_effects(
-    test_database: &TestDatabase,
-    speaker: &str,
-    peer: &str,
-    bystander: &str,
-    direct_message: &str,
-    view_message: &str,
-) {
-    assert_eq!(
-        test_database.query_value(&format!(
-            "select count(*)
-             from inbox_items
-             where sender_user = '{speaker}'
-               and recipient_user = '{peer}'
-               and kind = 'mail'
-               and body = '{direct_message}'"
-        )),
-        "1",
-        "LLM private mail should persist for the addressed peer"
-    );
-    assert_eq!(
-        test_database.query_value(&format!(
-            "select count(*)
-             from inbox_items
-             where sender_user = '{speaker}'
-               and recipient_user = '{bystander}'
-               and body = '{direct_message}'"
-        )),
-        "0",
-        "LLM private mail should not persist for the bystander"
-    );
-    assert_eq!(
-        test_database.query_value(&format!(
-            "select count(*)
-             from world_messages
-             where sender_user = '{speaker}'
-               and kind = 'say'
-               and target_view = 'arrival_street'
-               and body = '{view_message}'"
-        )),
-        "1",
-        "LLM same-view say should persist as one view-scoped message"
-    );
 }
 
 fn never_stop_before_agent_exit(_stdout: &str) -> bool {
@@ -998,61 +718,5 @@ fn assert_at_least(value: &str, minimum: i64, description: &str) {
     assert!(
         parsed >= minimum,
         "expected {description} >= {minimum}, got {parsed}"
-    );
-}
-
-fn assert_claude_world_evidence(stdout: &str, temp: &TestTempDir) {
-    require_output(stdout, &["ssh", "SSH"], "evidence that it used SSH", temp);
-    require_output(
-        stdout,
-        &["Hinemos", "open world"],
-        "evidence that it identified the world",
-        temp,
-    );
-    require_output(
-        stdout,
-        &[
-            "Available",
-            "/look",
-            "/go",
-            "/mailbox",
-            "/history",
-            "/news",
-            "/parcel",
-        ],
-        "evidence that it read actionable commands",
-        temp,
-    );
-    require_output(
-        stdout,
-        &[
-            "/look", "/go", "/read", "/inspect", "/mailbox", "/history", "/news", "explore",
-            "inspect", "read",
-        ],
-        "evidence that it attempted world interaction",
-        temp,
-    );
-    require_output(
-        stdout,
-        &[
-            "Guild", "parcel", "parcel", "north_01", "south_01", "/parcel",
-        ],
-        "evidence that it understood parcel intent",
-        temp,
-    );
-    require_output(
-        stdout,
-        &[
-            "claim",
-            "build",
-            "publish",
-            "/parcel build",
-            "owned",
-            "parcel",
-            "/parcel inbox",
-            "/mailbox",
-        ],
-        "evidence that it understood or exercised parcel build workflow",
-        temp,
     );
 }

@@ -17,8 +17,10 @@ struct WorldViewCommandContext<'a> {
 impl<S> AppService<S>
 where
     S: AppDispatchStore,
-    <S as AppDispatchStore>::Error:
-        FromMailingListValidation + FromParcelBadgeValidation + FromParcelWorkValidation,
+    <S as AppDispatchStore>::Error: FromMailingListValidation
+        + FromParcelBadgeValidation
+        + FromParcelWorkValidation
+        + FromParcelJobGuideValidation,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding: RoomBindingEntryView
         + ParcelView

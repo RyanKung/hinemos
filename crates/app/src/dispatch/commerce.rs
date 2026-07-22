@@ -87,7 +87,10 @@ where
 impl<S, E> AppService<S>
 where
     S: ParcelStore<Error = E> + ParcelOwnershipStore<Error = E>,
-    E: FromMailingListValidation + FromParcelBadgeValidation + FromParcelWorkValidation,
+    E: FromMailingListValidation
+        + FromParcelBadgeValidation
+        + FromParcelWorkValidation
+        + FromParcelJobGuideValidation,
 {
     pub(super) async fn handle_parcel_operation_request(
         &self,
@@ -310,6 +313,48 @@ where
                 parcel_id,
             } => Ok(text_events(
                 self.list_parcel_work_desks(current_view, parcel_id, &identity.player_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ParcelOperationAppRequest::JobPublish {
+                current_view,
+                parcel_id,
+                slug,
+                title,
+                body,
+            } => Ok(text_events(
+                self.publish_parcel_job_guide(
+                    current_view,
+                    ParcelJobGuidePublish {
+                        parcel_id,
+                        owner_player_id: &identity.player_id,
+                        slug,
+                        title,
+                        body,
+                        publisher_user: &identity.user,
+                        publisher_player_id: &identity.player_id,
+                    },
+                )
+                .await?
+                .text,
+                None,
+            )),
+            ParcelOperationAppRequest::JobList {
+                current_view,
+                parcel_id,
+            } => Ok(text_events(
+                self.list_parcel_job_guides(current_view, parcel_id)
+                    .await?
+                    .text,
+                None,
+            )),
+            ParcelOperationAppRequest::JobRead {
+                current_view,
+                parcel_id,
+                slug,
+            } => Ok(text_events(
+                self.read_parcel_job_guide(current_view, parcel_id, slug)
                     .await?
                     .text,
                 None,

@@ -516,6 +516,82 @@ fn parcel_command_route_service_commands_render_expected_text() {
 }
 
 #[test]
+fn parcel_job_guide_service_commands_render_expected_text() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let app = AppService::new(TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
+                parcel_id: "P1",
+                view_id: "parcel-view",
+                front_view_id: "street-a",
+                district: "north",
+                position: 1,
+                owner_user: Some("owner".to_owned()),
+                owner_player_id: Some("owner-player".to_owned()),
+                room_user: Some("room-user".to_owned()),
+                room_player_id: Some("room-player".to_owned()),
+                status: PARCEL_STATUS_BUILT,
+                title: Some("Parcel".to_owned()),
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: None,
+            }),
+            calls: Mutex::new(Vec::new()),
+        });
+
+        let published = app
+            .publish_parcel_job_guide(
+                "parcel-view",
+                ParcelJobGuidePublish {
+                    parcel_id: "P1",
+                    owner_player_id: "owner-player",
+                    slug: "reporter",
+                    title: "Reporter JD",
+                    body: "File a story each game day.",
+                    publisher_user: "owner",
+                    publisher_player_id: "owner-player",
+                },
+            )
+            .await
+            .expect("publish job guide");
+        assert!(
+            published
+                .text
+                .contains("Published parcel job guide reporter for parcel P1")
+        );
+        assert!(published.text.contains("/parcel job read P1 reporter"));
+
+        let listed = app
+            .list_parcel_job_guides("parcel-view", "P1")
+            .await
+            .expect("list job guides");
+        assert!(listed.text.contains("Parcel Job Guides for P1"));
+        assert!(listed.text.contains("reporter"));
+
+        let read = app
+            .read_parcel_job_guide("parcel-view", "P1", "reporter")
+            .await
+            .expect("read job guide");
+        assert!(read.text.contains("Title: Reporter JD"));
+        assert!(read.text.contains("File a story each game day."));
+
+        assert_eq!(
+            app.store().calls.lock().unwrap().clone(),
+            vec![
+                "job-publish:P1:owner-player:reporter:Reporter JD:File a story each game day.:owner:owner-player"
+                    .to_owned(),
+                "job-list:P1".to_owned(),
+                "job-read:P1:reporter".to_owned(),
+            ]
+        );
+    });
+}
+
+#[test]
 fn parcel_actions_require_inside_parcel_before_mutating_state() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -563,6 +639,35 @@ fn parcel_actions_require_inside_parcel_before_mutating_state() {
             .await
             .expect_err("route add outside parcel");
         assert_eq!(route, expected);
+
+        let job_publish = app
+            .publish_parcel_job_guide(
+                "street-a",
+                ParcelJobGuidePublish {
+                    parcel_id: "P1",
+                    owner_player_id: "owner-player",
+                    slug: "reporter",
+                    title: "Reporter JD",
+                    body: "File daily.",
+                    publisher_user: "owner",
+                    publisher_player_id: "owner-player",
+                },
+            )
+            .await
+            .expect_err("job guide publish outside parcel");
+        assert_eq!(job_publish, expected);
+
+        let job_list = app
+            .list_parcel_job_guides("street-a", "P1")
+            .await
+            .expect_err("job guide list outside parcel");
+        assert_eq!(job_list, expected);
+
+        let job_read = app
+            .read_parcel_job_guide("street-a", "P1", "reporter")
+            .await
+            .expect_err("job guide read outside parcel");
+        assert_eq!(job_read, expected);
 
         let inbox = app
             .parcel_inbox("street-a", "owner-player")

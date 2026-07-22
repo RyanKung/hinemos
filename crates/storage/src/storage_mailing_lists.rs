@@ -1,27 +1,32 @@
 use std::collections::HashMap;
 
 use hinemos_app::{
-    ParcelMailingListDelivery, ParcelMailingListSend, ParcelMailingListSubscriberPage, ParcelView,
+    ParcelJobGuidePublish, ParcelMailingListDelivery, ParcelMailingListSend,
+    ParcelMailingListSubscriberPage, ParcelView,
 };
 use hinemos_core::{
-    OPERATOR_COMMAND_STATUS_HANDLED, PARCEL_MAILING_LIST_STATUS_CLOSED,
-    PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE, PARCEL_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED,
-    PARCEL_MAILING_LISTS_PER_PARCEL_MAX, PARCEL_STATUS_BUILT, PARCEL_WORK_DESKS_PER_PARCEL_MAX,
-    PARCEL_WORK_ITEM_CANCELLED, PARCEL_WORK_ITEM_CLAIMED, PARCEL_WORK_ITEM_DONE,
-    PARCEL_WORK_ITEM_QUEUED, PARCEL_WORK_SHIFT_ACTIVE, PARCEL_WORK_SHIFT_ENDED,
-    PARCEL_WORK_STAFF_ACTIVE, PARCEL_WORK_STAFF_REMOVED, parcel_command_route_prefix_is_valid,
-    parcel_mailing_list_body_is_valid, parcel_mailing_list_slug_is_valid,
-    parcel_mailing_list_subject_is_valid, parcel_mailing_list_title_is_valid,
-    parcel_work_desk_slug_is_valid, parcel_work_desk_title_is_valid, parcel_work_result_is_valid,
+    OPERATOR_COMMAND_STATUS_HANDLED, PARCEL_JOB_GUIDES_PER_PARCEL_MAX,
+    PARCEL_MAILING_LIST_STATUS_CLOSED, PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE,
+    PARCEL_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED, PARCEL_MAILING_LISTS_PER_PARCEL_MAX,
+    PARCEL_STATUS_BUILT, PARCEL_WORK_DESKS_PER_PARCEL_MAX, PARCEL_WORK_ITEM_CANCELLED,
+    PARCEL_WORK_ITEM_CLAIMED, PARCEL_WORK_ITEM_DONE, PARCEL_WORK_ITEM_QUEUED,
+    PARCEL_WORK_SHIFT_ACTIVE, PARCEL_WORK_SHIFT_ENDED, PARCEL_WORK_STAFF_ACTIVE,
+    PARCEL_WORK_STAFF_REMOVED, parcel_command_route_prefix_is_valid,
+    parcel_job_guide_body_is_valid, parcel_job_guide_slug_is_valid,
+    parcel_job_guide_title_is_valid, parcel_mailing_list_body_is_valid,
+    parcel_mailing_list_slug_is_valid, parcel_mailing_list_subject_is_valid,
+    parcel_mailing_list_title_is_valid, parcel_work_desk_slug_is_valid,
+    parcel_work_desk_title_is_valid, parcel_work_result_is_valid,
 };
 use serde_json::json;
 
 use crate::parcels::{canonical_parcel_id, fetch_parcel_by_id};
 use crate::{
     NewInboxItem, PgStorage, StorageError, StoredInboxItem, StoredOperatorCommand, StoredParcel,
-    StoredParcelCommandRoute, StoredParcelMailingList, StoredParcelMailingListPost,
-    StoredParcelMailingListSubscriber, StoredParcelMailingListSubscription, StoredParcelShift,
-    StoredParcelStaff, StoredParcelWorkDesk, StoredParcelWorkItem,
+    StoredParcelCommandRoute, StoredParcelJobGuide, StoredParcelMailingList,
+    StoredParcelMailingListPost, StoredParcelMailingListSubscriber,
+    StoredParcelMailingListSubscription, StoredParcelShift, StoredParcelStaff,
+    StoredParcelWorkDesk, StoredParcelWorkItem,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
@@ -434,6 +439,111 @@ impl PgStorage {
     ) -> Result<Vec<StoredParcelWorkDesk>, StorageError> {
         let parcel = self.owned_built_parcel(parcel_id, owner_player_id).await?;
         self.parcel_work_desks_for_parcel(&parcel.parcel_id).await
+    }
+
+    /// Publishes or replaces one job guide for an owned built parcel.
+    pub async fn publish_parcel_job_guide(
+        &self,
+        input: ParcelJobGuidePublish<'_>,
+    ) -> Result<StoredParcelJobGuide, StorageError> {
+        validate_job_slug(input.slug)?;
+        validate_job_title(input.title)?;
+        validate_job_body(input.body)?;
+        let publisher_user = input.publisher_user.trim();
+        if publisher_user.is_empty()
+            || publisher_user.contains(char::is_whitespace)
+            || input.publisher_player_id.trim().is_empty()
+        {
+            return Err(StorageError::InvalidParcelJobGuide(
+                "invalid parcel job-guide publisher".to_owned(),
+            ));
+        }
+        let parcel = self
+            .owned_built_parcel(input.parcel_id, input.owner_player_id)
+            .await?;
+        if self
+            .parcel_job_guide_by_slug(&parcel.parcel_id, input.slug)
+            .await?
+            .is_none()
+        {
+            let guide_count = self.parcel_job_guide_count(&parcel.parcel_id).await?;
+            if guide_count >= PARCEL_JOB_GUIDES_PER_PARCEL_MAX {
+                return Err(StorageError::InvalidParcelJobGuide(format!(
+                    "job-guide limit reached for parcel {}; maximum is {}",
+                    parcel.parcel_id, PARCEL_JOB_GUIDES_PER_PARCEL_MAX
+                )));
+            }
+        }
+        let row = sqlx::query_as::<_, StoredParcelJobGuide>(
+            r#"
+            insert into parcel_job_guides (
+                parcel_id, owner_player_id, slug, title, body, publisher_user, publisher_player_id
+            )
+            values ($1, $2, $3, $4, $5, $6, $7)
+            on conflict (parcel_id, slug) do update
+            set owner_player_id = excluded.owner_player_id,
+                title = excluded.title,
+                body = excluded.body,
+                publisher_user = excluded.publisher_user,
+                publisher_player_id = excluded.publisher_player_id,
+                status = 'published',
+                updated_at = now()
+            returning id, parcel_id, owner_player_id, slug, title, body,
+                      publisher_user, publisher_player_id, status,
+                      to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at,
+                      to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
+            "#,
+        )
+        .bind(&parcel.parcel_id)
+        .bind(input.owner_player_id)
+        .bind(input.slug)
+        .bind(input.title.trim())
+        .bind(input.body.trim())
+        .bind(publisher_user)
+        .bind(input.publisher_player_id.trim())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Lists job guides published by a built parcel.
+    pub async fn parcel_job_guides(
+        &self,
+        parcel_id: &str,
+    ) -> Result<Vec<StoredParcelJobGuide>, StorageError> {
+        let parcel = self.built_parcel(parcel_id).await?;
+        let rows = sqlx::query_as::<_, StoredParcelJobGuide>(
+            r#"
+            select id, parcel_id, owner_player_id, slug, title, body,
+                   publisher_user, publisher_player_id, status,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at,
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
+            from parcel_job_guides
+            where parcel_id = $1
+              and status = 'published'
+            order by slug
+            "#,
+        )
+        .bind(&parcel.parcel_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Reads one job guide published by a built parcel.
+    pub async fn parcel_job_guide(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<StoredParcelJobGuide, StorageError> {
+        validate_job_slug(slug)?;
+        let parcel = self.built_parcel(parcel_id).await?;
+        self.parcel_job_guide_by_slug(&parcel.parcel_id, slug)
+            .await?
+            .ok_or_else(|| StorageError::ParcelJobGuideNotFound {
+                parcel_id: parcel.parcel_id,
+                slug: slug.to_owned(),
+            })
     }
 
     /// Adds or reactivates a worker assignment for one work desk.
@@ -1019,6 +1129,56 @@ impl PgStorage {
             return Err(StorageError::ParcelNotBuilt(parcel.parcel_id));
         }
         Ok(parcel)
+    }
+
+    async fn built_parcel(&self, parcel_id: &str) -> Result<StoredParcel, StorageError> {
+        let parcel = fetch_parcel_by_id(&self.pool, parcel_id).await?;
+        if parcel.status != PARCEL_STATUS_BUILT {
+            return Err(StorageError::ParcelNotBuilt(parcel.parcel_id));
+        }
+        Ok(parcel)
+    }
+
+    async fn parcel_job_guide_by_slug(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<Option<StoredParcelJobGuide>, StorageError> {
+        let row = sqlx::query_as::<_, StoredParcelJobGuide>(
+            r#"
+            select id, parcel_id, owner_player_id, slug, title, body,
+                   publisher_user, publisher_player_id, status,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at,
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS TZ') as updated_at
+            from parcel_job_guides
+            where parcel_id = $1
+              and slug = $2
+              and status = 'published'
+            "#,
+        )
+        .bind(parcel_id)
+        .bind(slug)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn parcel_job_guide_count(&self, parcel_id: &str) -> Result<usize, StorageError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)::bigint
+            from parcel_job_guides
+            where parcel_id = $1
+            "#,
+        )
+        .bind(parcel_id)
+        .fetch_one(&self.pool)
+        .await?;
+        usize::try_from(count).map_err(|_| {
+            StorageError::InvalidParcelJobGuide(
+                "job-guide count exceeds supported range".to_owned(),
+            )
+        })
     }
 
     async fn owned_parcel_work_desk(
@@ -1712,6 +1872,36 @@ fn validate_work_title(title: &str) -> Result<(), StorageError> {
     } else {
         Err(StorageError::InvalidParcelWork(
             "invalid parcel work desk title".to_owned(),
+        ))
+    }
+}
+
+fn validate_job_slug(slug: &str) -> Result<(), StorageError> {
+    if parcel_job_guide_slug_is_valid(slug) {
+        Ok(())
+    } else {
+        Err(StorageError::InvalidParcelJobGuide(
+            "invalid parcel job-guide slug".to_owned(),
+        ))
+    }
+}
+
+fn validate_job_title(title: &str) -> Result<(), StorageError> {
+    if parcel_job_guide_title_is_valid(title) {
+        Ok(())
+    } else {
+        Err(StorageError::InvalidParcelJobGuide(
+            "invalid parcel job-guide title".to_owned(),
+        ))
+    }
+}
+
+fn validate_job_body(body: &str) -> Result<(), StorageError> {
+    if parcel_job_guide_body_is_valid(body) {
+        Ok(())
+    } else {
+        Err(StorageError::InvalidParcelJobGuide(
+            "invalid parcel job-guide body".to_owned(),
         ))
     }
 }

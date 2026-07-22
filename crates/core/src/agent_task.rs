@@ -5,9 +5,9 @@ use thiserror::Error;
 
 use crate::{
     BadgeAction, BuildAction, EntityRef, InboxAction, JsonObservation, ParcelAction,
-    ParcelBadgeAction, ParcelDeskAction, ParcelMailingListAction, ParcelRouteAction,
-    ParcelShiftAction, ParcelStaffAction, ParcelWorkAction, PayAction, SemanticCommand,
-    SettingsAction, agent_task_match::command_matches_template,
+    ParcelBadgeAction, ParcelDeskAction, ParcelJobAction, ParcelMailingListAction,
+    ParcelRouteAction, ParcelShiftAction, ParcelStaffAction, ParcelWorkAction, PayAction,
+    SemanticCommand, SettingsAction, agent_task_match::command_matches_template,
 };
 
 /// Persistent controller state for one task objective.
@@ -644,6 +644,7 @@ fn parcel_line(action: &ParcelAction) -> Option<String> {
         )),
         ParcelAction::MailingList { action } => Some(parcel_mailing_list_line(action)),
         ParcelAction::Desk { action } => Some(parcel_desk_line(action)),
+        ParcelAction::Job { action } => Some(parcel_job_line(action)),
         ParcelAction::Route { action } => Some(parcel_route_line(action)),
         ParcelAction::Staff { action } => Some(parcel_staff_line(action)),
         ParcelAction::Shift { action } => Some(parcel_shift_line(action)),
@@ -710,6 +711,21 @@ fn parcel_desk_line(action: &ParcelDeskAction) -> String {
             format!("/parcel desk create {parcel_id} {slug} {title}")
         }
         ParcelDeskAction::List { parcel_id } => format!("/parcel desk list {parcel_id}"),
+    }
+}
+
+fn parcel_job_line(action: &ParcelJobAction) -> String {
+    match action {
+        ParcelJobAction::Publish {
+            parcel_id,
+            slug,
+            title,
+            body,
+        } => {
+            format!("/parcel job publish {parcel_id} {slug} {title} -- {body}")
+        }
+        ParcelJobAction::List { parcel_id } => format!("/parcel job list {parcel_id}"),
+        ParcelJobAction::Read { parcel_id, slug } => format!("/parcel job read {parcel_id} {slug}"),
     }
 }
 

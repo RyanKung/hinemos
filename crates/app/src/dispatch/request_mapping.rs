@@ -139,6 +139,29 @@ pub(super) fn parcel_request<'a>(
                 parcel_id,
             },
         },
+        ParcelAction::Job { action } => match action {
+            ParcelJobAction::Publish {
+                parcel_id,
+                slug,
+                title,
+                body,
+            } => AppRequest::ParcelJobPublish {
+                current_view,
+                parcel_id,
+                slug,
+                title,
+                body,
+            },
+            ParcelJobAction::List { parcel_id } => AppRequest::ParcelJobList {
+                current_view,
+                parcel_id,
+            },
+            ParcelJobAction::Read { parcel_id, slug } => AppRequest::ParcelJobRead {
+                current_view,
+                parcel_id,
+                slug,
+            },
+        },
         ParcelAction::Route { action } => match action {
             ParcelRouteAction::Add {
                 parcel_id,

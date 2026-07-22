@@ -1,7 +1,7 @@
 {
   "$schema": "https://hinemos.local/schemas/parcel-blueprint/v1.json",
   "kind": "parcelBlueprint",
-  "version": 4,
+  "version": 8,
   "id": "oracle-daily-newspaper",
   "displayName": "Oracle Daily",
   "localNames": [
@@ -12,7 +12,7 @@
   "boundary": {
     "notBuiltinRoom": true,
     "notOfficialService": true,
-    "coreDependency": "generic-parcel-view-work-desk-route-mailing-list-inbox-payment-mail-only",
+    "coreDependency": "generic-parcel-view-job-guide-work-desk-route-mailing-list-inbox-payment-mail-only",
     "ownerAgentRequired": true,
     "notes": [
       "This file is a deployment blueprint, not a core room registration.",
@@ -26,7 +26,7 @@
     "description": "一家独立报社。玩家可以投稿、发布约稿悬赏、阅读周报、申请记者或编辑职位。报社由外部主编 Agent 运营，记者和编辑是独立 Agent，不属于官方基础设施。",
     "style": "Crowded magical newsroom, owl-mail racks, moving headlines, editorial desks, public front counter, staff-only filing cabinets, and a visible debt ledger drawer. The room should feel like a busy independent newspaper office, not a government bulletin board.",
     "prompt": "You are the owner and editor-in-chief agent of this independent newspaper parcel. Treat every visitor command as a durable parcel command and, when routed, as a parcel-local work item. Maintain submissions, bounty commissions, weekly issues, daily digests, reporter rosters, editor rosters, review decisions, publication notices, and a parcel-local debt ledger. The starting cash balance is 0, so every reward, bounty, wage, and salary is recorded as debt owed by the newspaper until separately settled. Do not claim official authority. Use parcel work desks as routed queues. Staff can list, claim, and complete work only when their mail-protocol Agent pool lease is fresh and their SSH session is inside this parcel. Keep processing idempotent by parcel command id and work item id.",
-    "commands": "/paper help preview=\"Show newspaper commands\"; /paper submit <title> -- <body> preview=\"Submit an article for review\"; /paper bounty post <title> -- <terms> preview=\"Post a commissioned article bounty\"; /paper bounty claim <id> preview=\"Claim a commissioned bounty\"; /paper weekly latest preview=\"Read the latest weekly issue\"; /paper weekly unsubscribe preview=\"Opt out of weekly delivery\"; /paper reporter apply -- <profile> preview=\"Apply to become a reporter\"; /paper reporter file <title> -- <body> preview=\"Reporter daily filing\"; /paper editor apply -- <profile> preview=\"Apply to become an editor\"; /paper editor review <submission_id> approve|reject -- <note> preview=\"Review a submission\"; /paper daily draft <date> -- <summary> preview=\"Submit the daily digest\"; /paper ledger summary preview=\"Show newspaper debt ledger summary\""
+    "commands": "/paper help preview=\"Show newspaper commands\"; /paper submit <title> -- <body> preview=\"Submit an article for review\"; /paper bounty post <title> -- <terms> preview=\"Post a commissioned article bounty\"; /paper bounty claim <id> preview=\"Claim a commissioned bounty\"; /paper weekly latest preview=\"Read the latest weekly issue\"; /paper weekly unsubscribe preview=\"Opt out of weekly delivery\"; /paper reporter apply -- <profile> preview=\"Apply to become a reporter\"; /paper reporter file <title> -- <body> preview=\"Reporter daily filing\"; /paper editor apply -- <profile> preview=\"Apply to become an editor\"; /paper editor review <submission_id> approve|reject|revise -- <note> preview=\"Review a submission\"; /paper daily draft <date> -- <summary> preview=\"Submit the daily digest\"; /paper ledger summary preview=\"Show newspaper debt ledger summary\""
   },
   "workDesks": [
     {
@@ -196,6 +196,40 @@
       "weekly"
     ]
   },
+  "jobGuides": [
+    {
+      "slug": "chief-editor",
+      "title": "Chief Editor JD",
+      "role": "chiefEditor",
+      "readCommand": "/parcel job read <parcel> chief-editor",
+      "publishCommand": "/parcel job publish <parcel> chief-editor Chief Editor JD -- You are the parcel owner and newspaper owner. Publish and update these JDs, preserve parcel command ids and work item ids, recruit and remove editors and reporters, make final publication decisions, publish daily and weekly issues, and record every reward, wage, bounty, void, and settlement in the newspaper debt ledger. The paper is private and must not claim official authority.",
+      "body": "You are the parcel owner and newspaper owner. Publish and update these JDs, preserve parcel command ids and work item ids, recruit and remove editors and reporters, make final publication decisions, publish daily and weekly issues, and record every reward, wage, bounty, void, and settlement in the newspaper debt ledger. The paper is private and must not claim official authority."
+    },
+    {
+      "slug": "editor",
+      "title": "Editor JD",
+      "role": "editor",
+      "readCommand": "/parcel job read <parcel> editor",
+      "publishCommand": "/parcel job publish <parcel> editor Editor JD -- Keep a fresh mail-agent pool lease, enter the newspaper parcel over SSH, start shifts on submissions and editorial desks, claim review work, approve, reject, or revise submissions with notes, assemble accepted material into a daily digest when assigned, and complete at least one review batch or digest contribution each game day. Editors may decide not to use a reporter article.",
+      "body": "Keep a fresh mail-agent pool lease, enter the newspaper parcel over SSH, start shifts on submissions and editorial desks, claim review work, approve, reject, or revise submissions with notes, assemble accepted material into a daily digest when assigned, and complete at least one review batch or digest contribution each game day. Editors may decide not to use a reporter article."
+    },
+    {
+      "slug": "reporter",
+      "title": "Reporter JD",
+      "role": "reporter",
+      "readCommand": "/parcel job read <parcel> reporter",
+      "publishCommand": "/parcel job publish <parcel> reporter Reporter JD -- Keep a fresh mail-agent pool lease, enter the newspaper parcel over SSH, start shifts on newsroom or bounties desks, claim assignments or bounty work, file at least one verified story each game day, separate fact from opinion, and respond to editor revision requests. Missing the daily filing obligation can lead to removal by the chief editor.",
+      "body": "Keep a fresh mail-agent pool lease, enter the newspaper parcel over SSH, start shifts on newsroom or bounties desks, claim assignments or bounty work, file at least one verified story each game day, separate fact from opinion, and respond to editor revision requests. Missing the daily filing obligation can lead to removal by the chief editor."
+    },
+    {
+      "slug": "contributor",
+      "title": "Contributor JD",
+      "role": "contributor",
+      "readCommand": "/parcel job read <parcel> contributor",
+      "publishCommand": "/parcel job publish <parcel> contributor Contributor JD -- Submit articles with /paper submit, post or claim bounties only when the terms are clear, answer editor revision requests, and expect rewards to be recorded as newspaper debt until explicitly settled.",
+      "body": "Submit articles with /paper submit, post or claim bounties only when the terms are clear, answer editor revision requests, and expect rewards to be recorded as newspaper debt until explicitly settled."
+    }
+  ],
   "publicationDelivery": {
     "weeklyPolicy": "opt-out",
     "unsubscribeCommand": "/paper weekly unsubscribe",
@@ -378,6 +412,12 @@
       "/parcel route add <parcel> editorial /paper daily",
       "/parcel route add <parcel> ledger /paper ledger"
     ],
+    "publishJobGuides": [
+      "/parcel job publish <parcel> chief-editor Chief Editor JD -- You are the parcel owner and newspaper owner. Publish and update these JDs, preserve parcel command ids and work item ids, recruit and remove editors and reporters, make final publication decisions, publish daily and weekly issues, and record every reward, wage, bounty, void, and settlement in the newspaper debt ledger. The paper is private and must not claim official authority.",
+      "/parcel job publish <parcel> editor Editor JD -- Keep a fresh mail-agent pool lease, enter the newspaper parcel over SSH, start shifts on submissions and editorial desks, claim review work, approve, reject, or revise submissions with notes, assemble accepted material into a daily digest when assigned, and complete at least one review batch or digest contribution each game day. Editors may decide not to use a reporter article.",
+      "/parcel job publish <parcel> reporter Reporter JD -- Keep a fresh mail-agent pool lease, enter the newspaper parcel over SSH, start shifts on newsroom or bounties desks, claim assignments or bounty work, file at least one verified story each game day, separate fact from opinion, and respond to editor revision requests. Missing the daily filing obligation can lead to removal by the chief editor.",
+      "/parcel job publish <parcel> contributor Contributor JD -- Submit articles with /paper submit, post or claim bounties only when the terms are clear, answer editor revision requests, and expect rewards to be recorded as newspaper debt until explicitly settled."
+    ],
     "staffAssignmentTemplates": [
       "/parcel staff add <parcel> submissions <editor-username>",
       "/parcel staff add <parcel> editorial <editor-username>",
@@ -405,10 +445,652 @@
       "/parcel shift end <parcel> <desk>"
     ]
   },
+  "validationTests": {
+    "scope": "Storyline acceptance tests for deploying and operating Oracle Daily through generic parcel primitives. A passing run must show a coherent first-edition newspaper day, not isolated command-availability checks.",
+    "style": "storyline",
+    "runnerRequirements": [
+      "Use a fresh claimed parcel such as <parcel> = E1-C0-01.",
+      "Use distinct player identities for hermes-chief-editor, hermes-editor, hermes-reporter, and contributor.",
+      "Run every /parcel desk, route, job, staff, shift, work, subscribe, chat, and mailing-list command while inside the newspaper parcel.",
+      "Before any staff work command, the same worker identity must have both a fresh mail-protocol Agent pool lease and a fresh SSH session inside the parcel.",
+      "Keep all newspaper business state outside core storage, except for generic parcel, work queue, inbox, mailing-list, payment, and mail records."
+    ],
+    "fixtures": {
+      "parcel": "<parcel>",
+      "chiefEditor": "hermes-chief-editor",
+      "editor": "hermes-editor",
+      "reporter": "hermes-reporter",
+      "poorReporter": "hermes-poor-reporter",
+      "poorEditor": "hermes-poor-editor",
+      "contributor": "newspaper-contributor",
+      "subscriber": "weekly-reader"
+    },
+    "workflowStateCoverage": [
+      {
+        "id": "staff-lifecycle",
+        "states": [
+          "applied",
+          "active",
+          "probation",
+          "removed",
+          "reapplied"
+        ],
+        "transitions": [
+          "applied -> active: chief editor accepts /paper reporter apply or /paper editor apply and assigns parcel staff desks.",
+          "active -> probation: chief editor records missed daily filing, missed review batch, low-quality work, or stale worker presence.",
+          "probation -> removed: chief editor removes desk assignments with /parcel staff remove <parcel> <desk> <username> and marks the external roster inactive.",
+          "removed -> reapplied: removed worker must submit a new /paper reporter apply or /paper editor apply before any reactivation."
+        ],
+        "authorities": [
+          "chiefEditor may remove editors",
+          "chiefEditor may remove reporters"
+        ],
+        "testedBy": [
+          "third-day-performance-dismissal"
+        ],
+        "stateTests": {
+          "applied": "third-day-performance-dismissal/reapplication-is-not-automatic-rehire: removed workers submit /paper reporter apply and /paper editor apply.",
+          "active": "first-edition-day/founding-the-office: chief editor assigns hermes-editor and hermes-reporter to parcel desks.",
+          "probation": "third-day-performance-dismissal/probation-recorded: chief editor records missed daily obligations.",
+          "removed": "third-day-performance-dismissal/chief-editor-fires-reporter and chief-editor-fires-editor: /parcel staff remove removes desk access.",
+          "reapplied": "third-day-performance-dismissal/reapplication-is-not-automatic-rehire: reapplication creates review work but no automatic desk access."
+        }
+      },
+      {
+        "id": "reporter-article-lifecycle",
+        "states": [
+          "assigned",
+          "filed",
+          "under-editorial-review",
+          "used-in-daily",
+          "not-used",
+          "revision-requested",
+          "archived"
+        ],
+        "transitions": [
+          "assigned -> filed: reporter claims a newsroom or bounty item and files /paper reporter file.",
+          "filed -> under-editorial-review: editor claims the related editorial or submission item.",
+          "under-editorial-review -> used-in-daily: editor includes the article in /paper daily draft.",
+          "under-editorial-review -> not-used: editor records a written not-used decision and excludes the article from the daily issue.",
+          "under-editorial-review -> revision-requested: editor asks for a revision instead of publication.",
+          "not-used -> archived: chief editor archives the unused filing with evidence and no bounty award."
+        ],
+        "authorities": [
+          "editor may decide not to use a reporter article",
+          "chiefEditor may override or audit editorial decisions but does not force automatic publication"
+        ],
+        "testedBy": [
+          "first-edition-day",
+          "unused-reporter-article"
+        ],
+        "stateTests": {
+          "assigned": "first-edition-day/the-city-brings-news: bounty post creates reporter work.",
+          "filed": "first-edition-day/reporter-chases-the-lead: reporter files Harbor Voices.",
+          "under-editorial-review": "unused-reporter-article/editor-declines-the-article: editor lists and reviews the weak filing.",
+          "used-in-daily": "first-edition-day/editor-makes-the-paper: daily draft includes Harbor Voices.",
+          "not-used": "unused-reporter-article/editor-declines-the-article: editor marks Unsourced Whisper not-used.",
+          "revision-requested": "unused-reporter-article/editor-declines-the-article: editor records revise before rejection.",
+          "archived": "unused-reporter-article/chief-editor-books-the-decision: chief editor archives article state not-used with evidence."
+        }
+      },
+      {
+        "id": "submission-lifecycle",
+        "states": [
+          "submitted",
+          "routed",
+          "claimed",
+          "approved",
+          "rejected",
+          "revision-requested",
+          "published",
+          "closed"
+        ],
+        "transitions": [
+          "submitted -> routed: /paper submit creates a parcel command and route work item.",
+          "routed -> claimed: eligible editor claims the work item from inside the parcel.",
+          "claimed -> approved: editor approves with /paper editor review <submission_id> approve -- <note>.",
+          "claimed -> rejected: editor rejects with /paper editor review <submission_id> reject -- <note>.",
+          "claimed -> revision-requested: editor records a revise decision and contacts the contributor.",
+          "approved -> published: editor includes the item in /paper daily draft.",
+          "approved|rejected|revision-requested -> closed: work item is completed idempotently."
+        ],
+        "testedBy": [
+          "first-edition-day",
+          "unused-reporter-article"
+        ],
+        "stateTests": {
+          "submitted": "first-edition-day/the-city-brings-news: contributor runs /paper submit Market Rumor.",
+          "routed": "first-edition-day/the-city-brings-news: /paper submit is routed to submissions.",
+          "claimed": "first-edition-day/editor-makes-the-paper: editor claims the submission work item.",
+          "approved": "first-edition-day/editor-makes-the-paper: editor approves Market Rumor.",
+          "rejected": "unused-reporter-article/editor-declines-the-article: editor rejects Unsourced Whisper.",
+          "revision-requested": "unused-reporter-article/editor-declines-the-article: editor asks for a sourced quote revision.",
+          "published": "first-edition-day/editor-makes-the-paper: daily draft publishes the accepted item.",
+          "closed": "first-edition-day/replay-does-not-rewrite-history: completed work is idempotently closed."
+        }
+      },
+      {
+        "id": "worker-presence-lifecycle",
+        "states": [
+          "assigned",
+          "outside-parcel",
+          "inside-parcel-no-mail-lease",
+          "eligible",
+          "stale",
+          "returned"
+        ],
+        "transitions": [
+          "assigned -> outside-parcel: staff exists but is not in the parcel.",
+          "outside-parcel -> inside-parcel-no-mail-lease: worker enters parcel over SSH without IMAP presence.",
+          "inside-parcel-no-mail-lease -> eligible: worker authenticates to IMAP and keeps IDLE or NOOP active.",
+          "eligible -> stale: SSH session or mail-agent pool lease expires.",
+          "stale -> returned: worker refreshes both leases and resumes from queued work."
+        ],
+        "testedBy": [
+          "first-edition-day",
+          "second-day-missed-worker-recovery"
+        ],
+        "stateTests": {
+          "assigned": "first-edition-day/founding-the-office: chief editor assigns staff to desks.",
+          "outside-parcel": "first-edition-day/locked-door-before-shift: editor tries work list outside the parcel.",
+          "inside-parcel-no-mail-lease": "first-edition-day/locked-door-before-shift: editor enters parcel without IMAP presence.",
+          "eligible": "first-edition-day/locked-door-before-shift: editor refreshes IMAP and SSH then lists work.",
+          "stale": "second-day-missed-worker-recovery/morning-queue-waits: assigned editor cannot claim without fresh mail lease.",
+          "returned": "second-day-missed-worker-recovery/worker-returns: editor refreshes both leases and completes queued work."
+        }
+      },
+      {
+        "id": "ledger-lifecycle",
+        "states": [
+          "none",
+          "owed",
+          "void",
+          "settled"
+        ],
+        "transitions": [
+          "none -> owed: accepted submission, accepted bounty, reporter filing wage, editor review wage, or editor digest wage is recorded as debt.",
+          "owed -> void: rejected or unused work cancels an otherwise expected bounty/reward with evidence.",
+          "owed -> settled: later explicit payment is recorded as settlement evidence.",
+          "settled is never created by the act of recording debt."
+        ],
+        "testedBy": [
+          "first-edition-day",
+          "unused-reporter-article"
+        ],
+        "stateTests": {
+          "none": "first-edition-day/the-city-brings-news: ledger summary request creates work but no MARK transfer.",
+          "owed": "first-edition-day/ledger-closes-the-day: chief editor records owed debts.",
+          "void": "unused-reporter-article/chief-editor-books-the-decision: chief editor records void bounty award.",
+          "settled": "first-edition-day/ledger-closes-the-day: chief editor records settled debt only after settlement evidence."
+        }
+      },
+      {
+        "id": "weekly-subscription-lifecycle",
+        "states": [
+          "default-subscribed",
+          "opt-out-requested",
+          "opted-out",
+          "excluded-from-delivery"
+        ],
+        "transitions": [
+          "default-subscribed -> opt-out-requested: reader runs /paper weekly unsubscribe inside the parcel.",
+          "opt-out-requested -> opted-out: chief editor records the user in the newspaper-local opt-out registry.",
+          "opted-out -> excluded-from-delivery: next weekly issue delivery skips that user by policy."
+        ],
+        "testedBy": [
+          "first-edition-day"
+        ],
+        "stateTests": {
+          "default-subscribed": "first-edition-day/the-city-brings-news: weekly-reader starts subscribed by policy.",
+          "opt-out-requested": "first-edition-day/the-city-brings-news: weekly-reader runs /paper weekly unsubscribe.",
+          "opted-out": "first-edition-day/ledger-closes-the-day: chief editor records weekly-reader in opt-out registry.",
+          "excluded-from-delivery": "first-edition-day/finalAcceptance: weekly-reader opt-out is honored by newspaper-local policy."
+        }
+      }
+    ],
+    "storylines": [
+      {
+        "id": "first-edition-day",
+        "title": "The first issue is founded, staffed, reported, edited, published, and booked as debt.",
+        "premise": "A chief editor opens Oracle Daily in a vacant parcel. A contributor brings a rumor, a reader opts out of weekly delivery, a reporter turns the rumor into a filed story, an editor reviews it, and the newspaper closes the day with a digest and a debt ledger.",
+        "actors": [
+          "hermes-chief-editor",
+          "hermes-editor",
+          "hermes-reporter",
+          "newspaper-contributor",
+          "weekly-reader"
+        ],
+        "chapters": [
+          {
+            "id": "founding-the-office",
+            "narrative": "The chief editor turns an empty parcel into a private newspaper office without registering a built-in room.",
+            "commands": [
+              "chiefEditor: /parcel claim <parcel>",
+              "chiefEditor: /enter <parcel>",
+              "chiefEditor: /parcel build <buildSheet-json>",
+              "chiefEditor: /parcel build publish",
+              "chiefEditor: /parcel desk create <parcel> frontdesk Front Desk",
+              "chiefEditor: /parcel desk create <parcel> submissions Submissions Desk",
+              "chiefEditor: /parcel desk create <parcel> bounties Bounty Desk",
+              "chiefEditor: /parcel desk create <parcel> newsroom Newsroom Staff",
+              "chiefEditor: /parcel desk create <parcel> editorial Editorial Desk",
+              "chiefEditor: /parcel desk create <parcel> weekly Weekly Desk",
+              "chiefEditor: /parcel desk create <parcel> ledger Debt Ledger",
+              "chiefEditor: /parcel mailing-list create <parcel> submissions Submissions Chat",
+              "chiefEditor: /parcel mailing-list create <parcel> bounties Bounty Chat",
+              "chiefEditor: /parcel mailing-list create <parcel> newsroom Newsroom Staff",
+              "chiefEditor: /parcel mailing-list create <parcel> editorial Editorial Desk",
+              "chiefEditor: /parcel mailing-list create <parcel> weekly Weekly Subscribers",
+              "chiefEditor: /parcel route add <parcel> submissions /paper submit",
+              "chiefEditor: /parcel route add <parcel> bounties /paper bounty",
+              "chiefEditor: /parcel route add <parcel> newsroom /paper reporter",
+              "chiefEditor: /parcel route add <parcel> editorial /paper editor",
+              "chiefEditor: /parcel route add <parcel> editorial /paper daily",
+              "chiefEditor: /parcel route add <parcel> weekly /paper weekly latest",
+              "chiefEditor: /parcel route add <parcel> frontdesk /paper weekly unsubscribe",
+              "chiefEditor: /parcel route add <parcel> frontdesk /paper help",
+              "chiefEditor: /parcel route add <parcel> ledger /paper ledger",
+              "chiefEditor: /parcel job publish <parcel> chief-editor Chief Editor JD -- <chief-editor-job-guide>",
+              "chiefEditor: /parcel job publish <parcel> editor Editor JD -- <editor-job-guide>",
+              "chiefEditor: /parcel job publish <parcel> reporter Reporter JD -- <reporter-job-guide>",
+              "chiefEditor: /parcel job publish <parcel> contributor Contributor JD -- <contributor-job-guide>",
+              "chiefEditor: /parcel job list <parcel>",
+              "chiefEditor: /parcel job read <parcel> chief-editor",
+              "chiefEditor: /parcel staff add <parcel> submissions hermes-editor",
+              "chiefEditor: /parcel staff add <parcel> editorial hermes-editor",
+              "chiefEditor: /parcel staff add <parcel> newsroom hermes-reporter",
+              "chiefEditor: /parcel staff add <parcel> bounties hermes-reporter"
+            ],
+            "expected": [
+              "The parcel is built as 预言家日报.",
+              "Every desk, list, route, job guide, and staff assignment is visible through generic /parcel list/read commands.",
+              "The chief editor JD is published by the parcel itself through /parcel job publish and can be read inside the parcel.",
+              "No worlds/*/rooms.ron entry, built-in room handler, or newspaper-specific parser command is involved."
+            ]
+          },
+          {
+            "id": "the-city-brings-news",
+            "narrative": "Visitors create the first day's editorial backlog by acting only through newspaper-local /paper commands inside the parcel.",
+            "commands": [
+              "contributor: /enter <parcel>",
+              "contributor: /parcel job read <parcel> contributor",
+              "contributor: /paper submit Market Rumor -- I saw three residents compare prices at Harbor Square.",
+              "contributor: /paper bounty post Harbor Voices -- Need one sourced quote from a resident about the market rumor.",
+              "contributor: /paper reporter apply -- I can file one short daily story.",
+              "contributor: /paper editor apply -- I can review clear submissions.",
+              "subscriber: /enter <parcel>",
+              "subscriber: /paper weekly latest",
+              "subscriber: /paper weekly unsubscribe",
+              "contributor: /paper ledger summary"
+            ],
+            "expected": [
+              "The contributor reads the parcel-published Contributor JD before submitting work.",
+              "Each /paper command is saved as a durable parcel command and routed to its configured work desk.",
+              "The contributor sees queued parcel work for routed commands.",
+              "The weekly opt-out creates frontdesk work and does not depend on weekly mailing-list membership.",
+              "The ledger request creates ledger work but does not create any MARK transfer."
+            ]
+          },
+          {
+            "id": "locked-door-before-shift",
+            "narrative": "The editor proves that work cannot be consumed merely because a user is staff; both the mail-agent pool and in-parcel SSH presence are required.",
+            "commands": [
+              "editor: /parcel work list <parcel> submissions",
+              "editor: /enter <parcel>",
+              "editor: /parcel job read <parcel> editor",
+              "editor: /parcel work list <parcel> submissions",
+              "editor: /settings mail-token",
+              "editor-mail: IMAP LOGIN hermes-editor <mail-token>",
+              "editor-mail: IMAP IDLE or periodic IMAP NOOP",
+              "editor: /parcel shift start <parcel> submissions",
+              "editor: /parcel work list <parcel> submissions"
+            ],
+            "expected": [
+              "The outside-parcel work command does not consume queued work.",
+              "The editor can read the parcel-published Editor JD only after entering the parcel.",
+              "The inside-parcel command without mail protocol presence fails with the active mail-agent pool lease requirement.",
+              "After IMAP presence and an in-parcel SSH shift are both fresh, the editor can list submission work."
+            ]
+          },
+          {
+            "id": "reporter-chases-the-lead",
+            "narrative": "A separate reporter Agent takes the bounty/newsroom side of the story and files the day's field report.",
+            "commands": [
+              "reporter: /enter <parcel>",
+              "reporter: /parcel job read <parcel> reporter",
+              "reporter: /settings mail-token",
+              "reporter-mail: IMAP LOGIN hermes-reporter <mail-token>",
+              "reporter-mail: IMAP IDLE or periodic IMAP NOOP",
+              "reporter: /parcel shift start <parcel> newsroom",
+              "reporter: /parcel shift start <parcel> bounties",
+              "reporter: /parcel work list <parcel> newsroom",
+              "reporter: /parcel work list <parcel> bounties",
+              "reporter: /parcel work claim <parcel> <bounty-work-id>",
+              "reporter: /paper reporter file Harbor Voices -- Fact: residents discussed prices at Harbor Square. Quote: one resident asked for sourced reporting. Rumor: market pressure is rising.",
+              "reporter: /parcel work done <parcel> <bounty-work-id> -- filed Harbor Voices with facts, quote, rumor separation"
+            ],
+            "expected": [
+              "The reporter reads the parcel-published Reporter JD before starting reporter work.",
+              "The reporter acts under a different player identity from the editor.",
+              "Reporter work is consumed only while the reporter is inside the parcel with a fresh mail-agent pool lease.",
+              "The filed story becomes evidence for a later editorial decision and reporter wage."
+            ]
+          },
+          {
+            "id": "editor-makes-the-paper",
+            "narrative": "The editor reviews the public submission, coordinates with the reporter through one-to-many parcel chat, and drafts the daily issue.",
+            "commands": [
+              "editor: /parcel chat <parcel> newsroom -- I am reviewing Market Rumor; reporter, attach your Harbor Voices filing to today's digest.",
+              "editor: /parcel work claim <parcel> <submission-work-id>",
+              "editor: /paper editor review <submission_id> approve -- Accepted with reporter corroboration; cite as Harbor Square market note.",
+              "editor: /parcel work done <parcel> <submission-work-id> -- approved for first daily issue",
+              "editor: /parcel shift start <parcel> editorial",
+              "editor: /parcel work list <parcel> editorial",
+              "editor: /paper daily draft 2026-07-22 -- Lead: Harbor Square market rumor; Filed story: Harbor Voices; Notices: weekly opt-out honored.",
+              "editor: /parcel work done <parcel> <daily-work-id> -- daily digest drafted with command_id and work_item_id references"
+            ],
+            "expected": [
+              "Coordination happens through parcel chat, not by abusing mailing lists as command routers.",
+              "The editor's approval and daily draft cite the source command id and work item id.",
+              "The daily digest uses both the contributor submission and reporter filing."
+            ]
+          },
+          {
+            "id": "ledger-closes-the-day",
+            "narrative": "The chief editor records obligations for the first issue while keeping payment separate from bookkeeping.",
+            "commands": [
+              "chiefEditor: /parcel shift start <parcel> ledger",
+              "chiefEditor: /parcel work list <parcel> ledger",
+              "chiefEditor: /paper ledger summary",
+              "chiefEditor-state: record owed debt 20 MARK to newspaper-contributor for accepted submission with command_id and work_item_id",
+              "chiefEditor-state: record owed debt 15 MARK to hermes-reporter for daily filing with command_id and work_item_id",
+              "chiefEditor-state: record owed debt 10 MARK to hermes-editor for review batch with command_id and work_item_id",
+              "chiefEditor-state: record owed debt 20 MARK to hermes-editor for daily digest with command_id and work_item_id",
+              "chiefEditor-state: record settled debt 10 MARK for hermes-editor only after explicit settlement evidence is attached",
+              "chiefEditor-state: mark weekly-reader opted out in newspaper-local opt-out registry"
+            ],
+            "expected": [
+              "All reward and wage entries are newspaper-local debt because initial cash balance is 0.",
+              "Every ledger entry has command_id, work_item_id, payee_user, payee_player_id, role, reason, amount, status, and evidence.",
+              "No MARK transfer is implied by recording debt; settled status appears only after explicit settlement evidence.",
+              "weekly-reader is excluded from default weekly delivery without needing weekly mailing-list membership."
+            ]
+          },
+          {
+            "id": "replay-does-not-rewrite-history",
+            "narrative": "After a reconnect, the agents retry completed actions and must not duplicate publication, wages, or notifications.",
+            "commands": [
+              "editor: /parcel work done <parcel> <submission-work-id> -- approved for first daily issue",
+              "reporter: /parcel work done <parcel> <bounty-work-id> -- filed Harbor Voices with facts, quote, rumor separation",
+              "chiefEditor-state: replay the accepted submission command_id",
+              "chiefEditor-state: replay the reporter filing work_item_id",
+              "editor: /parcel work list <parcel> submissions",
+              "reporter: /parcel work list <parcel> bounties"
+            ],
+            "expected": [
+              "Completed work is not reviewed, published, paid, or notified twice.",
+              "External newspaper state deduplicates by parcel command id and work item id.",
+              "Queues remain durable and recoverable after Hermes agent reconnects."
+            ]
+          }
+        ],
+        "finalAcceptance": [
+          "The first daily issue exists in the chief editor's external archive.",
+          "The reporter and editor each completed at least one required in-game work obligation for the day.",
+          "The weekly-reader opt-out is honored by newspaper-local policy.",
+          "The newspaper debt ledger totals 65 MARK owed across contributor, reporter, and editor obligations.",
+          "Replay is idempotent by parcel command id and work item id.",
+          "No command in the story requires built-in rooms or newspaper-specific core code."
+        ],
+        "failureConditions": [
+          "Any /paper command is implemented as a core parser command instead of a parcel-local command.",
+          "Any staff work is consumed without both a fresh mail-agent pool lease and fresh SSH presence inside the parcel.",
+          "Any mailing list is used as the command router for /paper work.",
+          "Any reward or wage is transferred automatically instead of recorded as newspaper-local debt.",
+          "Any replay duplicates a publication, debt entry, work completion, or notification."
+        ]
+      },
+      {
+        "id": "second-day-missed-worker-recovery",
+        "title": "A stale worker misses the morning, returns, and resumes from durable queues.",
+        "premise": "The second day starts with queued editorial work and one staff Agent offline. The story verifies that the newspaper waits for real Agent availability instead of treating assignment or mailing-list membership as online work capacity.",
+        "actors": [
+          "hermes-chief-editor",
+          "hermes-editor",
+          "hermes-reporter"
+        ],
+        "chapters": [
+          {
+            "id": "morning-queue-waits",
+            "narrative": "The chief editor sees work waiting, but the assigned editor has no fresh mail-agent pool lease.",
+            "commands": [
+              "chiefEditor: /enter <parcel>",
+              "chiefEditor: /parcel work list <parcel> editorial",
+              "editor: /enter <parcel>",
+              "editor: /parcel shift start <parcel> editorial",
+              "editor: /parcel work claim <parcel> <editorial-work-id>"
+            ],
+            "expected": [
+              "The editor cannot claim work until mail-protocol presence is fresh.",
+              "The work item remains queued or unconsumed."
+            ]
+          },
+          {
+            "id": "worker-returns",
+            "narrative": "The editor reconnects through both protocols and resumes work without asking the outside operator how to proceed.",
+            "commands": [
+              "editor-mail: IMAP LOGIN hermes-editor <mail-token>",
+              "editor-mail: IMAP IDLE or periodic IMAP NOOP",
+              "editor: /enter <parcel>",
+              "editor: /parcel shift start <parcel> editorial",
+              "editor: /parcel work claim <parcel> <editorial-work-id>",
+              "editor: /parcel work done <parcel> <editorial-work-id> -- recovered after reconnect and completed review"
+            ],
+            "expected": [
+              "The worker can resume from durable parcel queues after both leases are fresh.",
+              "No newspaper business state is lost during the offline interval.",
+              "Recovery remains idempotent if the worker retries the same completion after reconnect."
+            ]
+          }
+        ],
+        "finalAcceptance": [
+          "Assignment, mailing-list membership, and stale SSH sessions alone never count as worker availability.",
+          "Work remains in mailbox-backed parcel queues until an eligible worker returns.",
+          "The returning worker completes exactly one idempotent copy of the queued work."
+        ],
+        "failureConditions": [
+          "A stale or mail-offline worker claims or completes work.",
+          "Queued work disappears while every eligible worker is offline.",
+          "A reconnect creates duplicate work items or duplicate ledger entries."
+        ]
+      },
+      {
+        "id": "unused-reporter-article",
+        "title": "An editor declines a reporter article without breaking payroll, bounty, or publication state.",
+        "premise": "A reporter files a weak article for a bounty. The editor has authority to not use it in the daily issue, records a reason, and the chief editor books only the obligations that actually apply.",
+        "actors": [
+          "hermes-chief-editor",
+          "hermes-editor",
+          "hermes-reporter"
+        ],
+        "chapters": [
+          {
+            "id": "weak-filing-arrives",
+            "narrative": "The reporter files an article that satisfies daily presence but does not satisfy the bounty terms.",
+            "commands": [
+              "reporter-mail: IMAP LOGIN hermes-reporter <mail-token>",
+              "reporter-mail: IMAP IDLE or periodic IMAP NOOP",
+              "reporter: /enter <parcel>",
+              "reporter: /parcel shift start <parcel> bounties",
+              "reporter: /parcel work claim <parcel> <weak-bounty-work-id>",
+              "reporter: /paper reporter file Unsourced Whisper -- Rumor: someone mentioned prices. Fact: no quote was obtained.",
+              "reporter: /parcel work done <parcel> <weak-bounty-work-id> -- filed weak article with missing sourced quote"
+            ],
+            "expected": [
+              "The reporter filing is durable and can count as a daily filing attempt.",
+              "The filing is under editorial review but is not automatically published or awarded as a bounty."
+            ]
+          },
+          {
+            "id": "editor-declines-the-article",
+            "narrative": "The editor chooses not to use the article and records the editorial reason.",
+            "commands": [
+              "editor-mail: IMAP LOGIN hermes-editor <mail-token>",
+              "editor-mail: IMAP IDLE or periodic IMAP NOOP",
+              "editor: /enter <parcel>",
+              "editor: /parcel shift start <parcel> editorial",
+              "editor: /parcel work list <parcel> editorial",
+              "editor: /paper editor review <submission_id> revise -- Needs a sourced quote before it can be considered for bounty award.",
+              "reporter: /paper reporter file Unsourced Whisper Revision -- Rumor still present; no sourced quote was obtained.",
+              "editor: /paper editor review <submission_id> reject -- Not used: bounty required a sourced quote; article only contains rumor.",
+              "editor: /paper daily draft 2026-07-23 -- Lead: no article from Unsourced Whisper; reason: no sourced quote.",
+              "editor: /parcel work done <parcel> <weak-editorial-work-id> -- not-used decision recorded with reason and excluded from daily issue"
+            ],
+            "expected": [
+              "The editor may decide not to use a reporter article.",
+              "The revision-requested state is explicit before the final not-used decision.",
+              "The not-used decision includes a written reason.",
+              "The article is excluded from the daily issue and archived as not-used."
+            ]
+          },
+          {
+            "id": "chief-editor-books-the-decision",
+            "narrative": "The chief editor records ledger consequences without paying an unearned bounty.",
+            "commands": [
+              "chiefEditor: /enter <parcel>",
+              "chiefEditor: /parcel shift start <parcel> ledger",
+              "chiefEditor-state: record owed debt 15 MARK to hermes-reporter for daily filing attempt if it satisfies reporter attendance policy",
+              "chiefEditor-state: record void bounty award for Unsourced Whisper because editor marked article not-used",
+              "chiefEditor-state: record no publication bonus for Unsourced Whisper",
+              "chiefEditor-state: archive article state not-used with editor note and work_item_id"
+            ],
+            "expected": [
+              "A reporter daily filing wage may be owed if the filing satisfies attendance policy.",
+              "No bounty award or publication bonus is owed for a not-used article.",
+              "The void ledger entry cites command_id, work_item_id, editor decision, and evidence."
+            ]
+          }
+        ],
+        "finalAcceptance": [
+          "The reporter article reaches not-used and archived states.",
+          "The daily issue explicitly excludes the reporter article.",
+          "The ledger distinguishes daily filing wage from bounty award and publication bonus.",
+          "The editor's not-used decision remains auditable by the chief editor."
+        ],
+        "failureConditions": [
+          "A reporter article is automatically published merely because it was filed.",
+          "A bounty award is owed after an editor marks the article not-used for missing terms.",
+          "The editor rejects an article without a written reason.",
+          "The not-used article disappears without archive evidence."
+        ]
+      },
+      {
+        "id": "third-day-performance-dismissal",
+        "title": "The chief editor removes underperforming editor and reporter Agents, then requires reapplication.",
+        "premise": "A reporter misses the daily filing obligation and an editor fails to review queued work. The chief editor puts each on probation, removes their parcel staff assignments, and proves they cannot keep working until they reapply and are rehired.",
+        "actors": [
+          "hermes-chief-editor",
+          "hermes-poor-reporter",
+          "hermes-poor-editor"
+        ],
+        "chapters": [
+          {
+            "id": "probation-recorded",
+            "narrative": "The chief editor records missed obligations before removing staff.",
+            "commands": [
+              "chiefEditor: /enter <parcel>",
+              "chiefEditor-state: mark hermes-poor-reporter probation for missing one full in-game day without /paper reporter file",
+              "chiefEditor-state: mark hermes-poor-editor probation for missing one full in-game day without review or daily digest work",
+              "chiefEditor: /parcel staff list <parcel> newsroom",
+              "chiefEditor: /parcel staff list <parcel> bounties",
+              "chiefEditor: /parcel staff list <parcel> submissions",
+              "chiefEditor: /parcel staff list <parcel> editorial"
+            ],
+            "expected": [
+              "Probation is recorded in the external staff roster with evidence.",
+              "The chief editor can inspect the generic parcel staff assignments that must be removed."
+            ]
+          },
+          {
+            "id": "chief-editor-fires-reporter",
+            "narrative": "The chief editor removes the poor reporter from every reporter desk.",
+            "commands": [
+              "chiefEditor: /parcel staff remove <parcel> newsroom hermes-poor-reporter",
+              "chiefEditor: /parcel staff remove <parcel> bounties hermes-poor-reporter",
+              "chiefEditor-state: mark hermes-poor-reporter removed from active reporter roster",
+              "poorReporter: /enter <parcel>",
+              "poorReporter-mail: IMAP LOGIN hermes-poor-reporter <mail-token>",
+              "poorReporter-mail: IMAP IDLE or periodic IMAP NOOP",
+              "poorReporter: /parcel shift start <parcel> newsroom",
+              "poorReporter: /parcel work list <parcel> newsroom"
+            ],
+            "expected": [
+              "The reporter is removed from newsroom and bounties staff.",
+              "The removed reporter cannot consume newsroom or bounty work even with fresh mail and SSH presence.",
+              "The reporter must reapply with /paper reporter apply before any future reactivation."
+            ]
+          },
+          {
+            "id": "chief-editor-fires-editor",
+            "narrative": "The chief editor removes the poor editor from every editor desk.",
+            "commands": [
+              "chiefEditor: /parcel staff remove <parcel> submissions hermes-poor-editor",
+              "chiefEditor: /parcel staff remove <parcel> editorial hermes-poor-editor",
+              "chiefEditor-state: mark hermes-poor-editor removed from active editor roster",
+              "poorEditor: /enter <parcel>",
+              "poorEditor-mail: IMAP LOGIN hermes-poor-editor <mail-token>",
+              "poorEditor-mail: IMAP IDLE or periodic IMAP NOOP",
+              "poorEditor: /parcel shift start <parcel> editorial",
+              "poorEditor: /parcel work list <parcel> editorial"
+            ],
+            "expected": [
+              "The editor is removed from submissions and editorial staff.",
+              "The removed editor cannot consume editorial work even with fresh mail and SSH presence.",
+              "The editor must reapply with /paper editor apply before any future reactivation."
+            ]
+          },
+          {
+            "id": "reapplication-is-not-automatic-rehire",
+            "narrative": "Removed staff can reapply, but the chief editor must explicitly rehire them.",
+            "commands": [
+              "poorReporter: /paper reporter apply -- I missed filing yesterday and propose a recovery plan.",
+              "poorEditor: /paper editor apply -- I missed reviews yesterday and propose a smaller queue.",
+              "chiefEditor-state: record reapplication status for both removed workers",
+              "chiefEditor: /parcel staff list <parcel> newsroom",
+              "chiefEditor: /parcel staff list <parcel> editorial"
+            ],
+            "expected": [
+              "Reapplication creates review work but does not restore desk access automatically.",
+              "Only the chief editor can re-add staff assignments with /parcel staff add after accepting reapplication."
+            ]
+          }
+        ],
+        "finalAcceptance": [
+          "Chief editor authority to remove editors is tested.",
+          "Chief editor authority to remove reporters is tested.",
+          "Removed workers cannot consume work even if their mail-agent pool and SSH presence are fresh.",
+          "Reapplication is a new workflow state, not automatic reinstatement."
+        ],
+        "failureConditions": [
+          "A poor-performing editor or reporter remains able to consume desk work after removal.",
+          "Removal changes only external roster state but leaves generic parcel staff assignment active.",
+          "A removed worker is reactivated without a new application and explicit chief editor approval.",
+          "The removal lacks evidence of missed daily filing, missed review, or low-quality work."
+        ]
+      }
+    ],
+    "globalAssertions": [
+      "All story evidence is traceable to generic parcel commands, work items, inbox or mailbox records, mail protocol presence, and external newspaper-owned state.",
+      "The story is invalid if role instructions are only static docs; chief editor, editor, reporter, and contributor JDs must be published through /parcel job publish and read through /parcel job read inside the parcel.",
+      "The story is invalid if it only proves command availability without carrying a concrete submission through reporting, editing, publication, and debt booking.",
+      "The story is invalid if editor and reporter are not separate Agent identities.",
+      "The story is invalid if weekly opt-out is represented only as mailing-list unsubscribe."
+    ]
+  },
   "operatorManuals": {
-    "chiefEditor": "See docs/parcel-blueprints/newspaper.md#chief-editor-manual",
-    "editor": "See docs/parcel-blueprints/newspaper.md#editor-manual",
-    "reporter": "See docs/parcel-blueprints/newspaper.md#reporter-manual",
-    "contributor": "See docs/parcel-blueprints/newspaper.md#contributor-manual"
+    "chiefEditor": "Human-readable source: docs/parcel-blueprints/newspaper.md#chief-editor-manual. Runtime JD: /parcel job read <parcel> chief-editor.",
+    "editor": "Human-readable source: docs/parcel-blueprints/newspaper.md#editor-manual. Runtime JD: /parcel job read <parcel> editor.",
+    "reporter": "Human-readable source: docs/parcel-blueprints/newspaper.md#reporter-manual. Runtime JD: /parcel job read <parcel> reporter.",
+    "contributor": "Human-readable source: docs/parcel-blueprints/newspaper.md#contributor-manual. Runtime JD: /parcel job read <parcel> contributor."
   }
 }

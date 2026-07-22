@@ -2,6 +2,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use hinemos_app::ParcelJobGuidePublish;
 use hinemos_core::{
     OPERATOR_COMMAND_STATUS_DELIVERED, OPERATOR_COMMAND_STATUS_HANDLED,
     PARCEL_MAILING_LISTS_PER_PARCEL_MAX, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED,
@@ -864,6 +865,86 @@ async fn parcel_command_routes_queue_operator_commands_for_in_parcel_workers() {
         .await
         .expect("dispatch after remove");
     assert!(routed_after_remove.is_empty());
+}
+
+#[tokio::test]
+async fn parcel_job_guides_publish_list_read_and_replace() {
+    if skip_without_database() {
+        return;
+    }
+    let (db, storage) = storage_with_built_parcel().await;
+
+    let guide = storage
+        .publish_parcel_job_guide(ParcelJobGuidePublish {
+            parcel_id: "E1-C0-01",
+            owner_player_id: "player:owner",
+            slug: "reporter",
+            title: "Reporter JD",
+            body: "File one story each game day.",
+            publisher_user: "owner",
+            publisher_player_id: "player:owner",
+        })
+        .await
+        .expect("publish reporter guide");
+    assert_eq!(guide.slug, "reporter");
+    assert_eq!(guide.title, "Reporter JD");
+    assert_eq!(guide.body, "File one story each game day.");
+
+    let replaced = storage
+        .publish_parcel_job_guide(ParcelJobGuidePublish {
+            parcel_id: "E1-C0-01",
+            owner_player_id: "player:owner",
+            slug: "reporter",
+            title: "Reporter JD",
+            body: "File one verified story each game day.",
+            publisher_user: "owner",
+            publisher_player_id: "player:owner",
+        })
+        .await
+        .expect("replace reporter guide");
+    assert_eq!(replaced.id, guide.id);
+    assert_eq!(replaced.body, "File one verified story each game day.");
+
+    let guides = storage
+        .parcel_job_guides("E1-C0-01")
+        .await
+        .expect("list job guides");
+    assert_eq!(guides.len(), 1);
+    assert_eq!(guides[0].slug, "reporter");
+
+    let read = storage
+        .parcel_job_guide("E1-C0-01", "reporter")
+        .await
+        .expect("read job guide");
+    assert_eq!(read.body, "File one verified story each game day.");
+    assert_eq!(
+        db.query_value(
+            "select count(*)
+             from parcel_job_guides
+             where parcel_id = 'E1-C0-01'
+               and slug = 'reporter'"
+        ),
+        "1"
+    );
+
+    assert!(matches!(
+        storage
+            .publish_parcel_job_guide(ParcelJobGuidePublish {
+                parcel_id: "E1-C0-01",
+                owner_player_id: "player:customer",
+                slug: "editor",
+                title: "Editor JD",
+                body: "Review submissions.",
+                publisher_user: "customer",
+                publisher_player_id: "player:customer",
+            },)
+            .await,
+        Err(StorageError::NotParcelOwner(_))
+    ));
+    assert!(matches!(
+        storage.parcel_job_guide("E1-C0-01", "missing").await,
+        Err(StorageError::ParcelJobGuideNotFound { .. })
+    ));
 }
 
 #[tokio::test]

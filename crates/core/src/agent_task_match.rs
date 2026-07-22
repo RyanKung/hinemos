@@ -1,7 +1,7 @@
 use crate::{
     BadgeAction, BuildAction, InboxAction, ParcelAction, ParcelBadgeAction, ParcelDeskAction,
-    ParcelMailingListAction, ParcelRouteAction, ParcelShiftAction, ParcelStaffAction,
-    ParcelWorkAction, PayAction, SemanticCommand, SettingsAction,
+    ParcelJobAction, ParcelMailingListAction, ParcelRouteAction, ParcelShiftAction,
+    ParcelStaffAction, ParcelWorkAction, PayAction, SemanticCommand, SettingsAction,
     extension_command_input_matches_template,
 };
 
@@ -205,6 +205,9 @@ fn parcel_action_matches(action: &ParcelAction, template: &ParcelAction) -> bool
         (ParcelAction::Desk { action }, ParcelAction::Desk { action: template }) => {
             parcel_desk_action_matches(action, template)
         }
+        (ParcelAction::Job { action }, ParcelAction::Job { action: template }) => {
+            parcel_job_action_matches(action, template)
+        }
         (ParcelAction::Route { action }, ParcelAction::Route { action: template }) => {
             parcel_route_action_matches(action, template)
         }
@@ -336,6 +339,38 @@ fn parcel_desk_action_matches(action: &ParcelDeskAction, template: &ParcelDeskAc
         (
             ParcelDeskAction::List { parcel_id },
             ParcelDeskAction::List {
+                parcel_id: template,
+            },
+        ) => template_string_matches(parcel_id, template),
+        _ => false,
+    }
+}
+
+fn parcel_job_action_matches(action: &ParcelJobAction, template: &ParcelJobAction) -> bool {
+    match (action, template) {
+        (
+            ParcelJobAction::Publish {
+                parcel_id, slug, ..
+            },
+            ParcelJobAction::Publish {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                ..
+            },
+        )
+        | (
+            ParcelJobAction::Read { parcel_id, slug },
+            ParcelJobAction::Read {
+                parcel_id: template_parcel,
+                slug: template_slug,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_string_matches(slug, template_slug)
+        }
+        (
+            ParcelJobAction::List { parcel_id },
+            ParcelJobAction::List {
                 parcel_id: template,
             },
         ) => template_string_matches(parcel_id, template),

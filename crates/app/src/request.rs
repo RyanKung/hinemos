@@ -249,6 +249,35 @@ pub enum AppRequest<'a> {
         /// Parcel id.
         parcel_id: &'a str,
     },
+    /// Publish or replace a parcel job guide.
+    ParcelJobPublish {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable job slug.
+        slug: &'a str,
+        /// Player-facing job title.
+        title: &'a str,
+        /// Job description or role instructions.
+        body: &'a str,
+    },
+    /// List parcel-published job guides.
+    ParcelJobList {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+    },
+    /// Read one parcel-published job guide.
+    ParcelJobRead {
+        /// Current runtime view id.
+        current_view: &'a str,
+        /// Parcel id.
+        parcel_id: &'a str,
+        /// Stable job slug.
+        slug: &'a str,
+    },
     /// Add a worker to a parcel-local work desk.
     ParcelStaffAdd {
         /// Current runtime view id.

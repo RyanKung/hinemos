@@ -59,6 +59,7 @@ pub(super) struct TestParcelFixtureStore {
 pub(super) enum TestCommerceError {
     MailingList(String),
     ParcelWork(String),
+    ParcelJobGuide(String),
     ParcelBadge(String),
 }
 
@@ -106,6 +107,13 @@ pub(super) struct TestCommandRoute {
 pub(super) struct TestWorkDesk {
     pub(super) slug: String,
     pub(super) title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TestParcelJobGuide {
+    pub(super) slug: String,
+    pub(super) title: String,
+    pub(super) body: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -745,6 +753,44 @@ impl ParcelWorkDeskView for TestWorkDesk {
     }
 }
 
+impl ParcelJobGuideView for TestParcelJobGuide {
+    fn id(&self) -> i64 {
+        29
+    }
+
+    fn parcel_id(&self) -> &str {
+        "P1"
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn body(&self) -> &str {
+        &self.body
+    }
+
+    fn publisher_user(&self) -> &str {
+        "owner"
+    }
+
+    fn status(&self) -> &str {
+        "published"
+    }
+
+    fn created_at(&self) -> &str {
+        "created"
+    }
+
+    fn updated_at(&self) -> &str {
+        "updated"
+    }
+}
+
 impl ParcelStaffView for TestParcelStaff {
     fn staff_user(&self) -> &str {
         &self.staff_user
@@ -959,6 +1005,12 @@ impl FromParcelWorkValidation for TestCommerceError {
     }
 }
 
+impl FromParcelJobGuideValidation for TestCommerceError {
+    fn invalid_parcel_job_guide(message: &str) -> Self {
+        Self::ParcelJobGuide(message.to_owned())
+    }
+}
+
 impl FromParcelBadgeValidation for TestCommerceError {
     fn invalid_parcel_badge(message: &str) -> Self {
         Self::ParcelBadge(message.to_owned())
@@ -1086,6 +1138,7 @@ impl ParcelStore for TestParcelFixtureStore {
     type MailingListPost = TestMailingListPost;
     type CommandRoute = TestCommandRoute;
     type WorkDesk = TestWorkDesk;
+    type JobGuide = TestParcelJobGuide;
     type Staff = TestParcelStaff;
     type Shift = TestParcelShift;
     type WorkItem = TestParcelWorkItem;
@@ -1354,6 +1407,55 @@ impl ParcelStore for TestParcelFixtureStore {
             slug: "desk".to_owned(),
             title: "Desk".to_owned(),
         }])
+    }
+
+    async fn publish_parcel_job_guide(
+        &self,
+        input: ParcelJobGuidePublish<'_>,
+    ) -> Result<Self::JobGuide, Self::Error> {
+        self.calls.lock().unwrap().push(format!(
+            "job-publish:{}:{}:{}:{}:{}:{}:{}",
+            input.parcel_id,
+            input.owner_player_id,
+            input.slug,
+            input.title,
+            input.body,
+            input.publisher_user,
+            input.publisher_player_id
+        ));
+        Ok(TestParcelJobGuide {
+            slug: input.slug.to_owned(),
+            title: input.title.to_owned(),
+            body: input.body.to_owned(),
+        })
+    }
+
+    async fn parcel_job_guides(&self, parcel_id: &str) -> Result<Vec<Self::JobGuide>, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("job-list:{parcel_id}"));
+        Ok(vec![TestParcelJobGuide {
+            slug: "reporter".to_owned(),
+            title: "Reporter JD".to_owned(),
+            body: "File a story each game day.".to_owned(),
+        }])
+    }
+
+    async fn parcel_job_guide(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<Self::JobGuide, Self::Error> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("job-read:{parcel_id}:{slug}"));
+        Ok(TestParcelJobGuide {
+            slug: slug.to_owned(),
+            title: "Reporter JD".to_owned(),
+            body: "File a story each game day.".to_owned(),
+        })
     }
 
     async fn add_parcel_staff(

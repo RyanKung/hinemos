@@ -35,7 +35,7 @@ pub fn require_output(stdout: &str, needles: &[&str], description: &str, temp: &
     });
     assert!(
         found,
-        "Claude verifier output is missing: {description}\nlogs: {}\nstdout:\n{stdout}",
+        "LLM verifier output is missing: {description}\nlogs: {}\nstdout:\n{stdout}",
         temp.path.display()
     );
 }

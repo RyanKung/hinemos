@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use hinemos_core::{
     ActionKind, BadgeAction, BuildAction, Direction, EntityKind, EntityObservation, EntityRef,
     Gender, GridRoad, InboxAction, JsonObservation, MbtiType, ObservationEvent, ParcelAction,
-    ParcelBadgeAction, ParcelDeskAction, ParcelMailingListAction, ParcelRouteAction,
-    ParcelShiftAction, ParcelStaffAction, ParcelWorkAction, SemanticCommand, SettingsAction,
+    ParcelBadgeAction, ParcelDeskAction, ParcelJobAction, ParcelMailingListAction,
+    ParcelRouteAction, ParcelShiftAction, ParcelStaffAction, ParcelWorkAction, SemanticCommand,
+    SettingsAction,
 };
 
 use super::{Chrome, SlashParseError, render_text_observation};
@@ -384,6 +385,48 @@ fn slash_parser_accepts_parcel_mailing_list_actions() {
                     parcel_id: "N1".to_owned(),
                     slug: "submissions".to_owned(),
                     title: "Submissions Desk".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command(
+                "/parcel job publish N1 reporter Reporter JD -- File one story each game day"
+            )
+            .expect("parcel job publish parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Job {
+                action: ParcelJobAction::Publish {
+                    parcel_id: "N1".to_owned(),
+                    slug: "reporter".to_owned(),
+                    title: "Reporter JD".to_owned(),
+                    body: "File one story each game day".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel job read N1 reporter")
+            .expect("parcel job read parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Job {
+                action: ParcelJobAction::Read {
+                    parcel_id: "N1".to_owned(),
+                    slug: "reporter".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel job list N1")
+            .expect("parcel job list parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Job {
+                action: ParcelJobAction::List {
+                    parcel_id: "N1".to_owned()
                 }
             }
         }

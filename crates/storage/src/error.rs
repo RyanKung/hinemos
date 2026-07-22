@@ -120,6 +120,17 @@ pub enum StorageError {
     /// Parcel work input is invalid.
     #[error("invalid parcel work: {0}")]
     InvalidParcelWork(String),
+    /// Parcel job-guide input is invalid.
+    #[error("invalid parcel job guide: {0}")]
+    InvalidParcelJobGuide(String),
+    /// Parcel job guide was not found.
+    #[error("parcel job guide not found: {parcel_id}/{slug}")]
+    ParcelJobGuideNotFound {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable job slug.
+        slug: String,
+    },
     /// Parcel work desk was not found.
     #[error("parcel work desk not found: {parcel_id}/{slug}")]
     ParcelWorkDeskNotFound {

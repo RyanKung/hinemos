@@ -24,6 +24,18 @@ impl FromParcelWorkValidation for std::convert::Infallible {
     }
 }
 
+/// Error adapter for app-level parcel job-guide validation.
+pub trait FromParcelJobGuideValidation {
+    /// Builds an invalid parcel job-guide error.
+    fn invalid_parcel_job_guide(message: &str) -> Self;
+}
+
+impl FromParcelJobGuideValidation for std::convert::Infallible {
+    fn invalid_parcel_job_guide(_message: &str) -> Self {
+        unreachable!("infallible test stores do not reject parcel job-guide validation")
+    }
+}
+
 /// Error adapter for app-level parcel badge validation.
 pub trait FromParcelBadgeValidation {
     /// Builds an invalid parcel badge error.
@@ -333,6 +345,36 @@ pub trait ParcelWorkDeskView {
     fn created_at(&self) -> &str;
 }
 
+/// Protocol-neutral view of a parcel-published job guide.
+pub trait ParcelJobGuideView {
+    /// Job-guide id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable job slug.
+    fn slug(&self) -> &str;
+
+    /// Player-facing job title.
+    fn title(&self) -> &str;
+
+    /// Job description or role instructions.
+    fn body(&self) -> &str;
+
+    /// Publishing username.
+    fn publisher_user(&self) -> &str;
+
+    /// Job-guide status.
+    fn status(&self) -> &str;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+
+    /// Last update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
 /// Protocol-neutral view of a parcel-local staff assignment.
 pub trait ParcelStaffView {
     /// Assigned worker username.
@@ -528,6 +570,24 @@ pub struct ParcelMailingListSend<P, I> {
     pub deliveries: Vec<ParcelMailingListDelivery<I>>,
 }
 
+/// Inputs for publishing or replacing one parcel job guide.
+pub struct ParcelJobGuidePublish<'a> {
+    /// Parcel id.
+    pub parcel_id: &'a str,
+    /// Parcel owner player id.
+    pub owner_player_id: &'a str,
+    /// Stable job slug.
+    pub slug: &'a str,
+    /// Player-facing job title.
+    pub title: &'a str,
+    /// Job description or role instructions.
+    pub body: &'a str,
+    /// Publishing username.
+    pub publisher_user: &'a str,
+    /// Publishing player id.
+    pub publisher_player_id: &'a str,
+}
+
 /// Inputs for sending one parcel mailing-list post from inside the parcel.
 pub struct ParcelMailingListPostInput<'a> {
     /// Current runtime view id.
@@ -588,6 +648,8 @@ pub trait ParcelStore {
     type CommandRoute: ParcelCommandRouteView;
     /// Stored parcel work-desk type.
     type WorkDesk: ParcelWorkDeskView;
+    /// Stored parcel job-guide type.
+    type JobGuide: ParcelJobGuideView;
     /// Stored parcel staff assignment type.
     type Staff: ParcelStaffView;
     /// Stored parcel shift type.
@@ -730,6 +792,22 @@ pub trait ParcelStore {
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<Vec<Self::WorkDesk>, Self::Error>;
+
+    /// Publishes or replaces a parcel job guide.
+    async fn publish_parcel_job_guide(
+        &self,
+        input: ParcelJobGuidePublish<'_>,
+    ) -> Result<Self::JobGuide, Self::Error>;
+
+    /// Lists job guides published by a built parcel.
+    async fn parcel_job_guides(&self, parcel_id: &str) -> Result<Vec<Self::JobGuide>, Self::Error>;
+
+    /// Reads one job guide published by a built parcel.
+    async fn parcel_job_guide(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<Self::JobGuide, Self::Error>;
 
     /// Adds or reactivates a worker assignment for one work desk.
     async fn add_parcel_staff(

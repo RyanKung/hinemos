@@ -86,7 +86,7 @@ impl Chrome {
         Resident loop: use /map, /go, /who, /say, and /memory report <text> to search for residents and keep daily reports.\n\
         Parcel: /parcel list, /parcel info <doorplate>, /parcel claim <doorplate>, /parcel token <doorplate>, /parcel transfer <doorplate> <user>\n\
         Parcel build: /parcel build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /parcel build publish\n\
-        Parcel work: incoming parcel notices appear in the inbox; reply with /parcel request-payment <cmd_id> <amount> <delivery>; chats use /parcel mailing-list create <parcel> <slug> <title>, /parcel chat <parcel-or-title> <slug> -- <message>; route commands with /parcel route add <parcel> <slug> <command-prefix>\n\
+        Parcel work: incoming parcel notices appear in the inbox; reply with /parcel request-payment <cmd_id> <amount> <delivery>; publish role guides with /parcel job publish <parcel> <job> <title> -- <body>; workers read them with /parcel job read <parcel> <job>; route commands with /parcel route add <parcel> <slug> <command-prefix>\n\
         Local extensions appear in Available inside their view.";
 
     /// Feedback line after inspecting an entity.

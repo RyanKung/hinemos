@@ -1,6 +1,6 @@
 use hinemos_core::{
     BadgeAction, BuildAction, BuildSheet, Direction, EntityRef, Gender, InboxAction,
-    JsonObservation, MbtiType, ParcelAction, ParcelBadgeAction, ParcelDeskAction,
+    JsonObservation, MbtiType, ParcelAction, ParcelBadgeAction, ParcelDeskAction, ParcelJobAction,
     ParcelMailingListAction, ParcelRouteAction, ParcelShiftAction, ParcelStaffAction,
     ParcelWorkAction, PayAction, SemanticCommand, SettingsAction, role_card_intro_is_valid,
     role_card_name_is_valid,
@@ -389,6 +389,9 @@ pub(super) fn parse_parcel_command<'a>(
         "desk" | "desks" => ParcelAction::Desk {
             action: parse_parcel_desk_action(trimmed, tokens)?,
         },
+        "job" | "jobs" | "jd" | "jds" => ParcelAction::Job {
+            action: parse_parcel_job_action(trimmed, tokens)?,
+        },
         "route" | "routes" => ParcelAction::Route {
             action: parse_parcel_route_action(trimmed, tokens)?,
         },
@@ -621,6 +624,49 @@ fn parse_parcel_desk_action<'a>(
         }
         "list" => Ok(ParcelDeskAction::List {
             parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        _ => Err(SlashParseError::UnknownCommand),
+    }
+}
+
+fn parse_parcel_job_action<'a>(
+    trimmed: &str,
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<ParcelJobAction, SlashParseError> {
+    let action = tokens
+        .next()
+        .ok_or(SlashParseError::MissingArgument)?
+        .to_ascii_lowercase();
+    match action.as_str() {
+        "publish" | "set" => {
+            let parcel_id = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let slug = tokens.next().ok_or(SlashParseError::MissingArgument)?;
+            let title_and_body = rest_after_tokens(trimmed, 5)?;
+            let (title, body) = title_and_body
+                .split_once(" -- ")
+                .ok_or(SlashParseError::MissingArgument)?;
+            Ok(ParcelJobAction::Publish {
+                parcel_id: parcel_id.to_owned(),
+                slug: slug.to_owned(),
+                title: title.trim().to_owned(),
+                body: body.trim().to_owned(),
+            })
+        }
+        "list" => Ok(ParcelJobAction::List {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+        }),
+        "read" | "show" => Ok(ParcelJobAction::Read {
+            parcel_id: tokens
+                .next()
+                .ok_or(SlashParseError::MissingArgument)?
+                .to_owned(),
+            slug: tokens
                 .next()
                 .ok_or(SlashParseError::MissingArgument)?
                 .to_owned(),

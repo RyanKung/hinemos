@@ -624,6 +624,33 @@ pub struct StoredParcelCommandRoute {
     pub created_at: String,
 }
 
+/// Stored parcel-published job guide.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredParcelJobGuide {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the guide.
+    pub parcel_id: String,
+    /// Current owner player id captured when the guide was published.
+    pub owner_player_id: String,
+    /// Stable job slug.
+    pub slug: String,
+    /// Player-facing job title.
+    pub title: String,
+    /// Job description or role instructions.
+    pub body: String,
+    /// Publishing username.
+    pub publisher_user: String,
+    /// Publishing player id.
+    pub publisher_player_id: String,
+    /// Guide status.
+    pub status: String,
+    /// Database formatted creation time.
+    pub created_at: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
 /// Stored parcel work-desk summary.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredParcelWorkDesk {

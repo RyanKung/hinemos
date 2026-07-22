@@ -1,12 +1,14 @@
 use super::*;
 use crate::{
     StoredParcelBadgeAward, StoredParcelBadgeDefinition, StoredParcelCommandRoute,
-    StoredParcelShift, StoredParcelStaff, StoredParcelWorkDesk, StoredParcelWorkItem,
+    StoredParcelJobGuide, StoredParcelShift, StoredParcelStaff, StoredParcelWorkDesk,
+    StoredParcelWorkItem,
 };
 use hinemos_app::{
-    FromParcelBadgeValidation, FromParcelWorkValidation, ParcelBadgeAwardView,
-    ParcelBadgeDefinitionView, ParcelCommandRouteView, ParcelRegistryStore, ParcelShiftView,
-    ParcelStaffView, ParcelWorkDeskView, ParcelWorkItemView,
+    FromParcelBadgeValidation, FromParcelJobGuideValidation, FromParcelWorkValidation,
+    ParcelBadgeAwardView, ParcelBadgeDefinitionView, ParcelCommandRouteView, ParcelJobGuidePublish,
+    ParcelJobGuideView, ParcelRegistryStore, ParcelShiftView, ParcelStaffView, ParcelWorkDeskView,
+    ParcelWorkItemView,
 };
 
 impl ParcelRegistryStore for PgStorage {
@@ -237,6 +239,12 @@ impl FromParcelWorkValidation for StorageError {
     }
 }
 
+impl FromParcelJobGuideValidation for StorageError {
+    fn invalid_parcel_job_guide(message: &str) -> Self {
+        Self::InvalidParcelJobGuide(message.to_owned())
+    }
+}
+
 impl ParcelMailingListView for StoredParcelMailingList {
     fn id(&self) -> i64 {
         self.id
@@ -356,6 +364,44 @@ impl ParcelCommandRouteView for StoredParcelCommandRoute {
 
     fn created_at(&self) -> &str {
         &self.created_at
+    }
+}
+
+impl ParcelJobGuideView for StoredParcelJobGuide {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn parcel_id(&self) -> &str {
+        &self.parcel_id
+    }
+
+    fn slug(&self) -> &str {
+        &self.slug
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn body(&self) -> &str {
+        &self.body
+    }
+
+    fn publisher_user(&self) -> &str {
+        &self.publisher_user
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn created_at(&self) -> &str {
+        &self.created_at
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
     }
 }
 
@@ -659,6 +705,7 @@ impl ParcelStore for PgStorage {
     type MailingListPost = StoredParcelMailingListPost;
     type CommandRoute = StoredParcelCommandRoute;
     type WorkDesk = StoredParcelWorkDesk;
+    type JobGuide = StoredParcelJobGuide;
     type Staff = StoredParcelStaff;
     type Shift = StoredParcelShift;
     type WorkItem = StoredParcelWorkItem;
@@ -864,6 +911,25 @@ impl ParcelStore for PgStorage {
         owner_player_id: &str,
     ) -> Result<Vec<Self::WorkDesk>, Self::Error> {
         PgStorage::parcel_work_desks(self, parcel_id, owner_player_id).await
+    }
+
+    async fn publish_parcel_job_guide(
+        &self,
+        input: ParcelJobGuidePublish<'_>,
+    ) -> Result<Self::JobGuide, Self::Error> {
+        PgStorage::publish_parcel_job_guide(self, input).await
+    }
+
+    async fn parcel_job_guides(&self, parcel_id: &str) -> Result<Vec<Self::JobGuide>, Self::Error> {
+        PgStorage::parcel_job_guides(self, parcel_id).await
+    }
+
+    async fn parcel_job_guide(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<Self::JobGuide, Self::Error> {
+        PgStorage::parcel_job_guide(self, parcel_id, slug).await
     }
 
     async fn add_parcel_staff(

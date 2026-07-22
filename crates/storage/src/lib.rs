@@ -47,11 +47,11 @@ pub use types::{
     StoredBalance, StoredHungerState, StoredIdentity, StoredInboxItem, StoredMailAuthToken,
     StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
     StoredParcelBadgeAward, StoredParcelBadgeDefinition, StoredParcelCommandRoute,
-    StoredParcelMailingList, StoredParcelMailingListPost, StoredParcelMailingListSubscriber,
-    StoredParcelMailingListSubscription, StoredParcelShift, StoredParcelStaff,
-    StoredParcelWorkDesk, StoredParcelWorkItem, StoredPasswordIdentity, StoredPaymentRequest,
-    StoredRoomBinding, StoredRoomBindingKind, StoredRoomCommandPolicy, StoredServiceRoom,
-    StoredSocialEdge, StoredTransfer, StoredWorldMessage,
+    StoredParcelJobGuide, StoredParcelMailingList, StoredParcelMailingListPost,
+    StoredParcelMailingListSubscriber, StoredParcelMailingListSubscription, StoredParcelShift,
+    StoredParcelStaff, StoredParcelWorkDesk, StoredParcelWorkItem, StoredPasswordIdentity,
+    StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind, StoredRoomCommandPolicy,
+    StoredServiceRoom, StoredSocialEdge, StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
