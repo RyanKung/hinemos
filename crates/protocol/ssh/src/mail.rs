@@ -112,10 +112,27 @@ where
         .storage
         .verify_mail_auth_token(username, token)
         .await?;
-    Ok(identity.map(|identity| MailIdentity {
+    let Some(identity) = identity else {
+        return Ok(None);
+    };
+    let identity = MailIdentity {
         user: identity.username().to_owned(),
         player_id: identity.player_id().to_owned(),
-    }))
+    };
+    touch_agent_mail_pool(state, &identity).await?;
+    Ok(Some(identity))
+}
+
+async fn touch_agent_mail_pool<S>(state: &MailState<S>, identity: &MailIdentity) -> Result<()>
+where
+    S: MailDaemonStore,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    state
+        .storage
+        .record_agent_mail_pool_presence(&identity.user, &identity.player_id)
+        .await?;
+    Ok(())
 }
 
 async fn run_smtp_listener<S>(bind: SocketAddr, state: Arc<MailState<S>>) -> Result<()>
@@ -175,6 +192,9 @@ where
     S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    if let Some(identity) = session.identity.as_ref() {
+        touch_agent_mail_pool(state, identity).await?;
+    }
     match command {
         "EHLO" | "HELO" => handle_smtp_helo(reader).await?,
         "AUTH" => handle_smtp_auth_command(reader, state, session, rest).await?,
@@ -419,6 +439,9 @@ where
     S: MailDaemonStore<MailAuthToken = StoredMailAuthToken, InboxItem = StoredInboxItem>,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    if let Some(identity) = session.identity.as_ref() {
+        touch_agent_mail_pool(state, identity).await?;
+    }
     match command {
         "CAPABILITY" => handle_imap_capability(reader, tag).await?,
         "ID" => handle_imap_id(reader, tag).await?,
@@ -711,6 +734,7 @@ where
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => {
                 let identity = session.identity.as_ref().expect("checked").clone();
+                touch_agent_mail_pool(state, &identity).await?;
                 let latest = load_imap_mailbox(state, &identity).await?;
                 if latest.len() != known_exists {
                     known_exists = latest.len();

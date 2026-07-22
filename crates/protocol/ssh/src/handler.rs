@@ -25,7 +25,10 @@ use hinemos_app::{
     PendingAdmissionCommandOutcome, RecentPresenceUser, RoomBindingKindView, UiEvent,
     WhoPopulation, service_room_unavailable_text,
 };
-use hinemos_core::{JsonObservation, ObservationEvent, PlayerState, SemanticCommand};
+use hinemos_core::{
+    JsonObservation, ObservationEvent, ParcelAction, ParcelShiftAction, ParcelWorkAction,
+    PlayerState, SemanticCommand,
+};
 use rand::Rng;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
@@ -39,6 +42,7 @@ pub(crate) enum ConnectionMode {
 const PENDING_PRESENCE_VIEW_ID: &str = "__pending_admission";
 const MAX_SHELL_INPUT_BYTES: usize = 4096;
 const RECENT_ONLINE_WINDOW_SECONDS: i64 = 5 * 60;
+const MAIL_AGENT_POOL_WINDOW_SECONDS: i64 = 2 * 60;
 
 pub(crate) struct ConnectionHandler {
     shared: Arc<SharedState>,
@@ -645,6 +649,12 @@ impl ConnectionHandler {
         request: HandlerViewCommand<'_>,
     ) -> Result<bool> {
         let app = self.shared.app_service().await;
+        if self
+            .block_unavailable_parcel_worker_pool(channel, session, &app, &request)
+            .await?
+        {
+            return Ok(true);
+        }
         let (presence_users, who_population) = if matches!(request.command, SemanticCommand::Who) {
             (
                 self.online_view_users(
@@ -713,6 +723,58 @@ impl ConnectionHandler {
                 Ok(true)
             }
         }
+    }
+
+    async fn block_unavailable_parcel_worker_pool(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        app: &AppService<PgStorage>,
+        request: &HandlerViewCommand<'_>,
+    ) -> Result<bool> {
+        let Some(parcel_id) = parcel_worker_pool_parcel_id(request.command) else {
+            return Ok(false);
+        };
+        let parcel = self.shared.storage.parcel_by_id(parcel_id).await?;
+        if parcel.view_id != request.player.current_view {
+            return Ok(false);
+        }
+        let ssh_session_in_view = self
+            .shared
+            .presence
+            .lock()
+            .await
+            .connection_is_fresh_in_view(
+                self.connection_id,
+                &request.app_identity.player_id,
+                &request.player.current_view,
+            );
+        if !ssh_session_in_view {
+            session.data(
+                channel,
+                b"Parcel worker commands require a fresh SSH session inside the parcel.\r\n"
+                    .to_vec(),
+            )?;
+            send_prompt_if_requested(session, channel, request.prompt)?;
+            return Ok(true);
+        }
+        if app
+            .agent_mail_pool_contains(
+                &request.app_identity.user,
+                &request.app_identity.player_id,
+                MAIL_AGENT_POOL_WINDOW_SECONDS,
+            )
+            .await?
+        {
+            return Ok(false);
+        }
+        session.data(
+            channel,
+            b"Parcel worker commands require an active mail-agent pool lease. Keep IMAP IDLE or periodic NOOP running, then retry from inside the parcel. Queued work remains in the parcel mailbox.\r\n"
+                .to_vec(),
+        )?;
+        send_prompt_if_requested(session, channel, request.prompt)?;
+        Ok(true)
     }
 
     async fn handle_pre_runtime_command_effects(
@@ -833,6 +895,30 @@ fn presence_usernames(users: &[RecentPresenceUser]) -> Vec<String> {
     users.iter().map(|user| user.user.clone()).collect()
 }
 
+#[cfg(test)]
+fn parcel_worker_pool_required(command: &SemanticCommand) -> bool {
+    parcel_worker_pool_parcel_id(command).is_some()
+}
+
+fn parcel_worker_pool_parcel_id(command: &SemanticCommand) -> Option<&str> {
+    match command {
+        SemanticCommand::Parcel {
+            action:
+                ParcelAction::Shift {
+                    action: ParcelShiftAction::Start { parcel_id, .. },
+                },
+        } => Some(parcel_id),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Work { action },
+        } => match action {
+            ParcelWorkAction::List { parcel_id, .. }
+            | ParcelWorkAction::Claim { parcel_id, .. }
+            | ParcelWorkAction::Done { parcel_id, .. } => Some(parcel_id),
+        },
+        _ => None,
+    }
+}
+
 fn observation_contains_room_escape(observation: &JsonObservation) -> bool {
     observation.events.iter().any(|event| {
         matches!(
@@ -868,4 +954,39 @@ fn send_prompt_if_requested(session: &mut Session, channel: ChannelId, prompt: b
         send_prompt(session, channel)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use hinemos_core::{ParcelWorkAction, SemanticCommand};
+
+    use super::*;
+
+    #[test]
+    fn parcel_worker_pool_gate_only_applies_to_working_commands() {
+        assert!(parcel_worker_pool_required(&SemanticCommand::Parcel {
+            action: ParcelAction::Shift {
+                action: ParcelShiftAction::Start {
+                    parcel_id: "N1".to_owned(),
+                    slug: "editorial".to_owned(),
+                },
+            },
+        }));
+        assert!(parcel_worker_pool_required(&SemanticCommand::Parcel {
+            action: ParcelAction::Work {
+                action: ParcelWorkAction::Claim {
+                    parcel_id: "N1".to_owned(),
+                    work_id: 7,
+                },
+            },
+        }));
+        assert!(!parcel_worker_pool_required(&SemanticCommand::Parcel {
+            action: ParcelAction::Shift {
+                action: ParcelShiftAction::End {
+                    parcel_id: "N1".to_owned(),
+                    slug: "editorial".to_owned(),
+                },
+            },
+        }));
+    }
 }

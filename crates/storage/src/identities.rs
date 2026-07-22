@@ -299,12 +299,13 @@ impl PgStorage {
 
         let token = sqlx::query_as::<_, StoredMailAuthToken>(
             r#"
-            insert into mail_auth_tokens (username, player_id, token_hash)
-            values ($1, $2, $3)
+            insert into mail_auth_tokens (username, player_id, token_hash, last_seen_at)
+            values ($1, $2, $3, to_timestamp(0))
             on conflict (username) do update
             set player_id = excluded.player_id,
                 token_hash = excluded.token_hash,
-                updated_at = now()
+                updated_at = now(),
+                last_seen_at = to_timestamp(0)
             returning username, player_id
             "#,
         )
@@ -378,12 +379,13 @@ impl PgStorage {
 
         let auth = sqlx::query_as::<_, StoredMailAuthToken>(
             r#"
-            insert into mail_auth_tokens (username, player_id, token_hash)
-            values ($1, $2, $3)
+            insert into mail_auth_tokens (username, player_id, token_hash, last_seen_at)
+            values ($1, $2, $3, to_timestamp(0))
             on conflict (username) do update
             set player_id = excluded.player_id,
                 token_hash = excluded.token_hash,
-                updated_at = now()
+                updated_at = now(),
+                last_seen_at = to_timestamp(0)
             returning username, player_id
             "#,
         )

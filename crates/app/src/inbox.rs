@@ -253,6 +253,13 @@ pub trait MailDaemonStore {
         token: &'a str,
     ) -> MailAuthTokenLookup<'a, Self::MailAuthToken, Self::Error>;
 
+    /// Records that a mail-protocol agent is actively polling for this player.
+    fn record_agent_mail_pool_presence<'a>(
+        &'a self,
+        username: &'a str,
+        player_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
+
     /// Saves a mail message with an explicit subject line.
     fn save_mail_message_with_subject<'a>(
         &'a self,

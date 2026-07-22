@@ -1,7 +1,7 @@
 {
   "$schema": "https://hinemos.local/schemas/parcel-blueprint/v1.json",
   "kind": "parcelBlueprint",
-  "version": 3,
+  "version": 4,
   "id": "oracle-daily-newspaper",
   "displayName": "Oracle Daily",
   "localNames": [
@@ -18,14 +18,14 @@
       "This file is a deployment blueprint, not a core room registration.",
       "Do not place this blueprint in worlds/*/rooms.ron.",
       "The newspaper decides editorial policy, payroll, subscriptions, and publication rules outside the core program.",
-      "Parcel routes target work desks, not mailing lists. Staff consume work only after entering the parcel and starting a shift."
+      "Parcel routes target work desks, not mailing lists. Staff consume work only when the same player has a fresh mail-agent pool lease and a fresh SSH session inside the parcel."
     ]
   },
   "buildSheet": {
     "title": "预言家日报",
     "description": "一家独立报社。玩家可以投稿、发布约稿悬赏、阅读周报、申请记者或编辑职位。报社由外部主编 Agent 运营，记者和编辑是独立 Agent，不属于官方基础设施。",
     "style": "Crowded magical newsroom, owl-mail racks, moving headlines, editorial desks, public front counter, staff-only filing cabinets, and a visible debt ledger drawer. The room should feel like a busy independent newspaper office, not a government bulletin board.",
-    "prompt": "You are the owner and editor-in-chief agent of this independent newspaper parcel. Treat every visitor command as a durable parcel command and, when routed, as a parcel-local work item. Maintain submissions, bounty commissions, weekly issues, daily digests, reporter rosters, editor rosters, review decisions, publication notices, and a parcel-local debt ledger. The starting cash balance is 0, so every reward, bounty, wage, and salary is recorded as debt owed by the newspaper until separately settled. Do not claim official authority. Use parcel work desks as routed queues. Staff can list, claim, and complete work only after entering this parcel and starting a shift. Keep processing idempotent by parcel command id and work item id.",
+    "prompt": "You are the owner and editor-in-chief agent of this independent newspaper parcel. Treat every visitor command as a durable parcel command and, when routed, as a parcel-local work item. Maintain submissions, bounty commissions, weekly issues, daily digests, reporter rosters, editor rosters, review decisions, publication notices, and a parcel-local debt ledger. The starting cash balance is 0, so every reward, bounty, wage, and salary is recorded as debt owed by the newspaper until separately settled. Do not claim official authority. Use parcel work desks as routed queues. Staff can list, claim, and complete work only when their mail-protocol Agent pool lease is fresh and their SSH session is inside this parcel. Keep processing idempotent by parcel command id and work item id.",
     "commands": "/paper help preview=\"Show newspaper commands\"; /paper submit <title> -- <body> preview=\"Submit an article for review\"; /paper bounty post <title> -- <terms> preview=\"Post a commissioned article bounty\"; /paper bounty claim <id> preview=\"Claim a commissioned bounty\"; /paper weekly latest preview=\"Read the latest weekly issue\"; /paper weekly unsubscribe preview=\"Opt out of weekly delivery\"; /paper reporter apply -- <profile> preview=\"Apply to become a reporter\"; /paper reporter file <title> -- <body> preview=\"Reporter daily filing\"; /paper editor apply -- <profile> preview=\"Apply to become an editor\"; /paper editor review <submission_id> approve|reject -- <note> preview=\"Review a submission\"; /paper daily draft <date> -- <summary> preview=\"Submit the daily digest\"; /paper ledger summary preview=\"Show newspaper debt ledger summary\""
   },
   "workDesks": [
@@ -218,7 +218,7 @@
       "duties": [
         "Own the parcel mailbox and preserve parcel command ids.",
         "Create work desks, routes, staff assignments, and publication policy.",
-        "Enter the parcel and start shifts when acting as staff.",
+        "Keep the mail-protocol Agent pool lease fresh, then enter the parcel and start shifts when acting as staff.",
         "Recruit, approve, suspend, and remove reporters and editors.",
         "Publish daily digests and weekly issues.",
         "Record every reward, bounty, wage, and settlement in the newspaper debt ledger.",
@@ -230,7 +230,7 @@
       "agentType": "external-llm",
       "testAgent": "hermes-editor",
       "duties": [
-        "Enter the parcel and run /parcel shift start <parcel> editorial before listing or claiming editorial work.",
+        "Keep IMAP IDLE or periodic NOOP active, then enter the parcel and run /parcel shift start <parcel> editorial before listing or claiming editorial work.",
         "Review submissions routed to submissions and editorial desks.",
         "Approve, reject, or request revision with a written note.",
         "Assemble accepted reporter filings and public submissions into the daily digest.",
@@ -243,7 +243,7 @@
       "agentType": "external-llm",
       "testAgent": "hermes-reporter",
       "duties": [
-        "Enter the parcel and run /parcel shift start <parcel> newsroom or /parcel shift start <parcel> bounties before listing or claiming work.",
+        "Keep IMAP IDLE or periodic NOOP active, then enter the parcel and run /parcel shift start <parcel> newsroom or /parcel shift start <parcel> bounties before listing or claiming work.",
         "Claim or accept assignments.",
         "File at least one reporter story every in-game day.",
         "Keep facts separated from opinion and rumor."
@@ -390,6 +390,11 @@
       "/parcel subscribe <parcel> newsroom",
       "/parcel subscribe <parcel> editorial",
       "/parcel chat <parcel> newsroom -- <coordination-message>"
+    ],
+    "mailAgentPool": [
+      "Run /settings mail-token once for each staff Agent identity.",
+      "Authenticate to IMAP with that token before starting parcel work.",
+      "Keep IMAP IDLE open or send periodic IMAP NOOP so the mail-agent pool lease stays fresh."
     ],
     "workerShiftCommands": [
       "/enter <parcel>",

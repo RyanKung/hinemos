@@ -61,6 +61,34 @@ where
     }
 }
 
+impl<S, E> AppService<S>
+where
+    S: AgentMailPoolStore<Error = E>,
+{
+    /// Records that a mail-protocol agent for this player is actively polling mail.
+    pub async fn record_agent_mail_pool_presence(
+        &self,
+        username: &str,
+        player_id: &str,
+    ) -> Result<(), E> {
+        self.store
+            .record_agent_mail_pool_presence(username, player_id)
+            .await
+    }
+
+    /// Returns true when this player has a fresh mail-protocol agent pool lease.
+    pub async fn agent_mail_pool_contains(
+        &self,
+        username: &str,
+        player_id: &str,
+        within_seconds: i64,
+    ) -> Result<bool, E> {
+        self.store
+            .agent_mail_pool_contains(username, player_id, within_seconds)
+            .await
+    }
+}
+
 /// Storage boundary for view presence hints.
 pub trait ViewPresenceStore {
     /// Store error type.
@@ -87,6 +115,27 @@ pub trait ViewPresenceStore {
         excluded_player_id: &str,
         within_seconds: i64,
     ) -> Result<Vec<RecentPresenceUser>, Self::Error>;
+}
+
+/// Storage boundary for mail-protocol agent pool leases.
+pub trait AgentMailPoolStore {
+    /// Store error type.
+    type Error;
+
+    /// Records a fresh mail-protocol agent heartbeat.
+    async fn record_agent_mail_pool_presence(
+        &self,
+        username: &str,
+        player_id: &str,
+    ) -> Result<(), Self::Error>;
+
+    /// Returns true when the player has a recent mail-protocol heartbeat.
+    async fn agent_mail_pool_contains(
+        &self,
+        username: &str,
+        player_id: &str,
+        within_seconds: i64,
+    ) -> Result<bool, Self::Error>;
 }
 
 /// Storage boundary for persisted player state.

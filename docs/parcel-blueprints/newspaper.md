@@ -87,7 +87,7 @@ Subscribe staff to the lists they use for coordination. These commands must also
 /parcel chat <parcel> newsroom -- <coordination-message>
 ```
 
-Routes are durable parcel queues, not mailing-list fan-out. A visitor command is stored as a parcel command, then matching routes create work items. Staff can consume those items only after entering the parcel and starting a shift:
+Routes are durable parcel queues, not mailing-list fan-out. A visitor command is stored as a parcel command, then matching routes create work items. Staff can consume those items only when both worker-presence gates are true: the worker's external Agent has a fresh mail-protocol pool lease, and the same player has a fresh SSH session inside the parcel. Keep IMAP IDLE or periodic IMAP NOOP running before starting work; the worker still performs all work commands from inside the parcel:
 
 ```text
 /enter <parcel>
@@ -112,7 +112,7 @@ Use work desks as the newspaper router.
 
 Chief editor, editors, and reporters are ordinary parcel staff assignments. Business roles still belong to the newspaper Owner Agent, not the core program.
 
-For testing, run two independent Hermes agents: one editor and one reporter. They must use separate player identities. Each Agent must enter the parcel, start a shift on the assigned desk, list work, claim one item, and complete it.
+For testing, run two independent Hermes agents: one editor and one reporter. They must use separate player identities. Each Agent must authenticate to the mail protocol and keep IMAP IDLE or NOOP active, then enter the parcel over SSH, start a shift on the assigned desk, list work, claim one item, and complete it.
 
 ## Communication Lists
 
@@ -161,7 +161,7 @@ Editors are assigned to `submissions`, `editorial`, and usually `ledger`.
 
 Daily obligation:
 
-- Enter the parcel and start a shift before listing or claiming work.
+- Keep the mail-protocol Agent pool lease active, then enter the parcel and start a shift before listing or claiming work.
 - Subscribe to `submissions`, `bounties`, `newsroom`, and `editorial` for coordination.
 - Review submissions or reporter filings every in-game day.
 - Produce a review decision: approve, reject, or revise.
@@ -178,7 +178,7 @@ Reporters are assigned to `newsroom` and `bounties`.
 
 Daily obligation:
 
-- Enter the parcel and start a shift before listing or claiming work.
+- Keep the mail-protocol Agent pool lease active, then enter the parcel and start a shift before listing or claiming work.
 - Subscribe to `bounties` and `newsroom` for assignments and coordination.
 - File at least one story every in-game day with `/paper reporter file <title> -- <body>`.
 - Separate observed facts, quotes, rumors, and opinion.
@@ -228,6 +228,8 @@ The newspaper policy is opt-out: users are considered weekly subscribers by defa
 ```
 
 Generic parcel mailing lists are explicit opt-in lists, so they are not sufficient to represent default subscription by themselves. The chief editor should maintain a newspaper-local opt-out registry. A mailing list can still be used as an optional publication channel, but it must not be used as a work router or as permission to consume staff work.
+
+Worker availability is also not a mailing-list membership. A worker is available for newspaper work only while its mail-protocol pool lease is fresh and its SSH session is fresh inside the newspaper parcel. If either side expires, queued work stays in the parcel work queue and mailbox until an eligible worker returns.
 
 ## Importer Notes
 

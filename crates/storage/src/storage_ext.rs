@@ -306,6 +306,56 @@ impl PgStorage {
         Ok(())
     }
 
+    /// Records that the player's mail-protocol agent is actively polling mail.
+    pub async fn record_agent_mail_pool_presence(
+        &self,
+        username: &str,
+        player_id: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"
+            update mail_auth_tokens
+            set last_seen_at = now()
+            where username = $1
+              and player_id = $2
+              and last_seen_at < now() - interval '5 seconds'
+            "#,
+        )
+        .bind(username)
+        .bind(player_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Returns true when the player has a recent mail-protocol agent heartbeat.
+    pub async fn agent_mail_pool_contains(
+        &self,
+        username: &str,
+        player_id: &str,
+        within_seconds: i64,
+    ) -> Result<bool, StorageError> {
+        let present = sqlx::query_scalar::<_, bool>(
+            r#"
+            select exists (
+                select 1
+                from mail_auth_tokens token
+                join player_profiles profile on profile.player_id = token.player_id
+                where token.username = $1
+                  and token.player_id = $2
+                  and profile.admission_state = 'agreed'
+                  and token.last_seen_at >= now() - ($3::double precision * interval '1 second')
+            )
+            "#,
+        )
+        .bind(username)
+        .bind(player_id)
+        .bind(within_seconds)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(present)
+    }
+
     /// Lists admitted users that were active within the given window.
     pub async fn recent_active_users(
         &self,

@@ -205,9 +205,18 @@ async fn migrate_identity_tables(pool: &PgPool) -> Result<(), StorageError> {
                 token_hash text not null,
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now(),
-                last_seen_at timestamptz not null default now(),
+                last_seen_at timestamptz not null default to_timestamp(0),
                 unique (player_id)
             )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            alter table mail_auth_tokens
+            alter column last_seen_at set default to_timestamp(0)
             "#,
     )
     .execute(pool)

@@ -1,8 +1,8 @@
 use hinemos_app::{
-    AccountSettingsView, AccountStore, AdmissionStore, AdmissionView, BalanceView, BuildStore,
-    FromMailingListValidation, HungerStore, HungerView, InboxItemView, InboxStore,
-    MailAuthTokenView, MailDaemonStore, MailStore, MemoryAtomView, MemoryEventView, MemoryStore,
-    MessageStore, ParcelMailingListPostView, ParcelMailingListSend,
+    AccountSettingsView, AccountStore, AdmissionStore, AdmissionView, AgentMailPoolStore,
+    BalanceView, BuildStore, FromMailingListValidation, HungerStore, HungerView, InboxItemView,
+    InboxStore, MailAuthTokenView, MailDaemonStore, MailStore, MemoryAtomView, MemoryEventView,
+    MemoryStore, MessageStore, ParcelMailingListPostView, ParcelMailingListSend,
     ParcelMailingListSubscriberPage, ParcelMailingListSubscriberView,
     ParcelMailingListSubscriptionView, ParcelMailingListView, ParcelOwnershipStore, ParcelStore,
     ParcelView, PaymentRequestCreation, PaymentRequestView, PaymentStore,

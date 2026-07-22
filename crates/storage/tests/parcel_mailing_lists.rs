@@ -163,6 +163,60 @@ async fn storage_with_built_parcel() -> (TestDatabase, PgStorage) {
 }
 
 #[tokio::test]
+async fn mail_agent_pool_uses_mail_protocol_heartbeat_lease() {
+    if skip_without_database() {
+        return;
+    }
+    let (db, storage) = storage_with_built_parcel().await;
+    db.query_value(
+        "update player_profiles
+         set admission_state = 'agreed'
+         where player_id = 'player:customer'",
+    );
+
+    assert!(
+        !storage
+            .agent_mail_pool_contains("customer", "player:customer", 120)
+            .await
+            .expect("pool check before token")
+    );
+    storage
+        .set_mail_auth_token("customer", "player:customer", "token")
+        .await
+        .expect("mail token");
+    assert!(
+        !storage
+            .agent_mail_pool_contains("customer", "player:customer", 120)
+            .await
+            .expect("pool check after token creation")
+    );
+
+    let authenticated = storage
+        .verify_mail_auth_token("customer", "token")
+        .await
+        .expect("verify token");
+    assert!(authenticated.is_some());
+    assert!(
+        storage
+            .agent_mail_pool_contains("customer", "player:customer", 120)
+            .await
+            .expect("pool check after auth")
+    );
+
+    db.query_value(
+        "update mail_auth_tokens
+         set last_seen_at = now() - interval '3 minutes'
+         where username = 'customer'",
+    );
+    assert!(
+        !storage
+            .agent_mail_pool_contains("customer", "player:customer", 120)
+            .await
+            .expect("pool check after expiry")
+    );
+}
+
+#[tokio::test]
 async fn payment_requests_are_idempotent_per_operator_command() {
     if skip_without_database() {
         return;
