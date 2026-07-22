@@ -116,13 +116,14 @@ where
                         delivery,
                     )
                     .await?;
-                Ok(vec![
-                    UiEvent::Text(result.text),
-                    UiEvent::LiveInboxNotice {
+                let mut events = vec![UiEvent::Text(result.text)];
+                if result.created {
+                    events.push(UiEvent::LiveInboxNotice {
                         target_player_id: result.payer_player_id,
                         notice: LiveInboxNotice::from_item(&result.inbox_item),
-                    },
-                ])
+                    });
+                }
+                Ok(events)
             }
             ParcelOperationAppRequest::MailingListCreate {
                 current_view,

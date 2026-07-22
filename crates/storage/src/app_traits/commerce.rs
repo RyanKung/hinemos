@@ -709,7 +709,7 @@ impl ParcelStore for PgStorage {
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<Self::PaymentRequest, Self::Error> {
+    ) -> Result<PaymentRequestCreation<Self::PaymentRequest>, Self::Error> {
         PgStorage::create_payment_request(
             self,
             operator_command_id,

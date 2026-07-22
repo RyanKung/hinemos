@@ -109,6 +109,77 @@ fn parcel_input_routes_through_app() {
 }
 
 #[test]
+fn parcel_custom_command_preview_uses_longest_literal_command_match() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let store = TestParcelFixtureStore {
+            parcel: Mutex::new(TestParcel {
+                parcel_id: "P1",
+                view_id: "parcel_view",
+                front_view_id: "street_view",
+                district: "north",
+                position: 1,
+                owner_user: Some("owner".to_owned()),
+                owner_player_id: Some("owner-player".to_owned()),
+                room_user: Some("room-user".to_owned()),
+                room_player_id: Some("room-player".to_owned()),
+                status: PARCEL_STATUS_BUILT,
+                title: Some("Parcel".to_owned()),
+                description: None,
+                style: None,
+                operator_prompt: None,
+                custom_commands: Some(
+                    "/paper help preview=\"Show newspaper commands\"; /paper submit <title> -- <body> preview=\"Submit an article for review\""
+                        .to_owned(),
+                ),
+            }),
+            calls: Mutex::new(Vec::new()),
+        };
+        let app = AppService::new(store);
+        let identity = AppIdentity::new("visitor", "visitor-player");
+        let binding = TestParcel {
+            parcel_id: "P1",
+            view_id: "parcel_view",
+            front_view_id: "street_view",
+            district: "north",
+            position: 1,
+            owner_user: Some("owner".to_owned()),
+            owner_player_id: Some("owner-player".to_owned()),
+            room_user: Some("room-user".to_owned()),
+            room_player_id: Some("room-player".to_owned()),
+            status: PARCEL_STATUS_BUILT,
+            title: Some("Parcel".to_owned()),
+            description: None,
+            style: None,
+            operator_prompt: None,
+            custom_commands: Some(
+                "/paper help preview=\"Show newspaper commands\"; /paper submit <title> -- <body> preview=\"Submit an article for review\""
+                    .to_owned(),
+            ),
+        };
+
+        let events = app
+            .handle_parcel_input(&identity, &binding, "/paper submit Scoop -- Body")
+            .await
+            .expect("parcel input")
+            .expect("handled");
+
+        assert!(
+            matches!(
+                events.first(),
+                Some(UiEvent::Text(text))
+                    if text.contains("Preview: Submit an article for review")
+                        && !text.contains("Preview: Show newspaper commands")
+            ),
+            "submit command should use submit preview: {events:?}"
+        );
+    });
+}
+
+#[test]
 fn parcel_list_renders_status_for_humans() {
     let parcels = vec![
         TestListedParcel {

@@ -219,6 +219,15 @@ pub trait PaymentRequestView {
     fn delivery(&self) -> &str;
 }
 
+/// Result of creating or reusing one idempotent payment request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaymentRequestCreation<R> {
+    /// Payment request row.
+    pub request: R,
+    /// Whether this call inserted a new payment request.
+    pub created: bool,
+}
+
 /// Protocol-neutral view of a parcel mailing list.
 pub trait ParcelMailingListView {
     /// Mailing-list id.
@@ -621,7 +630,7 @@ pub trait ParcelStore {
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<Self::PaymentRequest, Self::Error>;
+    ) -> Result<PaymentRequestCreation<Self::PaymentRequest>, Self::Error>;
 
     /// Loads an inbox item by idempotent source.
     async fn inbox_item_by_source(

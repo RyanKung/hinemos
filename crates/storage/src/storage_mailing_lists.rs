@@ -4,15 +4,15 @@ use hinemos_app::{
     ParcelMailingListDelivery, ParcelMailingListSend, ParcelMailingListSubscriberPage, ParcelView,
 };
 use hinemos_core::{
-    PARCEL_MAILING_LIST_STATUS_CLOSED, PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE,
-    PARCEL_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED, PARCEL_MAILING_LISTS_PER_PARCEL_MAX,
-    PARCEL_STATUS_BUILT, PARCEL_WORK_DESKS_PER_PARCEL_MAX, PARCEL_WORK_ITEM_CLAIMED,
-    PARCEL_WORK_ITEM_DONE, PARCEL_WORK_ITEM_QUEUED, PARCEL_WORK_SHIFT_ACTIVE,
-    PARCEL_WORK_SHIFT_ENDED, PARCEL_WORK_STAFF_ACTIVE, PARCEL_WORK_STAFF_REMOVED,
-    parcel_command_route_prefix_is_valid, parcel_mailing_list_body_is_valid,
-    parcel_mailing_list_slug_is_valid, parcel_mailing_list_subject_is_valid,
-    parcel_mailing_list_title_is_valid, parcel_work_desk_slug_is_valid,
-    parcel_work_desk_title_is_valid, parcel_work_result_is_valid,
+    OPERATOR_COMMAND_STATUS_HANDLED, PARCEL_MAILING_LIST_STATUS_CLOSED,
+    PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE, PARCEL_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED,
+    PARCEL_MAILING_LISTS_PER_PARCEL_MAX, PARCEL_STATUS_BUILT, PARCEL_WORK_DESKS_PER_PARCEL_MAX,
+    PARCEL_WORK_ITEM_CANCELLED, PARCEL_WORK_ITEM_CLAIMED, PARCEL_WORK_ITEM_DONE,
+    PARCEL_WORK_ITEM_QUEUED, PARCEL_WORK_SHIFT_ACTIVE, PARCEL_WORK_SHIFT_ENDED,
+    PARCEL_WORK_STAFF_ACTIVE, PARCEL_WORK_STAFF_REMOVED, parcel_command_route_prefix_is_valid,
+    parcel_mailing_list_body_is_valid, parcel_mailing_list_slug_is_valid,
+    parcel_mailing_list_subject_is_valid, parcel_mailing_list_title_is_valid,
+    parcel_work_desk_slug_is_valid, parcel_work_desk_title_is_valid, parcel_work_result_is_valid,
 };
 use serde_json::json;
 
@@ -729,6 +729,18 @@ impl PgStorage {
         {
             return Err(StorageError::ParcelWorkItemInvalidState(work_id));
         }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            r#"
+            select id
+            from operator_commands
+            where id = $1
+            for update
+            "#,
+        )
+        .bind(item.operator_command_id)
+        .execute(&mut *tx)
+        .await?;
         let done_query = format!(
             r#"
             update parcel_work_items item
@@ -751,9 +763,36 @@ impl PgStorage {
             .bind(PARCEL_WORK_ITEM_DONE)
             .bind(result.trim())
             .bind(worker_player_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or(StorageError::ParcelWorkItemInvalidState(work_id))?;
+        let open_work_count: i64 = sqlx::query_scalar(
+            r#"
+            select count(*)
+            from parcel_work_items
+            where operator_command_id = $1
+              and status not in ($2, $3)
+            "#,
+        )
+        .bind(item.operator_command_id)
+        .bind(PARCEL_WORK_ITEM_DONE)
+        .bind(PARCEL_WORK_ITEM_CANCELLED)
+        .fetch_one(&mut *tx)
+        .await?;
+        if open_work_count == 0 {
+            sqlx::query(
+                r#"
+                update operator_commands
+                set status = $2
+                where id = $1
+                "#,
+            )
+            .bind(item.operator_command_id)
+            .bind(OPERATOR_COMMAND_STATUS_HANDLED)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
         Ok(done)
     }
 
@@ -767,6 +806,7 @@ impl PgStorage {
     ) -> Result<StoredParcelCommandRoute, StorageError> {
         validate_work_slug(slug)?;
         validate_command_prefix(command_prefix)?;
+        let command_prefix = normalize_command_prefix(command_prefix);
         let desk = self
             .owned_parcel_work_desk(parcel_id, slug, owner_player_id)
             .await?;
@@ -788,7 +828,7 @@ impl PgStorage {
         .bind(&desk.parcel_id)
         .bind(desk.id)
         .bind(owner_player_id)
-        .bind(command_prefix.trim())
+        .bind(&command_prefix)
         .bind(&desk.slug)
         .bind(&desk.title)
         .fetch_one(&self.pool)
@@ -830,6 +870,7 @@ impl PgStorage {
     ) -> Result<StoredParcelCommandRoute, StorageError> {
         validate_work_slug(slug)?;
         validate_command_prefix(command_prefix)?;
+        let command_prefix = normalize_command_prefix(command_prefix);
         let desk = self
             .owned_parcel_work_desk(parcel_id, slug, owner_player_id)
             .await?;
@@ -847,7 +888,7 @@ impl PgStorage {
         )
         .bind(&desk.parcel_id)
         .bind(desk.id)
-        .bind(command_prefix.trim())
+        .bind(&command_prefix)
         .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| {
@@ -1747,6 +1788,10 @@ fn command_prefix_matches(raw_input: &str, command_prefix: &str) -> bool {
     raw_input
         .get(command_prefix.len()..)
         .is_some_and(|tail| tail.is_empty() || tail.chars().next().is_some_and(char::is_whitespace))
+}
+
+fn normalize_command_prefix(command_prefix: &str) -> String {
+    command_prefix.trim().to_ascii_lowercase()
 }
 
 fn route_prefix_specificity(command_prefix: &str) -> usize {

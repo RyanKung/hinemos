@@ -2,6 +2,8 @@
 pub struct ParcelPaymentRequestResult<I> {
     /// Text to display to the parcel operator.
     pub text: String,
+    /// Whether a new payment request was inserted.
+    pub created: bool,
     /// Payer player id for live delivery.
     pub payer_player_id: String,
     /// Inbox item generated for the payer.

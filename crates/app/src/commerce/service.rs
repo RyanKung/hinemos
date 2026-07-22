@@ -101,22 +101,29 @@ where
         let command = self.store.operator_command(command_id).await?;
         self.ensure_inside_parcel(current_view, command.parcel_id())
             .await?;
-        let request = self
+        let creation = self
             .store
             .create_payment_request(command_id, owner_player_id, amount, delivery)
             .await?;
+        let request = creation.request;
         let inbox_item = self
             .store
             .inbox_item_by_source(request.payer_player_id(), "payment_request", request.id())
             .await?;
+        let action = if creation.created {
+            "Created"
+        } else {
+            "Found existing"
+        };
         Ok(ParcelPaymentRequestResult {
             text: format!(
-                "Created payment request #{} for {}: {} {}. Delivery is locked until payment.\r\n",
+                "{action} payment request #{} for {}: {} {}. Delivery is locked until payment.\r\n",
                 request.id(),
                 request.payer_user(),
                 request.amount(),
                 request.asset()
             ),
+            created: creation.created,
             payer_player_id: request.payer_player_id().to_owned(),
             inbox_item,
         })

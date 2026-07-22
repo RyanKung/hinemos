@@ -1,6 +1,8 @@
 use serde_json::json;
 use sqlx::Row;
 
+use hinemos_app::PaymentRequestCreation;
+
 use crate::accounts::{
     credit_balance, debit_balance, ensure_balance_row, ensure_player_account, fetch_balance_tx,
     player_account_id,
@@ -11,11 +13,6 @@ use crate::{
     StoredOperatorCommand, StoredPaymentRequest,
 };
 
-struct PaymentRequestCreation {
-    request: StoredPaymentRequest,
-    created: bool,
-}
-
 impl PgStorage {
     /// Creates a payment request from a parcel command owned by the operator.
     pub async fn create_payment_request(
@@ -24,19 +21,20 @@ impl PgStorage {
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<StoredPaymentRequest, StorageError> {
+    ) -> Result<PaymentRequestCreation<StoredPaymentRequest>, StorageError> {
         if amount <= 0 {
             return Err(StorageError::InvalidAmount(amount));
         }
         let creation = self
             .insert_payment_request(operator_command_id, owner_player_id, amount, delivery)
             .await?;
-        let request = creation.request;
-        self.create_payment_request_inbox_item(&request).await?;
         if creation.created {
-            self.record_payment_request_created_memory(&request).await?;
+            self.create_payment_request_inbox_item(&creation.request)
+                .await?;
+            self.record_payment_request_created_memory(&creation.request)
+                .await?;
         }
-        Ok(request)
+        Ok(creation)
     }
 
     async fn insert_payment_request(
@@ -45,7 +43,7 @@ impl PgStorage {
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<PaymentRequestCreation, StorageError> {
+    ) -> Result<PaymentRequestCreation<StoredPaymentRequest>, StorageError> {
         let mut tx = self.pool.begin().await?;
         let command = sqlx::query_as::<_, StoredOperatorCommand>(
             r#"

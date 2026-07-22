@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hinemos_core::{
+    OPERATOR_COMMAND_STATUS_DELIVERED, OPERATOR_COMMAND_STATUS_HANDLED,
     PARCEL_MAILING_LISTS_PER_PARCEL_MAX, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED,
     PARCEL_STATUS_VACANT,
 };
@@ -182,9 +183,11 @@ async fn payment_requests_are_idempotent_per_operator_command() {
         .await
         .expect("idempotent payment request retry");
 
-    assert_eq!(second.id, first.id);
-    assert_eq!(second.amount, 25);
-    assert_eq!(second.delivery, "first delivery");
+    assert!(first.created);
+    assert!(!second.created);
+    assert_eq!(second.request.id, first.request.id);
+    assert_eq!(second.request.amount, 25);
+    assert_eq!(second.request.delivery, "first delivery");
     assert_eq!(
         db.query_value(&format!(
             "select count(*) from payment_requests where operator_command_id = {}",
@@ -198,7 +201,7 @@ async fn payment_requests_are_idempotent_per_operator_command() {
              where kind = 'payment_request'
                and source_kind = 'payment_request'
                and source_id = {}",
-            first.id
+            first.request.id
         )),
         "1"
     );
@@ -207,7 +210,7 @@ async fn payment_requests_are_idempotent_per_operator_command() {
             "select count(*) from memory_events
              where event_type = 'payment_request_created'
                and world_refs->>'request_id' = '{}'",
-            first.id
+            first.request.id
         )),
         "1"
     );
@@ -216,7 +219,7 @@ async fn payment_requests_are_idempotent_per_operator_command() {
             "select count(*) from memory_events
              where event_type = 'payment_request_received'
                and world_refs->>'request_id' = '{}'",
-            first.id
+            first.request.id
         )),
         "1"
     );
@@ -297,7 +300,7 @@ async fn migration_deduplicates_unpaid_payment_request_retries_before_unique_ind
              where source_kind = 'payment_request_duplicate'
                and source_id = {duplicate_id}"
         )),
-        format!("archived:{}", canonical.id)
+        format!("archived:{}", canonical.request.id)
     );
     assert_eq!(
         db.query_value(
@@ -745,6 +748,13 @@ async fn parcel_command_routes_queue_operator_commands_for_in_parcel_workers() {
         .expect("finish work");
     assert_eq!(done.status, "done");
     assert_eq!(done.result.as_deref(), Some("accepted for daily"));
+    assert_eq!(
+        db.query_value(&format!(
+            "select status from operator_commands where id = {}",
+            command.id
+        )),
+        OPERATOR_COMMAND_STATUS_HANDLED
+    );
     let visible_after_done = storage
         .parcel_work_items(
             "E1-C0-01",
@@ -817,6 +827,14 @@ async fn parcel_command_routes_use_one_longest_match_per_work_desk() {
         .await
         .expect("create alerts desk");
     storage
+        .add_parcel_staff("E1-C0-01", "submissions", "player:owner", "customer")
+        .await
+        .expect("assign submissions worker");
+    storage
+        .add_parcel_staff("E1-C0-01", "alerts", "player:owner", "late")
+        .await
+        .expect("assign alerts worker");
+    storage
         .add_parcel_command_route("E1-C0-01", "player:owner", "submissions", "/paper")
         .await
         .expect("add broad route");
@@ -832,6 +850,19 @@ async fn parcel_command_routes_use_one_longest_match_per_work_desk() {
         .add_parcel_command_route("E1-C0-01", "player:owner", "alerts", "/paper")
         .await
         .expect("add second stream route");
+    assert_eq!(
+        db.query_value(
+            "select count(*)
+             from parcel_work_routes
+             where parcel_id = 'E1-C0-01'
+               and desk_id = (
+                   select id from parcel_work_desks
+                   where parcel_id = 'E1-C0-01' and slug = 'submissions'
+               )
+               and command_prefix = '/paper submit'"
+        ),
+        "1"
+    );
 
     let parcel = storage
         .parcel_by_id("E1-C0-01")
@@ -863,6 +894,8 @@ async fn parcel_command_routes_use_one_longest_match_per_work_desk() {
         .expect("alerts dispatch");
     assert_eq!(submissions.command_prefix, "/paper submit");
     assert_eq!(alerts.command_prefix, "/paper");
+    let submissions_id = submissions.id;
+    let alerts_id = alerts.id;
     assert_eq!(
         db.query_value(
             "select count(*)
@@ -878,6 +911,56 @@ async fn parcel_command_routes_use_one_longest_match_per_work_desk() {
              where command_prefix = '/PAPER SUBMIT'"
         ),
         "0"
+    );
+    storage
+        .start_parcel_shift("E1-C0-01", "submissions", "customer", "player:customer")
+        .await
+        .expect("start submissions shift");
+    storage
+        .start_parcel_shift("E1-C0-01", "alerts", "late", "player:late")
+        .await
+        .expect("start alerts shift");
+    storage
+        .claim_parcel_work("E1-C0-01", "customer", "player:customer", submissions_id)
+        .await
+        .expect("claim submissions work");
+    storage
+        .finish_parcel_work(
+            "E1-C0-01",
+            "customer",
+            "player:customer",
+            submissions_id,
+            "submission accepted",
+        )
+        .await
+        .expect("finish submissions work");
+    assert_eq!(
+        db.query_value(&format!(
+            "select status from operator_commands where id = {}",
+            command.id
+        )),
+        OPERATOR_COMMAND_STATUS_DELIVERED
+    );
+    storage
+        .claim_parcel_work("E1-C0-01", "late", "player:late", alerts_id)
+        .await
+        .expect("claim alerts work");
+    storage
+        .finish_parcel_work(
+            "E1-C0-01",
+            "late",
+            "player:late",
+            alerts_id,
+            "alert acknowledged",
+        )
+        .await
+        .expect("finish alerts work");
+    assert_eq!(
+        db.query_value(&format!(
+            "select status from operator_commands where id = {}",
+            command.id
+        )),
+        OPERATOR_COMMAND_STATUS_HANDLED
     );
 }
 

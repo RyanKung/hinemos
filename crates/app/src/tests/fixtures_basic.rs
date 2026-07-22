@@ -1136,8 +1136,11 @@ impl ParcelStore for TestParcelFixtureStore {
         _owner_player_id: &str,
         _amount: i64,
         _delivery: &str,
-    ) -> Result<Self::PaymentRequest, Self::Error> {
-        Ok(TestPaymentRequest)
+    ) -> Result<PaymentRequestCreation<Self::PaymentRequest>, Self::Error> {
+        Ok(PaymentRequestCreation {
+            request: TestPaymentRequest,
+            created: true,
+        })
     }
 
     async fn inbox_item_by_source(
