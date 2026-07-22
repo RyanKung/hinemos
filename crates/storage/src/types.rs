@@ -1,8 +1,8 @@
 //! Storage row types and low-level helpers.
 
 use hinemos_core::{
-    ADMISSION_STATE_AGREED, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT,
-    PlayerState, SHOP_MAILING_LIST_STATUS_OPEN, role_card_name_is_valid,
+    ADMISSION_STATE_AGREED, PARCEL_MAILING_LIST_STATUS_OPEN, PARCEL_STATUS_BUILT,
+    PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT, PlayerState, role_card_name_is_valid,
 };
 use serde_json::Value;
 
@@ -135,7 +135,7 @@ pub struct StoredWorldMessage {
 pub struct StoredInboxItem {
     /// Database id.
     pub id: i64,
-    /// Item kind, for example mail, shop_command, or payment_request.
+    /// Item kind, for example mail, parcel_command, or payment_request.
     pub kind: String,
     /// Recipient SSH user.
     pub recipient_user: String,
@@ -206,7 +206,7 @@ pub struct StoredTransfer {
     pub sender_balance: i64,
 }
 
-/// Commercial parcel state.
+/// Parcel state.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredParcel {
     /// Stable parcel id, for example N1.
@@ -229,9 +229,9 @@ pub struct StoredParcel {
     pub room_player_id: Option<String>,
     /// vacant, claimed, or built.
     pub status: String,
-    /// Built shop title.
+    /// Built parcel title.
     pub title: Option<String>,
-    /// Built shop description.
+    /// Built parcel description.
     pub description: Option<String>,
     /// Owner-authored style note.
     pub style: Option<String>,
@@ -286,8 +286,6 @@ pub struct StoredServiceRoom {
     pub custom_commands: Option<String>,
     /// Commands that count as hunger recovery, one command per line or semicolon.
     pub recovery_commands: Option<String>,
-    /// Optional built-in handler key consumed by the built-in room runner.
-    pub builtin_handler: Option<String>,
     /// Whether this registration is active.
     pub enabled: bool,
 }
@@ -295,8 +293,8 @@ pub struct StoredServiceRoom {
 /// Source table behind a unified room binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoredRoomBindingKind {
-    /// A commercial parcel backed by `commercial_parcels`.
-    CommercialParcel,
+    /// A parcel backed by `parcels`.
+    Parcel,
     /// An externally hosted service room backed by `service_rooms`.
     ServiceRoom,
 }
@@ -335,36 +333,36 @@ pub struct StoredRoomBinding {
     pub entry_text: String,
     /// Optional label used to replace the authored ASCII placeholder.
     pub ascii_label: Option<String>,
-    /// Parcel owner username when this binding comes from a commercial parcel.
+    /// Parcel owner username when this binding comes from a parcel.
     pub owner_user: Option<String>,
-    /// Parcel status when this binding comes from a commercial parcel.
+    /// Parcel status when this binding comes from a parcel.
     pub parcel_status: Option<String>,
-    /// Parcel title when this binding comes from a commercial parcel.
+    /// Parcel title when this binding comes from a parcel.
     pub parcel_title: Option<String>,
-    /// Parcel description when this binding comes from a commercial parcel.
+    /// Parcel description when this binding comes from a parcel.
     pub parcel_description: Option<String>,
-    /// Parcel style note when this binding comes from a commercial parcel.
+    /// Parcel style note when this binding comes from a parcel.
     pub parcel_style: Option<String>,
-    /// Parcel operator prompt when this binding comes from a commercial parcel.
+    /// Parcel operator prompt when this binding comes from a parcel.
     pub parcel_operator_prompt: Option<String>,
-    /// Parcel custom command help when this binding comes from a commercial parcel.
+    /// Parcel custom command help when this binding comes from a parcel.
     pub parcel_custom_commands: Option<String>,
-    /// Open mailing lists advertised by this commercial parcel.
-    pub parcel_mailing_lists: Vec<StoredShopMailingList>,
+    /// Open mailing lists advertised by this parcel.
+    pub parcel_mailing_lists: Vec<StoredParcelMailingList>,
     /// Explicit enter aliases.
     pub enter_aliases: Vec<String>,
     /// Mailbox username for room-owned workflows.
     pub room_user: Option<String>,
     /// Mailbox player id for room-owned workflows.
     pub room_player_id: Option<String>,
-    /// Owning player id for commercial parcel rooms.
+    /// Owning player id for parcel rooms.
     pub owner_player_id: Option<String>,
     /// Input forwarding policy.
     pub command_policy: StoredRoomCommandPolicy,
 }
 
 impl StoredRoomBinding {
-    /// Builds a binding for a commercial parcel.
+    /// Builds a binding for a parcel.
     #[must_use]
     pub fn from_parcel(parcel: StoredParcel) -> Self {
         let address = parcel.parcel_id.clone();
@@ -387,7 +385,7 @@ impl StoredRoomBinding {
         let ascii_label = parcel.is_built().then(|| label.clone());
         let enter_aliases = parcel_title.clone().into_iter().collect();
         Self {
-            kind: StoredRoomBindingKind::CommercialParcel,
+            kind: StoredRoomBindingKind::Parcel,
             view_id: parcel.view_id,
             front_view_id: parcel.front_view_id,
             front_entity_id: None,
@@ -466,33 +464,33 @@ impl StoredRoomBinding {
         })
     }
 
-    /// Returns this binding with commercial parcel mailing-list summaries attached.
+    /// Returns this binding with parcel mailing-list summaries attached.
     #[must_use]
-    pub fn with_mailing_lists(mut self, lists: Vec<StoredShopMailingList>) -> Self {
+    pub fn with_mailing_lists(mut self, lists: Vec<StoredParcelMailingList>) -> Self {
         self.parcel_mailing_lists = lists
             .into_iter()
-            .filter(|list| list.status == SHOP_MAILING_LIST_STATUS_OPEN)
+            .filter(|list| list.status == PARCEL_MAILING_LIST_STATUS_OPEN)
             .collect();
         self
     }
 }
 
-/// Raw visitor command forwarded to a shop operator.
+/// Raw visitor command forwarded to a parcel operator.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredOperatorCommand {
     /// Database id.
     pub id: i64,
     /// View where the command was entered.
     pub view_id: String,
-    /// Parcel id for the shop.
+    /// Parcel id for the parcel.
     pub parcel_id: String,
     /// Sender SSH username.
     pub sender_user: String,
     /// Sender player id.
     pub sender_player_id: String,
-    /// Shop owner username.
+    /// Parcel owner username.
     pub owner_user: String,
-    /// Shop owner player id.
+    /// Parcel owner player id.
     pub owner_player_id: String,
     /// Raw line entered by the visitor.
     pub raw_input: String,
@@ -502,22 +500,22 @@ pub struct StoredOperatorCommand {
     pub created_at: String,
 }
 
-/// Payment request created by a shop operator for a visitor command.
+/// Payment request created by a parcel operator for a visitor command.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct StoredPaymentRequest {
     /// Database id.
     pub id: i64,
     /// Operator command that produced this request.
     pub operator_command_id: i64,
-    /// Parcel id for the shop.
+    /// Parcel id for the parcel.
     pub parcel_id: String,
     /// Visitor SSH username.
     pub payer_user: String,
     /// Visitor player id.
     pub payer_player_id: String,
-    /// Shop owner SSH username.
+    /// Parcel owner SSH username.
     pub payee_user: String,
-    /// Shop owner player id.
+    /// Parcel owner player id.
     pub payee_player_id: String,
     /// Asset symbol, currently always MARK.
     pub asset: String,
@@ -535,12 +533,12 @@ pub struct StoredPaymentRequest {
     pub created_at: String,
 }
 
-/// Stored shop mailing-list summary.
+/// Stored parcel mailing-list summary.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct StoredShopMailingList {
+pub struct StoredParcelMailingList {
     /// Database id.
     pub id: i64,
-    /// Parcel id for the shop.
+    /// Parcel id for the parcel.
     pub parcel_id: String,
     /// Current owner player id captured when the list was created.
     pub owner_player_id: String,
@@ -556,9 +554,9 @@ pub struct StoredShopMailingList {
     pub created_at: String,
 }
 
-/// Stored shop mailing-list member row.
+/// Stored parcel mailing-list member row.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct StoredShopMailingListSubscriber {
+pub struct StoredParcelMailingListSubscriber {
     /// Subscriber username.
     pub subscriber_user: String,
     /// Subscriber player id.
@@ -567,13 +565,13 @@ pub struct StoredShopMailingListSubscriber {
     pub updated_at: String,
 }
 
-/// Stored shop-chat membership visible to a member.
+/// Stored parcel-chat membership visible to a member.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct StoredShopMailingListSubscription {
-    /// Parcel id for the shop.
+pub struct StoredParcelMailingListSubscription {
+    /// Parcel id for the parcel.
     pub parcel_id: String,
-    /// Built shop title.
-    pub shop_title: Option<String>,
+    /// Built parcel title.
+    pub parcel_title: Option<String>,
     /// Stable list slug.
     pub slug: String,
     /// Mailing-list title.
@@ -584,12 +582,12 @@ pub struct StoredShopMailingListSubscription {
     pub updated_at: String,
 }
 
-/// Stored shop mailing-list post.
+/// Stored parcel mailing-list post.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct StoredShopMailingListPost {
+pub struct StoredParcelMailingListPost {
     /// Database id.
     pub id: i64,
-    /// Parcel id for the shop.
+    /// Parcel id for the parcel.
     pub parcel_id: String,
     /// Stable list slug.
     pub slug: String,
@@ -609,12 +607,144 @@ pub struct StoredShopMailingListPost {
     pub created_at: String,
 }
 
-/// Stored shop badge definition summary.
+/// Stored parcel command-route summary.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct StoredShopBadgeDefinition {
+pub struct StoredParcelCommandRoute {
     /// Database id.
     pub id: i64,
-    /// Parcel id for the shop.
+    /// Parcel id for the route.
+    pub parcel_id: String,
+    /// Stable work-desk slug.
+    pub slug: String,
+    /// Work-desk title.
+    pub desk_title: String,
+    /// Slash command prefix matched against operator commands.
+    pub command_prefix: String,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
+/// Stored parcel-published job guide.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredParcelJobGuide {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the guide.
+    pub parcel_id: String,
+    /// Current owner player id captured when the guide was published.
+    pub owner_player_id: String,
+    /// Stable job slug.
+    pub slug: String,
+    /// Player-facing job title.
+    pub title: String,
+    /// Job description or role instructions.
+    pub body: String,
+    /// Publishing username.
+    pub publisher_user: String,
+    /// Publishing player id.
+    pub publisher_player_id: String,
+    /// Guide status.
+    pub status: String,
+    /// Database formatted creation time.
+    pub created_at: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
+/// Stored parcel work-desk summary.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredParcelWorkDesk {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the parcel.
+    pub parcel_id: String,
+    /// Current owner player id captured when the desk was created.
+    pub owner_player_id: String,
+    /// Stable work-desk slug.
+    pub slug: String,
+    /// Player-facing title.
+    pub title: String,
+    /// Desk status.
+    pub status: String,
+    /// Queued item count.
+    pub queued_count: i64,
+    /// Active worker count.
+    pub active_worker_count: i64,
+    /// Database formatted creation time.
+    pub created_at: String,
+}
+
+/// Stored parcel staff assignment.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredParcelStaff {
+    /// Assigned worker username.
+    pub staff_user: String,
+    /// Assignment status.
+    pub status: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
+/// Stored parcel work shift.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredParcelShift {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the parcel.
+    pub parcel_id: String,
+    /// Stable work-desk slug.
+    pub slug: String,
+    /// Worker username.
+    pub worker_user: String,
+    /// Worker player id.
+    pub worker_player_id: String,
+    /// Shift status.
+    pub status: String,
+    /// Database formatted start time.
+    pub started_at: String,
+    /// Database formatted end time.
+    pub ended_at: Option<String>,
+}
+
+/// Stored parcel work item.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredParcelWorkItem {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the parcel.
+    pub parcel_id: String,
+    /// Stable work-desk slug.
+    pub slug: String,
+    /// Work-desk title.
+    pub desk_title: String,
+    /// Operator command id that produced this item.
+    pub operator_command_id: i64,
+    /// Slash command prefix matched by the route.
+    pub command_prefix: String,
+    /// Work status.
+    pub status: String,
+    /// Visitor username.
+    pub sender_user: String,
+    /// Raw visitor command.
+    pub raw_input: String,
+    /// Assigned worker username, if claimed.
+    pub assignee_user: Option<String>,
+    /// Assigned worker player id, if claimed.
+    pub assignee_player_id: Option<String>,
+    /// Completion result, if done.
+    pub result: Option<String>,
+    /// Database formatted creation time.
+    pub created_at: String,
+    /// Database formatted update time.
+    pub updated_at: String,
+}
+
+/// Stored parcel badge definition summary.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct StoredParcelBadgeDefinition {
+    /// Database id.
+    pub id: i64,
+    /// Parcel id for the parcel.
     pub parcel_id: String,
     /// Current owner player id captured when the badge was saved.
     pub owner_player_id: String,
@@ -632,15 +762,15 @@ pub struct StoredShopBadgeDefinition {
     pub updated_at: String,
 }
 
-/// Stored shop badge award visible in badge listings.
+/// Stored parcel badge award visible in badge listings.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct StoredShopBadgeAward {
+pub struct StoredParcelBadgeAward {
     /// Database id.
     pub id: i64,
-    /// Parcel id for the issuing shop.
+    /// Parcel id for the issuing parcel.
     pub parcel_id: String,
-    /// Built shop title.
-    pub shop_title: Option<String>,
+    /// Built parcel title.
+    pub parcel_title: Option<String>,
     /// Stable badge slug.
     pub slug: String,
     /// Player-facing badge title.
@@ -663,31 +793,6 @@ pub struct StoredShopBadgeAward {
     pub awarded_at: String,
     /// Database formatted revoke time.
     pub revoked_at: Option<String>,
-}
-
-/// Stored active marriage certificate.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct StoredMarriageCertificate {
-    /// Database id.
-    pub id: i64,
-    /// First participant username, canonicalized lexicographically by player id.
-    pub party_a_user: String,
-    /// First participant player id.
-    pub party_a_player_id: String,
-    /// Second participant username.
-    pub party_b_user: String,
-    /// Second participant player id.
-    pub party_b_player_id: String,
-    /// Certificate status, currently active.
-    pub status: String,
-    /// Per-player fee amount in MARK.
-    pub fee_amount: i64,
-    /// Ledger ids for the two fee charges.
-    pub fee_ledger_ids: Vec<i64>,
-    /// Rendered certificate text.
-    pub certificate_text: String,
-    /// Database formatted issue time.
-    pub issued_at: String,
 }
 
 /// New append-only memory event.

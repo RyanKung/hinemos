@@ -21,15 +21,8 @@ pub(super) fn slash_parse_feedback(line: &str, error: &SlashParseError) -> Strin
                 "Who do you want to pay, and how much? Try /pay <user> <amount> <memo>.".to_owned()
             }
             "mail" | "inbox" => "Which mail item do you mean? Try /mail read <id>.".to_owned(),
-            "land" => {
-                "Which land command do you need? Try /land list or /land info <parcel>.".to_owned()
-            }
+            "parcel" => "Which parcel command do you need? Try /parcel list, /parcel info <parcel>, /parcel build, or /parcel work list <parcel>.".to_owned(),
             "settings" => "Which setting do you want to change? Try /settings.".to_owned(),
-            "build" => {
-                "What do you want to build? Use one JSON build sheet after /build.".to_owned()
-            }
-            "shop" => "Which shop notice do you want to handle? Try /shop request-payment <cmd_id> <amount> <delivery>."
-                .to_owned(),
             _ => "That command needs a little more detail. Choose one Available command and include its target."
                 .to_owned(),
         },

@@ -1,12 +1,12 @@
 use hinemos_core::{
     ActionKind, DEFAULT_ADMISSION_VIEW_ID, EntityKind, EntityObservation, JsonObservation,
-    PARCEL_STATUS_BUILT, SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_STATUS_OPEN,
-    SemanticCommand, SubscriptionAction,
+    PARCEL_MAILING_LIST_STATUS_CLOSED, PARCEL_MAILING_LIST_STATUS_OPEN, PARCEL_STATUS_BUILT,
+    ParcelAction, SemanticCommand,
 };
 use hinemos_runtime::render_text_observation;
 use hinemos_storage::{
-    INBOX_STATUS_UNREAD, StoredInboxItem, StoredParcel, StoredRoomBinding, StoredRoomBindingKind,
-    StoredRoomCommandPolicy, StoredShopMailingList,
+    INBOX_STATUS_UNREAD, StoredInboxItem, StoredParcel, StoredParcelMailingList, StoredRoomBinding,
+    StoredRoomBindingKind, StoredRoomCommandPolicy,
 };
 
 use super::{
@@ -131,13 +131,13 @@ fn room_reply_live_notice_includes_request_id_when_available() {
 }
 
 #[test]
-fn built_parcel_replaces_static_ascii_title_with_shop_title() {
+fn built_parcel_replaces_static_ascii_title_with_parcel_title() {
     let mut observation = JsonObservation {
         player_id: "player".to_owned(),
         view_id: "north_parcel_01".to_owned(),
-        title: "North Commercial Parcel 01".to_owned(),
+        title: "North Parcel 01".to_owned(),
         ascii_art: vec![
-            "               NORTH COMMERCIAL PARCEL 01".to_owned(),
+            "               NORTH PARCEL 01".to_owned(),
             "                       |".to_owned(),
             "                    <Me>".to_owned(),
         ],
@@ -172,9 +172,9 @@ fn built_parcel_replaces_static_ascii_title_with_shop_title() {
 
     assert!(rendered.contains("Offline Tool Broker"));
     assert!(rendered.contains("[Offline Tool Broker]"));
-    assert!(rendered.contains("Shop commands: /hello - hello, price 25"));
+    assert!(rendered.contains("Parcel commands: /hello - hello, price 25"));
     assert!(!rendered.contains("Custom commands: /hello preview=hello price=25"));
-    assert!(!rendered.contains("NORTH COMMERCIAL PARCEL 01"));
+    assert!(!rendered.contains("NORTH PARCEL 01"));
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn built_parcel_advertises_only_open_mailing_lists() {
     let mut observation = JsonObservation {
         player_id: "player".to_owned(),
         view_id: "north_parcel_01".to_owned(),
-        title: "North Commercial Parcel 01".to_owned(),
+        title: "North Parcel 01".to_owned(),
         ascii_art: Vec::new(),
         description: "Static parcel description.".to_owned(),
         exits: Vec::new(),
@@ -210,23 +210,23 @@ fn built_parcel_advertises_only_open_mailing_lists() {
     };
     let mut binding = StoredRoomBinding::from_parcel(parcel);
     binding.parcel_mailing_lists = vec![
-        StoredShopMailingList {
+        StoredParcelMailingList {
             id: 1,
             parcel_id: "north_01".to_owned(),
             owner_player_id: "player".to_owned(),
             slug: "updates".to_owned(),
-            title: "Shop Updates".to_owned(),
-            status: SHOP_MAILING_LIST_STATUS_OPEN.to_owned(),
+            title: "Parcel Updates".to_owned(),
+            status: PARCEL_MAILING_LIST_STATUS_OPEN.to_owned(),
             subscriber_count: 0,
             created_at: "2026-06-27 00:00:00 UTC".to_owned(),
         },
-        StoredShopMailingList {
+        StoredParcelMailingList {
             id: 2,
             parcel_id: "north_01".to_owned(),
             owner_player_id: "player".to_owned(),
             slug: "archive".to_owned(),
             title: "Old News".to_owned(),
-            status: SHOP_MAILING_LIST_STATUS_CLOSED.to_owned(),
+            status: PARCEL_MAILING_LIST_STATUS_CLOSED.to_owned(),
             subscriber_count: 0,
             created_at: "2026-06-27 00:00:00 UTC".to_owned(),
         },
@@ -236,14 +236,14 @@ fn built_parcel_advertises_only_open_mailing_lists() {
     let rendered = render_text_observation(&observation);
 
     assert!(observation.description.contains(
-        "Shop Updates (updates) join: /subscribe north_01 updates; chat after joining: /chat north_01 updates -- <message>"
+        "Parcel Updates (updates) join: /parcel subscribe north_01 updates; chat after joining: /parcel chat north_01 updates -- <message>"
     ));
     assert!(!rendered.contains("Old News"));
     assert!(
         observation
             .available_commands
-            .contains(&SemanticCommand::Subscription {
-                action: SubscriptionAction::Subscribe {
+            .contains(&SemanticCommand::Parcel {
+                action: ParcelAction::Subscribe {
                     target: "north_01".to_owned(),
                     slug: "updates".to_owned(),
                 }
@@ -252,8 +252,8 @@ fn built_parcel_advertises_only_open_mailing_lists() {
     assert!(
         !observation
             .available_commands
-            .contains(&SemanticCommand::Subscription {
-                action: SubscriptionAction::Subscribe {
+            .contains(&SemanticCommand::Parcel {
+                action: ParcelAction::Subscribe {
                     target: "north_01".to_owned(),
                     slug: "archive".to_owned(),
                 }
@@ -262,11 +262,11 @@ fn built_parcel_advertises_only_open_mailing_lists() {
 }
 
 #[test]
-fn built_street_parcel_replaces_static_ascii_label_with_shop_title() {
+fn built_street_parcel_replaces_static_ascii_label_with_parcel_title() {
     let mut observation = JsonObservation {
         player_id: "player".to_owned(),
         view_id: "street_north_01".to_owned(),
-        title: "North Commercial Street 01".to_owned(),
+        title: "North Parcel Street 01".to_owned(),
         ascii_art: vec![
             "               north to street 02".to_owned(),
             "                       |".to_owned(),
@@ -322,15 +322,15 @@ fn service_room_binding_respects_front_entity_before_overlay() {
     };
     let binding = StoredRoomBinding {
         kind: StoredRoomBindingKind::ServiceRoom,
-        view_id: "hinemos_bank".to_owned(),
+        view_id: "external_studio".to_owned(),
         front_view_id: "official_street".to_owned(),
-        front_entity_id: Some("bank_kiosk".to_owned()),
-        address: "bank".to_owned(),
-        label: "Hinemos Bank".to_owned(),
+        front_entity_id: Some("studio_kiosk".to_owned()),
+        address: "studio".to_owned(),
+        label: "External Studio".to_owned(),
         status_text: Some("Open weekdays".to_owned()),
-        custom_commands: Some("/balance".to_owned()),
+        custom_commands: Some("/room status".to_owned()),
         recovery_commands: None,
-        entry_text: "- bank Hinemos Bank. Enter: /enter bank.".to_owned(),
+        entry_text: "- studio External Studio. Enter: /enter studio.".to_owned(),
         ascii_label: None,
         owner_user: None,
         parcel_status: None,
@@ -340,27 +340,27 @@ fn service_room_binding_respects_front_entity_before_overlay() {
         parcel_operator_prompt: None,
         parcel_custom_commands: None,
         parcel_mailing_lists: Vec::new(),
-        enter_aliases: vec!["bank".to_owned()],
-        room_user: Some("room-bank".to_owned()),
-        room_player_id: Some("room:bank".to_owned()),
+        enter_aliases: vec!["studio".to_owned()],
+        room_user: Some("room-studio".to_owned()),
+        room_player_id: Some("room:studio".to_owned()),
         owner_player_id: None,
-        command_policy: StoredRoomCommandPolicy::ForwardListed(vec!["/balance".to_owned()]),
+        command_policy: StoredRoomCommandPolicy::ForwardListed(vec!["/room status".to_owned()]),
     };
 
     overlay_room_binding_entries(&mut observation, std::slice::from_ref(&binding));
-    assert!(!observation.description.contains("Hinemos Bank"));
+    assert!(!observation.description.contains("External Studio"));
 
     observation.entities.push(EntityObservation {
-        id: "bank_kiosk".to_owned(),
+        id: "studio_kiosk".to_owned(),
         kind: EntityKind::Npc,
-        name: "Bank Kiosk".to_owned(),
+        name: "Studio Kiosk".to_owned(),
         description: String::new(),
         actions: vec![ActionKind::Talk],
     });
     overlay_room_binding_entries(&mut observation, &[binding]);
 
-    assert!(observation.description.contains("Hinemos Bank"));
-    assert!(render_text_observation(&observation).contains("/enter bank"));
+    assert!(observation.description.contains("External Studio"));
+    assert!(render_text_observation(&observation).contains("/enter studio"));
 }
 
 #[test]
@@ -494,7 +494,7 @@ fn room_binding_entries_keep_visible_order_and_skip_hidden_front_entity() {
         events: Vec::new(),
     };
     let hidden_binding = StoredRoomBinding {
-        kind: StoredRoomBindingKind::CommercialParcel,
+        kind: StoredRoomBindingKind::Parcel,
         view_id: "hidden_parcel".to_owned(),
         front_view_id: "arrival_street".to_owned(),
         front_entity_id: Some("hidden_kiosk".to_owned()),
@@ -520,7 +520,7 @@ fn room_binding_entries_keep_visible_order_and_skip_hidden_front_entity() {
         command_policy: StoredRoomCommandPolicy::ForwardListed(Vec::new()),
     };
     let visible_binding = StoredRoomBinding {
-        kind: StoredRoomBindingKind::CommercialParcel,
+        kind: StoredRoomBindingKind::Parcel,
         view_id: "visible_parcel".to_owned(),
         front_view_id: "arrival_street".to_owned(),
         front_entity_id: Some("visible_kiosk".to_owned()),

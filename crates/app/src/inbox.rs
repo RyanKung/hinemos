@@ -2,7 +2,7 @@ use crate::*;
 
 impl<S, E> AppService<S>
 where
-    S: InboxStore<Error = E> + ShopStore<Error = E>,
+    S: InboxStore<Error = E>,
 {
     /// Lists inbox items for display.
     pub async fn list_inbox(
@@ -160,7 +160,7 @@ pub trait InboxItemView {
     fn created_at(&self) -> &str;
 }
 
-/// Protocol-neutral view of a shop operator command.
+/// Protocol-neutral view of a parcel operator command.
 pub trait OperatorCommandView {
     /// Operator command id.
     fn id(&self) -> i64;
@@ -174,7 +174,7 @@ pub trait OperatorCommandView {
     /// Visitor username that sent the command.
     fn sender_user(&self) -> &str;
 
-    /// Shop owner username.
+    /// Parcel owner username.
     fn owner_user(&self) -> &str;
 
     /// Parcel id where the command was entered.
@@ -252,6 +252,13 @@ pub trait MailDaemonStore {
         username: &'a str,
         token: &'a str,
     ) -> MailAuthTokenLookup<'a, Self::MailAuthToken, Self::Error>;
+
+    /// Records that a mail-protocol agent is actively polling for this player.
+    fn record_agent_mail_pool_presence<'a>(
+        &'a self,
+        username: &'a str,
+        player_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
 
     /// Saves a mail message with an explicit subject line.
     fn save_mail_message_with_subject<'a>(
@@ -367,7 +374,7 @@ fn inbox_context_line(item: &impl InboxItemView) -> Option<String> {
                     .and_then(serde_json::Value::as_i64)
             })
             .map(|request_id| format!("room reply to request #{request_id}")),
-        "shop_mailing_list_post" => {
+        "parcel_mailing_list_post" => {
             let post_id = item.source_id().unwrap_or_else(|| item.id());
             let list = item
                 .payload()
@@ -379,9 +386,9 @@ fn inbox_context_line(item: &impl InboxItemView) -> Option<String> {
                 .and_then(serde_json::Value::as_str);
             Some(match (parcel, list) {
                 (Some(parcel), Some(list)) => {
-                    format!("shop_mailing_list_post #{post_id} for {parcel}/{list}")
+                    format!("parcel_mailing_list_post #{post_id} for {parcel}/{list}")
                 }
-                _ => format!("shop_mailing_list_post #{post_id}"),
+                _ => format!("parcel_mailing_list_post #{post_id}"),
             })
         }
         _ => None,

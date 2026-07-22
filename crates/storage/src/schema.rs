@@ -4,7 +4,7 @@ use sqlx::postgres::PgPool;
 
 use crate::StorageError;
 use crate::accounts::{SYSTEM_LEDGER_ADJUSTMENT_ACCOUNT_ID, SYSTEM_MARK_ACCOUNT_ID};
-use crate::parcels::seed_commercial_parcels;
+use crate::parcels::seed_parcels;
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_player_profiles(pool).await?;
@@ -14,12 +14,13 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), StorageError> {
     migrate_world_messages(pool).await?;
     migrate_inbox_items(pool).await?;
     migrate_ledger(pool).await?;
-    migrate_commercial_parcels(pool).await?;
+    migrate_parcels(pool).await?;
     migrate_service_rooms(pool).await?;
-    migrate_shop_mailing_lists(pool).await?;
-    migrate_shop_badges(pool).await?;
-    migrate_shop_payments(pool).await?;
-    migrate_marriage_certificates(pool).await?;
+    migrate_parcel_mailing_lists(pool).await?;
+    migrate_parcel_job_guides(pool).await?;
+    migrate_parcel_badges(pool).await?;
+    migrate_parcel_payments(pool).await?;
+    migrate_parcel_work(pool).await?;
     migrate_memory_events(pool).await?;
     migrate_memory_atoms(pool).await?;
     migrate_social_memory(pool).await?;
@@ -41,154 +42,6 @@ async fn migrate_player_hunger(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
-    Ok(())
-}
-
-async fn migrate_marriage_certificates(pool: &PgPool) -> Result<(), StorageError> {
-    sqlx::query(
-        r#"
-            create table if not exists marriage_certificates (
-                id bigserial primary key,
-                party_a_user text not null,
-                party_a_player_id text not null,
-                party_b_user text not null,
-                party_b_player_id text not null,
-                status text not null default 'active'
-                    check (status in ('active', 'divorced')),
-                fee_amount bigint not null check (fee_amount > 0),
-                fee_ledger_ids bigint[] not null default array[]::bigint[],
-                certificate_text text not null,
-                issued_at timestamptz not null default now(),
-                divorced_at timestamptz,
-                created_at timestamptz not null default now(),
-                constraint marriage_distinct_players
-                    check (party_a_player_id <> party_b_player_id)
-            )
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        "alter table marriage_certificates add column if not exists divorced_at timestamptz",
-    )
-    .execute(pool)
-    .await?;
-    repair_status_check_constraint(
-        pool,
-        "marriage_certificates",
-        "marriage_certificates_status_check",
-    )
-    .await?;
-
-    sqlx::query(
-        r#"
-            create unique index if not exists marriage_certificates_active_pair_idx
-            on marriage_certificates (party_a_player_id, party_b_player_id)
-            where status = 'active'
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            create index if not exists marriage_certificates_active_lookup_idx
-            on marriage_certificates (status, party_a_player_id, party_b_player_id)
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            create table if not exists marriage_certificate_participants (
-                certificate_id bigint not null references marriage_certificates(id) on delete cascade,
-                player_id text not null,
-                username text not null,
-                status text not null default 'active'
-                    check (status in ('active', 'divorced')),
-                created_at timestamptz not null default now(),
-                primary key (certificate_id, player_id)
-            )
-            "#,
-    )
-    .execute(pool)
-    .await?;
-    repair_status_check_constraint(
-        pool,
-        "marriage_certificate_participants",
-        "marriage_certificate_participants_status_check",
-    )
-    .await?;
-
-    sqlx::query(
-        r#"
-            insert into marriage_certificate_participants (
-                certificate_id, player_id, username, status
-            )
-            select id, party_a_player_id, party_a_user, status
-            from marriage_certificates
-            on conflict (certificate_id, player_id) do nothing
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            insert into marriage_certificate_participants (
-                certificate_id, player_id, username, status
-            )
-            select id, party_b_player_id, party_b_user, status
-            from marriage_certificates
-            on conflict (certificate_id, player_id) do nothing
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-            create unique index if not exists marriage_participants_active_player_idx
-            on marriage_certificate_participants (player_id)
-            where status = 'active'
-            "#,
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-async fn repair_status_check_constraint(
-    pool: &PgPool,
-    table_name: &str,
-    constraint_name: &str,
-) -> Result<(), StorageError> {
-    let sql = format!(
-        r#"
-        do $$
-        declare
-            existing_name text;
-        begin
-            for existing_name in
-                select conname
-                from pg_constraint
-                where conrelid = '{table_name}'::regclass
-                  and contype = 'c'
-                  and pg_get_constraintdef(oid) like '%status%'
-            loop
-                execute format('alter table {table_name} drop constraint %I', existing_name);
-            end loop;
-
-            alter table {table_name}
-            add constraint {constraint_name}
-            check (status in ('active', 'divorced'));
-        end $$;
-        "#
-    );
-    sqlx::query(&sql).execute(pool).await?;
     Ok(())
 }
 
@@ -353,9 +206,18 @@ async fn migrate_identity_tables(pool: &PgPool) -> Result<(), StorageError> {
                 token_hash text not null,
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now(),
-                last_seen_at timestamptz not null default now(),
+                last_seen_at timestamptz not null default to_timestamp(0),
                 unique (player_id)
             )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            alter table mail_auth_tokens
+            alter column last_seen_at set default to_timestamp(0)
             "#,
     )
     .execute(pool)
@@ -807,10 +669,10 @@ async fn create_ledger_indexes(pool: &PgPool) -> Result<(), StorageError> {
     Ok(())
 }
 
-async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
+async fn migrate_parcels(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
-            create table if not exists commercial_parcels (
+            create table if not exists parcels (
                 parcel_id text primary key,
                 view_id text not null unique,
                 district text not null,
@@ -835,21 +697,23 @@ async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
-    sqlx::query("alter table commercial_parcels add column if not exists room_user text")
+    sqlx::query("alter table parcels add column if not exists room_user text")
         .execute(pool)
         .await?;
 
-    sqlx::query("alter table commercial_parcels add column if not exists room_player_id text")
+    sqlx::query("alter table parcels add column if not exists room_player_id text")
         .execute(pool)
         .await?;
 
-    sqlx::query("alter table commercial_parcels add column if not exists front_view_id text")
+    sqlx::query("alter table parcels add column if not exists front_view_id text")
         .execute(pool)
         .await?;
+
+    copy_legacy_commercial_parcels(pool).await?;
 
     sqlx::query(
         r#"
-            update commercial_parcels
+            update parcels
             set front_view_id = format('street_%s_%s', district, lpad((((position - 1) / 2) + 1)::text, 2, '0'))
             where front_view_id is null
             "#,
@@ -859,8 +723,8 @@ async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create unique index if not exists commercial_parcels_room_user_idx
-            on commercial_parcels (room_user)
+            create unique index if not exists parcels_room_user_idx
+            on parcels (room_user)
             where room_user is not null
             "#,
     )
@@ -869,15 +733,63 @@ async fn migrate_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create unique index if not exists commercial_parcels_room_player_idx
-            on commercial_parcels (room_player_id)
+            create unique index if not exists parcels_room_player_idx
+            on parcels (room_player_id)
             where room_player_id is not null
             "#,
     )
     .execute(pool)
     .await?;
 
-    seed_commercial_parcels(pool).await?;
+    seed_parcels(pool).await?;
+
+    Ok(())
+}
+
+async fn copy_legacy_commercial_parcels(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            do $$
+            begin
+                if to_regclass(format('%I.%I', current_schema(), 'commercial_parcels')) is not null then
+                    alter table commercial_parcels
+                    add column if not exists front_view_id text;
+
+                    insert into parcels (
+                        parcel_id, view_id, front_view_id, district, position,
+                        owner_user, owner_player_id, room_user, room_player_id,
+                        status, title, description, style, operator_prompt,
+                        custom_commands, created_at, updated_at
+                    )
+                    select parcel_id, view_id, front_view_id, district, position,
+                           owner_user, owner_player_id, room_user, room_player_id,
+                           status, title, description, style, operator_prompt,
+                           custom_commands, created_at, updated_at
+                    from commercial_parcels
+                    on conflict (parcel_id) do update
+                    set view_id = excluded.view_id,
+                        front_view_id = excluded.front_view_id,
+                        district = excluded.district,
+                        position = excluded.position,
+                        owner_user = excluded.owner_user,
+                        owner_player_id = excluded.owner_player_id,
+                        room_user = excluded.room_user,
+                        room_player_id = excluded.room_player_id,
+                        status = excluded.status,
+                        title = excluded.title,
+                        description = excluded.description,
+                        style = excluded.style,
+                        operator_prompt = excluded.operator_prompt,
+                        custom_commands = excluded.custom_commands,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at;
+                end if;
+            end
+            $$;
+            "#,
+    )
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
@@ -897,7 +809,6 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
                 status_text text,
                 custom_commands text,
                 recovery_commands text,
-                builtin_handler text,
                 enabled boolean not null default true,
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now()
@@ -916,7 +827,6 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
         "status_text text",
         "custom_commands text",
         "recovery_commands text",
-        "builtin_handler text",
         "enabled boolean not null default true",
     ] {
         sqlx::query(&format!(
@@ -930,20 +840,18 @@ async fn migrate_service_rooms(pool: &PgPool) -> Result<(), StorageError> {
         .execute(pool)
         .await?;
 
-    sqlx::query(
-        r#"
-            create unique index if not exists service_rooms_enabled_builtin_handler_idx
-            on service_rooms (builtin_handler)
-            where builtin_handler is not null and enabled
-            "#,
-    )
-    .execute(pool)
-    .await?;
+    sqlx::query("drop index if exists service_rooms_enabled_builtin_handler_idx")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("alter table service_rooms drop column if exists builtin_handler")
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
 
-async fn migrate_shop_payments(pool: &PgPool) -> Result<(), StorageError> {
+async fn migrate_parcel_payments(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
             create table if not exists operator_commands (
@@ -1008,15 +916,305 @@ async fn migrate_shop_payments(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    deduplicate_payment_requests_before_unique_index(pool).await?;
+
+    sqlx::query(
+        r#"
+            create unique index if not exists payment_requests_operator_command_unique_idx
+            on payment_requests (operator_command_id)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
 
-async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
+async fn deduplicate_payment_requests_before_unique_index(
+    pool: &PgPool,
+) -> Result<(), StorageError> {
     sqlx::query(
         r#"
-            create table if not exists shop_mailing_lists (
+            do $$
+            begin
+                if exists (
+                    select 1
+                    from payment_requests
+                    where status = 'paid'
+                    group by operator_command_id
+                    having count(*) > 1
+                ) then
+                    raise exception
+                        'cannot add payment_requests_operator_command_unique_idx: multiple paid payment_requests exist for one operator_command_id';
+                end if;
+            end $$;
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            with ranked as (
+                select id,
+                       first_value(id) over (
+                           partition by operator_command_id
+                           order by case status
+                                        when 'paid' then 0
+                                        when 'pending' then 1
+                                        else 2
+                                    end,
+                                    id
+                       ) as canonical_id
+                from payment_requests
+            ),
+            duplicates as (
+                select id, canonical_id
+                from ranked
+                where id <> canonical_id
+            )
+            update inbox_items item
+            set status = 'archived',
+                source_kind = 'payment_request_duplicate',
+                payload = item.payload || jsonb_build_object(
+                    'duplicateOfPaymentRequestId', duplicates.canonical_id
+                )
+            from duplicates
+            where item.source_kind = 'payment_request'
+              and item.source_id = duplicates.id
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            with ranked as (
+                select id,
+                       first_value(id) over (
+                           partition by operator_command_id
+                           order by case status
+                                        when 'paid' then 0
+                                        when 'pending' then 1
+                                        else 2
+                                    end,
+                                    id
+                       ) as canonical_id
+                from payment_requests
+            ),
+            duplicates as (
+                select id
+                from ranked
+                where id <> canonical_id
+            )
+            delete from payment_requests request
+            using duplicates
+            where request.id = duplicates.id
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            update operator_commands command
+            set status = 'handled'
+            where exists (
+                select 1
+                from payment_requests request
+                where request.operator_command_id = command.id
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn migrate_parcel_work(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists parcel_work_desks (
                 id bigserial primary key,
-                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
+                owner_player_id text not null,
+                slug text not null,
+                title text not null,
+                status text not null default 'open'
+                    check (status in ('open', 'closed')),
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (parcel_id, slug)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists parcel_work_desks_owner_idx
+            on parcel_work_desks (owner_player_id, parcel_id, created_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists parcel_work_staff (
+                id bigserial primary key,
+                desk_id bigint not null references parcel_work_desks(id) on delete cascade,
+                staff_user text not null,
+                status text not null default 'active'
+                    check (status in ('active', 'removed')),
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (desk_id, staff_user)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists parcel_work_staff_user_idx
+            on parcel_work_staff (staff_user, status, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists parcel_work_shifts (
+                id bigserial primary key,
+                desk_id bigint not null references parcel_work_desks(id) on delete cascade,
+                worker_user text not null,
+                worker_player_id text not null,
+                status text not null default 'active'
+                    check (status in ('active', 'ended')),
+                started_at timestamptz not null default now(),
+                ended_at timestamptz,
+                updated_at timestamptz not null default now()
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create unique index if not exists parcel_work_shifts_one_active_per_worker_idx
+            on parcel_work_shifts (desk_id, worker_player_id)
+            where status = 'active'
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists parcel_work_routes (
+                id bigserial primary key,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
+                desk_id bigint not null references parcel_work_desks(id) on delete cascade,
+                owner_player_id text not null,
+                command_prefix text not null,
+                created_at timestamptz not null default now(),
+                unique (parcel_id, desk_id, command_prefix)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists parcel_work_routes_parcel_idx
+            on parcel_work_routes (parcel_id, created_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create table if not exists parcel_work_items (
+                id bigserial primary key,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
+                desk_id bigint not null references parcel_work_desks(id) on delete cascade,
+                operator_command_id bigint not null references operator_commands(id) on delete cascade,
+                command_prefix text not null,
+                status text not null default 'queued'
+                    check (status in ('queued', 'claimed', 'done', 'cancelled')),
+                assignee_user text,
+                assignee_player_id text,
+                result text,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (desk_id, operator_command_id)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists parcel_work_items_desk_status_idx
+            on parcel_work_items (desk_id, status, updated_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn migrate_parcel_job_guides(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists parcel_job_guides (
+                id bigserial primary key,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
+                owner_player_id text not null,
+                slug text not null,
+                title text not null,
+                body text not null,
+                publisher_user text not null,
+                publisher_player_id text not null,
+                status text not null default 'published'
+                    check (status in ('published')),
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now(),
+                unique (parcel_id, slug)
+            )
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+            create index if not exists parcel_job_guides_parcel_idx
+            on parcel_job_guides (parcel_id, slug)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn migrate_parcel_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists parcel_mailing_lists (
+                id bigserial primary key,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
                 owner_player_id text not null,
                 slug text not null,
                 title text not null,
@@ -1034,8 +1232,8 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_mailing_lists_owner_idx
-            on shop_mailing_lists (owner_player_id, parcel_id, created_at desc)
+            create index if not exists parcel_mailing_lists_owner_idx
+            on parcel_mailing_lists (owner_player_id, parcel_id, created_at desc)
             "#,
     )
     .execute(pool)
@@ -1043,9 +1241,9 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_mailing_list_subscriptions (
+            create table if not exists parcel_mailing_list_subscriptions (
                 id bigserial primary key,
-                list_id bigint not null references shop_mailing_lists(id) on delete cascade,
+                list_id bigint not null references parcel_mailing_lists(id) on delete cascade,
                 subscriber_user text not null,
                 subscriber_player_id text not null,
                 status text not null default 'active'
@@ -1061,8 +1259,8 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_mailing_list_subscriptions_player_idx
-            on shop_mailing_list_subscriptions (subscriber_player_id, status, updated_at desc)
+            create index if not exists parcel_mailing_list_subscriptions_player_idx
+            on parcel_mailing_list_subscriptions (subscriber_player_id, status, updated_at desc)
             "#,
     )
     .execute(pool)
@@ -1070,9 +1268,9 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_mailing_list_posts (
+            create table if not exists parcel_mailing_list_posts (
                 id bigserial primary key,
-                list_id bigint not null references shop_mailing_lists(id) on delete cascade,
+                list_id bigint not null references parcel_mailing_lists(id) on delete cascade,
                 sender_user text not null,
                 sender_player_id text not null,
                 subject text not null,
@@ -1087,9 +1285,9 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_mailing_list_deliveries (
+            create table if not exists parcel_mailing_list_deliveries (
                 id bigserial primary key,
-                post_id bigint not null references shop_mailing_list_posts(id) on delete cascade,
+                post_id bigint not null references parcel_mailing_list_posts(id) on delete cascade,
                 recipient_user text not null,
                 recipient_player_id text not null,
                 inbox_item_id bigint references inbox_items(id),
@@ -1101,15 +1299,147 @@ async fn migrate_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    copy_legacy_shop_mailing_lists(pool).await?;
+
+    sqlx::query("drop table if exists parcel_command_routes")
+        .execute(pool)
+        .await?;
+
     Ok(())
 }
 
-async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
+async fn copy_legacy_shop_mailing_lists(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query(
         r#"
-            create table if not exists shop_badges (
+            do $$
+            begin
+                if to_regclass(format('%I.%I', current_schema(), 'shop_mailing_lists')) is not null then
+                    insert into parcel_mailing_lists (
+                        id, parcel_id, owner_player_id, slug, title, description,
+                        status, created_at, updated_at
+                    )
+                    select id, parcel_id, owner_player_id, slug, title, description,
+                           status, created_at, updated_at
+                    from shop_mailing_lists
+                    on conflict (id) do update
+                    set parcel_id = excluded.parcel_id,
+                        owner_player_id = excluded.owner_player_id,
+                        slug = excluded.slug,
+                        title = excluded.title,
+                        description = excluded.description,
+                        status = excluded.status,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at;
+                end if;
+
+                if to_regclass(format('%I.%I', current_schema(), 'shop_mailing_list_subscriptions')) is not null then
+                    insert into parcel_mailing_list_subscriptions (
+                        id, list_id, subscriber_user, subscriber_player_id,
+                        status, created_at, updated_at
+                    )
+                    select id, list_id, subscriber_user, subscriber_player_id,
+                           status, created_at, updated_at
+                    from shop_mailing_list_subscriptions
+                    on conflict (id) do update
+                    set list_id = excluded.list_id,
+                        subscriber_user = excluded.subscriber_user,
+                        subscriber_player_id = excluded.subscriber_player_id,
+                        status = excluded.status,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at;
+                end if;
+
+                if to_regclass(format('%I.%I', current_schema(), 'shop_mailing_list_posts')) is not null then
+                    insert into parcel_mailing_list_posts (
+                        id, list_id, sender_user, sender_player_id, subject, body,
+                        recipient_count, created_at
+                    )
+                    select id, list_id, sender_user, sender_player_id, subject, body,
+                           recipient_count, created_at
+                    from shop_mailing_list_posts
+                    on conflict (id) do update
+                    set list_id = excluded.list_id,
+                        sender_user = excluded.sender_user,
+                        sender_player_id = excluded.sender_player_id,
+                        subject = excluded.subject,
+                        body = excluded.body,
+                        recipient_count = excluded.recipient_count,
+                        created_at = excluded.created_at;
+                end if;
+
+                if to_regclass(format('%I.%I', current_schema(), 'shop_mailing_list_deliveries')) is not null then
+                    insert into parcel_mailing_list_deliveries (
+                        id, post_id, recipient_user, recipient_player_id,
+                        inbox_item_id, created_at
+                    )
+                    select id, post_id, recipient_user, recipient_player_id,
+                           inbox_item_id, created_at
+                    from shop_mailing_list_deliveries
+                    on conflict (id) do update
+                    set post_id = excluded.post_id,
+                        recipient_user = excluded.recipient_user,
+                        recipient_player_id = excluded.recipient_player_id,
+                        inbox_item_id = excluded.inbox_item_id,
+                        created_at = excluded.created_at;
+                end if;
+
+                perform setval(
+                    pg_get_serial_sequence('parcel_mailing_lists', 'id'),
+                    coalesce((select max(id) from parcel_mailing_lists), 1),
+                    exists(select 1 from parcel_mailing_lists)
+                );
+                perform setval(
+                    pg_get_serial_sequence('parcel_mailing_list_subscriptions', 'id'),
+                    coalesce((select max(id) from parcel_mailing_list_subscriptions), 1),
+                    exists(select 1 from parcel_mailing_list_subscriptions)
+                );
+                perform setval(
+                    pg_get_serial_sequence('parcel_mailing_list_posts', 'id'),
+                    coalesce((select max(id) from parcel_mailing_list_posts), 1),
+                    exists(select 1 from parcel_mailing_list_posts)
+                );
+                perform setval(
+                    pg_get_serial_sequence('parcel_mailing_list_deliveries', 'id'),
+                    coalesce((select max(id) from parcel_mailing_list_deliveries), 1),
+                    exists(select 1 from parcel_mailing_list_deliveries)
+                );
+
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_mailing_list_deliveries'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_mailing_list_posts'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_mailing_list_subscriptions'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_mailing_lists'
+                );
+            end
+            $$;
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn migrate_parcel_badges(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            create table if not exists parcel_badges (
                 id bigserial primary key,
-                parcel_id text not null references commercial_parcels(parcel_id) on delete cascade,
+                parcel_id text not null references parcels(parcel_id) on delete cascade,
                 owner_player_id text not null,
                 slug text not null,
                 title text not null,
@@ -1125,8 +1455,8 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_badges_owner_idx
-            on shop_badges (owner_player_id, parcel_id, updated_at desc)
+            create index if not exists parcel_badges_owner_idx
+            on parcel_badges (owner_player_id, parcel_id, updated_at desc)
             "#,
     )
     .execute(pool)
@@ -1134,9 +1464,9 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create table if not exists shop_badge_awards (
+            create table if not exists parcel_badge_awards (
                 id bigserial primary key,
-                badge_id bigint not null references shop_badges(id) on delete cascade,
+                badge_id bigint not null references parcel_badges(id) on delete cascade,
                 issuer_user text not null,
                 issuer_player_id text not null,
                 recipient_user text not null,
@@ -1153,10 +1483,12 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
     .execute(pool)
     .await?;
 
+    copy_legacy_shop_badges(pool).await?;
+
     sqlx::query(
         r#"
-            alter table shop_badge_awards
-            drop constraint if exists shop_badge_awards_badge_id_recipient_player_id_key
+            alter table parcel_badge_awards
+            drop constraint if exists parcel_badge_awards_badge_id_recipient_player_id_key
             "#,
     )
     .execute(pool)
@@ -1164,8 +1496,8 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create unique index if not exists shop_badge_awards_active_unique_idx
-            on shop_badge_awards (badge_id, recipient_player_id)
+            create unique index if not exists parcel_badge_awards_active_unique_idx
+            on parcel_badge_awards (badge_id, recipient_player_id)
             where status = 'active'
             "#,
     )
@@ -1174,8 +1506,90 @@ async fn migrate_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
 
     sqlx::query(
         r#"
-            create index if not exists shop_badge_awards_recipient_idx
-            on shop_badge_awards (recipient_player_id, status, awarded_at desc)
+            create index if not exists parcel_badge_awards_recipient_idx
+            on parcel_badge_awards (recipient_player_id, status, awarded_at desc)
+            "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn copy_legacy_shop_badges(pool: &PgPool) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+            do $$
+            begin
+                if to_regclass(format('%I.%I', current_schema(), 'shop_badges')) is not null then
+                    insert into parcel_badges (
+                        id, parcel_id, owner_player_id, slug, title, description,
+                        created_at, updated_at
+                    )
+                    select id, parcel_id, owner_player_id, slug, title, description,
+                           created_at, updated_at
+                    from shop_badges
+                    on conflict (id) do update
+                    set parcel_id = excluded.parcel_id,
+                        owner_player_id = excluded.owner_player_id,
+                        slug = excluded.slug,
+                        title = excluded.title,
+                        description = excluded.description,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at;
+                end if;
+
+                if to_regclass(format('%I.%I', current_schema(), 'shop_badge_awards')) is not null then
+                    insert into parcel_badge_awards (
+                        id, badge_id, issuer_user, issuer_player_id,
+                        recipient_user, recipient_player_id, note, status,
+                        awarded_at, revoked_at, updated_at
+                    )
+                    select id, badge_id, issuer_user, issuer_player_id,
+                           recipient_user, recipient_player_id, note, status,
+                           awarded_at, revoked_at, updated_at
+                    from shop_badge_awards
+                    on conflict (id) do update
+                    set badge_id = excluded.badge_id,
+                        issuer_user = excluded.issuer_user,
+                        issuer_player_id = excluded.issuer_player_id,
+                        recipient_user = excluded.recipient_user,
+                        recipient_player_id = excluded.recipient_player_id,
+                        note = excluded.note,
+                        status = excluded.status,
+                        awarded_at = excluded.awarded_at,
+                        revoked_at = excluded.revoked_at,
+                        updated_at = excluded.updated_at;
+                end if;
+
+                perform setval(
+                    pg_get_serial_sequence('parcel_badges', 'id'),
+                    coalesce((select max(id) from parcel_badges), 1),
+                    exists(select 1 from parcel_badges)
+                );
+                perform setval(
+                    pg_get_serial_sequence('parcel_badge_awards', 'id'),
+                    coalesce((select max(id) from parcel_badge_awards), 1),
+                    exists(select 1 from parcel_badge_awards)
+                );
+
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_badge_awards'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'shop_badges'
+                );
+                execute format(
+                    'drop table if exists %I.%I',
+                    current_schema(),
+                    'commercial_parcels'
+                );
+            end
+            $$;
             "#,
     )
     .execute(pool)

@@ -28,8 +28,8 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
             "/go east",
             "/who",
             "/go east",
-            "/land info E2-C0-01",
-            "/land claim E2-C0-01",
+            "/parcel info E2-C0-01",
+            "/parcel claim E2-C0-01",
             "/memory report I walked the east road and found no residents yet.",
             "/memory self",
             "/memory self",
@@ -118,12 +118,12 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     assert_contains(
         &output,
         "Parcel E2-C0-01",
-        "dynamic doorplates can be inspected as virtual land",
+        "dynamic doorplates can be inspected as virtual parcels",
     );
     assert_contains(
         &output,
         "Status: vacant",
-        "dynamic doorplates can be inspected as virtual vacant land",
+        "dynamic doorplates can be inspected as virtual vacant parcels",
     );
     assert_contains(
         &output,
@@ -179,11 +179,6 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
         &output,
         "Sent to room service",
         "baseline resident path should not depend on service rooms",
-    );
-    assert_not_contains(
-        &output,
-        "Workers Society front",
-        "baseline resident path should not expose builtin shopfront entities",
     );
 
     let player_id = test_database.query_value(&format!(
@@ -349,7 +344,7 @@ fn admitted_ssh_user_receives_resident_context_and_self_model() {
     );
     let claimed_grid_parcel = test_database.query_value(&format!(
         "select concat_ws(':', parcel_id, front_view_id, owner_user)
-         from commercial_parcels
+         from parcels
          where parcel_id = 'E2-C0-01'
            and owner_user = '{user}'"
     ));

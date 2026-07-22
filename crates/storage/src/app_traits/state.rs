@@ -46,3 +46,24 @@ impl ViewPresenceStore for PgStorage {
         PgStorage::recent_active_view_users(self, view_id, excluded_player_id, within_seconds).await
     }
 }
+
+impl AgentMailPoolStore for PgStorage {
+    type Error = StorageError;
+
+    async fn record_agent_mail_pool_presence(
+        &self,
+        username: &str,
+        player_id: &str,
+    ) -> Result<(), Self::Error> {
+        PgStorage::record_agent_mail_pool_presence(self, username, player_id).await
+    }
+
+    async fn agent_mail_pool_contains(
+        &self,
+        username: &str,
+        player_id: &str,
+        within_seconds: i64,
+    ) -> Result<bool, Self::Error> {
+        PgStorage::agent_mail_pool_contains(self, username, player_id, within_seconds).await
+    }
+}

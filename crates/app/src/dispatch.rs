@@ -20,14 +20,14 @@ pub trait AppDispatchStore:
     + AdmissionStore<Error = <Self as AppDispatchStore>::Error>
     + BuildStore<Error = <Self as AppDispatchStore>::Error>
     + InboxStore<Error = <Self as AppDispatchStore>::Error>
-    + LandStore<Error = <Self as AppDispatchStore>::Error>
+    + ParcelOwnershipStore<Error = <Self as AppDispatchStore>::Error>
     + MailStore<Error = <Self as AppDispatchStore>::Error>
     + MemoryStore<Error = <Self as AppDispatchStore>::Error>
     + MessageStore<Error = <Self as AppDispatchStore>::Error>
+    + ParcelRegistryStore<Error = <Self as AppDispatchStore>::Error>
     + ParcelStore<Error = <Self as AppDispatchStore>::Error>
     + PaymentStore<Error = <Self as AppDispatchStore>::Error>
     + RoomStore<Error = <Self as AppDispatchStore>::Error>
-    + ShopStore<Error = <Self as AppDispatchStore>::Error>
 {
     /// Shared store error type across all dispatch subdomains.
     type Error;
@@ -39,14 +39,14 @@ where
         + AdmissionStore<Error = E>
         + BuildStore<Error = E>
         + InboxStore<Error = E>
-        + LandStore<Error = E>
+        + ParcelOwnershipStore<Error = E>
         + MailStore<Error = E>
         + MemoryStore<Error = E>
         + MessageStore<Error = E>
+        + ParcelRegistryStore<Error = E>
         + ParcelStore<Error = E>
         + PaymentStore<Error = E>
-        + RoomStore<Error = E>
-        + ShopStore<Error = E>,
+        + RoomStore<Error = E>,
 {
     type Error = E;
 }
@@ -77,7 +77,10 @@ pub struct AppViewCommandContext<'a, B> {
 impl<S> AppService<S>
 where
     S: AppDispatchStore,
-    <S as AppDispatchStore>::Error: FromMailingListValidation + FromShopBadgeValidation,
+    <S as AppDispatchStore>::Error: FromMailingListValidation
+        + FromParcelBadgeValidation
+        + FromParcelWorkValidation
+        + FromParcelJobGuideValidation,
     <S as RoomStore>::RoomBinding: RoomBindingKindView + RoomMailboxView + ServiceRoomView + Sync,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
 {
@@ -96,9 +99,16 @@ where
             RoutedAppRequest::Message(request) => {
                 self.handle_message_request(identity, request).await
             }
-            RoutedAppRequest::Land(request) => self.handle_land_request(identity, request).await,
-            RoutedAppRequest::Build(request) => self.handle_build_request(identity, request).await,
-            RoutedAppRequest::Shop(request) => self.handle_shop_request(identity, request).await,
+            RoutedAppRequest::ParcelRegistry(request) => {
+                self.handle_parcel_registry_request(identity, request).await
+            }
+            RoutedAppRequest::ParcelBuild(request) => {
+                self.handle_parcel_build_request(identity, request).await
+            }
+            RoutedAppRequest::ParcelOperation(request) => {
+                self.handle_parcel_operation_request(identity, request)
+                    .await
+            }
             RoutedAppRequest::ServiceRoom(request) => {
                 self.handle_service_room_request(identity, request).await
             }

@@ -12,36 +12,60 @@ impl FromMailingListValidation for std::convert::Infallible {
     }
 }
 
-/// Error adapter for app-level shop badge validation.
-pub trait FromShopBadgeValidation {
-    /// Builds an invalid shop badge error.
-    fn invalid_shop_badge(message: &str) -> Self;
+/// Error adapter for app-level parcel work validation.
+pub trait FromParcelWorkValidation {
+    /// Builds an invalid parcel-work error.
+    fn invalid_parcel_work(message: &str) -> Self;
 }
 
-impl FromShopBadgeValidation for std::convert::Infallible {
-    fn invalid_shop_badge(_message: &str) -> Self {
-        unreachable!("infallible test stores do not reject shop badge validation")
+impl FromParcelWorkValidation for std::convert::Infallible {
+    fn invalid_parcel_work(_message: &str) -> Self {
+        unreachable!("infallible test stores do not reject parcel-work validation")
     }
 }
 
-/// Storage boundary for commercial parcel lookup.
-pub trait ParcelStore {
+/// Error adapter for app-level parcel job-guide validation.
+pub trait FromParcelJobGuideValidation {
+    /// Builds an invalid parcel job-guide error.
+    fn invalid_parcel_job_guide(message: &str) -> Self;
+}
+
+impl FromParcelJobGuideValidation for std::convert::Infallible {
+    fn invalid_parcel_job_guide(_message: &str) -> Self {
+        unreachable!("infallible test stores do not reject parcel job-guide validation")
+    }
+}
+
+/// Error adapter for app-level parcel badge validation.
+pub trait FromParcelBadgeValidation {
+    /// Builds an invalid parcel badge error.
+    fn invalid_parcel_badge(message: &str) -> Self;
+}
+
+impl FromParcelBadgeValidation for std::convert::Infallible {
+    fn invalid_parcel_badge(_message: &str) -> Self {
+        unreachable!("infallible test stores do not reject parcel badge validation")
+    }
+}
+
+/// Storage boundary for parcel lookup.
+pub trait ParcelRegistryStore {
     /// Store error type.
     type Error;
     /// Stored parcel type.
     type Parcel: ParcelView;
 
-    /// Lists all commercial parcels.
-    async fn list_commercial_parcels(&self) -> Result<Vec<Self::Parcel>, Self::Error>;
+    /// Lists all parcels.
+    async fn list_parcels(&self) -> Result<Vec<Self::Parcel>, Self::Error>;
 
     /// Lists parcels visible from a front view.
-    async fn commercial_parcels_by_front_view(
+    async fn parcels_by_front_view(
         &self,
         front_view_id: &str,
     ) -> Result<Vec<Self::Parcel>, Self::Error>;
 }
 
-/// Protocol-neutral view of a commercial parcel.
+/// Protocol-neutral view of a parcel.
 pub trait ParcelView {
     /// Parcel id shown to players.
     fn parcel_id(&self) -> &str;
@@ -73,10 +97,10 @@ pub trait ParcelView {
     /// Parcel status.
     fn status(&self) -> &str;
 
-    /// Built shop title, if any.
+    /// Built parcel title, if any.
     fn title(&self) -> Option<&str>;
 
-    /// Built shop description, if any.
+    /// Built parcel description, if any.
     fn description(&self) -> Option<&str>;
 
     /// Owner-authored style note, if any.
@@ -89,8 +113,8 @@ pub trait ParcelView {
     fn custom_commands(&self) -> Option<&str>;
 }
 
-/// Storage boundary for land ownership actions.
-pub trait LandStore {
+/// Storage boundary for parcel ownership actions.
+pub trait ParcelOwnershipStore {
     /// Store error type.
     type Error;
     /// Stored parcel type.
@@ -98,11 +122,14 @@ pub trait LandStore {
     /// Stored mail auth token type.
     type MailAuthToken: MailAuthTokenView;
 
-    /// Loads a commercial parcel by id.
-    async fn commercial_parcel(&self, parcel_id: &str) -> Result<Self::Parcel, Self::Error>;
+    /// Loads a parcel by id.
+    async fn parcel_by_id(&self, parcel_id: &str) -> Result<Self::Parcel, Self::Error>;
+
+    /// Loads a parcel by runtime view id.
+    async fn parcel_by_view(&self, view_id: &str) -> Result<Option<Self::Parcel>, Self::Error>;
 
     /// Claims a free parcel for a player.
-    async fn claim_commercial_parcel(
+    async fn claim_parcel(
         &self,
         parcel_id: &str,
         owner_user: &str,
@@ -110,7 +137,7 @@ pub trait LandStore {
     ) -> Result<Self::Parcel, Self::Error>;
 
     /// Transfers a parcel to another player.
-    async fn transfer_commercial_parcel(
+    async fn transfer_parcel(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -204,8 +231,17 @@ pub trait PaymentRequestView {
     fn delivery(&self) -> &str;
 }
 
-/// Protocol-neutral view of a shop mailing list.
-pub trait ShopMailingListView {
+/// Result of creating or reusing one idempotent payment request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaymentRequestCreation<R> {
+    /// Payment request row.
+    pub request: R,
+    /// Whether this call inserted a new payment request.
+    pub created: bool,
+}
+
+/// Protocol-neutral view of a parcel mailing list.
+pub trait ParcelMailingListView {
     /// Mailing-list id.
     fn id(&self) -> i64;
 
@@ -228,8 +264,8 @@ pub trait ShopMailingListView {
     fn created_at(&self) -> &str;
 }
 
-/// Protocol-neutral view of a shop mailing-list member.
-pub trait ShopMailingListSubscriberView {
+/// Protocol-neutral view of a parcel mailing-list member.
+pub trait ParcelMailingListSubscriberView {
     /// Subscriber username.
     fn subscriber_user(&self) -> &str;
 
@@ -240,13 +276,13 @@ pub trait ShopMailingListSubscriberView {
     fn updated_at(&self) -> &str;
 }
 
-/// Protocol-neutral view of the current player's shop-chat membership.
-pub trait ShopMailingListSubscriptionView {
+/// Protocol-neutral view of the current player's parcel-chat membership.
+pub trait ParcelMailingListSubscriptionView {
     /// Parcel id.
     fn parcel_id(&self) -> &str;
 
-    /// Shop title.
-    fn shop_title(&self) -> Option<&str>;
+    /// Parcel title.
+    fn parcel_title(&self) -> Option<&str>;
 
     /// Stable list slug.
     fn slug(&self) -> &str;
@@ -262,7 +298,7 @@ pub trait ShopMailingListSubscriptionView {
 }
 
 /// Protocol-neutral view of a mailing-list post.
-pub trait ShopMailingListPostView {
+pub trait ParcelMailingListPostView {
     /// Post id.
     fn id(&self) -> i64;
 
@@ -282,8 +318,164 @@ pub trait ShopMailingListPostView {
     fn recipient_count(&self) -> i64;
 }
 
-/// Protocol-neutral view of a shop badge definition.
-pub trait ShopBadgeDefinitionView {
+/// Protocol-neutral view of a parcel-local work desk.
+pub trait ParcelWorkDeskView {
+    /// Work-desk id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable work-desk slug.
+    fn slug(&self) -> &str;
+
+    /// Player-facing title.
+    fn title(&self) -> &str;
+
+    /// Desk status.
+    fn status(&self) -> &str;
+
+    /// Queued work item count.
+    fn queued_count(&self) -> i64;
+
+    /// Active on-site worker count.
+    fn active_worker_count(&self) -> i64;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of a parcel-published job guide.
+pub trait ParcelJobGuideView {
+    /// Job-guide id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable job slug.
+    fn slug(&self) -> &str;
+
+    /// Player-facing job title.
+    fn title(&self) -> &str;
+
+    /// Job description or role instructions.
+    fn body(&self) -> &str;
+
+    /// Publishing username.
+    fn publisher_user(&self) -> &str;
+
+    /// Job-guide status.
+    fn status(&self) -> &str;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+
+    /// Last update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of a parcel-local staff assignment.
+pub trait ParcelStaffView {
+    /// Assigned worker username.
+    fn staff_user(&self) -> &str;
+
+    /// Assignment status.
+    fn status(&self) -> &str;
+
+    /// Last update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of an in-parcel work shift.
+pub trait ParcelShiftView {
+    /// Shift id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable work-desk slug.
+    fn slug(&self) -> &str;
+
+    /// Worker username.
+    fn worker_user(&self) -> &str;
+
+    /// Shift status.
+    fn status(&self) -> &str;
+
+    /// Start timestamp.
+    fn started_at(&self) -> &str;
+
+    /// End timestamp when present.
+    fn ended_at(&self) -> Option<&str>;
+}
+
+/// Protocol-neutral view of one parcel-local work item.
+pub trait ParcelWorkItemView {
+    /// Work item id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable work-desk slug.
+    fn slug(&self) -> &str;
+
+    /// Work-desk title.
+    fn desk_title(&self) -> &str;
+
+    /// Operator command id that produced this item.
+    fn operator_command_id(&self) -> i64;
+
+    /// Slash command prefix matched by the route.
+    fn command_prefix(&self) -> &str;
+
+    /// Work status.
+    fn status(&self) -> &str;
+
+    /// Visitor username.
+    fn sender_user(&self) -> &str;
+
+    /// Raw visitor command.
+    fn raw_input(&self) -> &str;
+
+    /// Assigned worker username, if claimed.
+    fn assignee_user(&self) -> Option<&str>;
+
+    /// Completion result, if done.
+    fn result(&self) -> Option<&str>;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+
+    /// Last update timestamp.
+    fn updated_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of a parcel command route.
+pub trait ParcelCommandRouteView {
+    /// Route id.
+    fn id(&self) -> i64;
+
+    /// Parcel id.
+    fn parcel_id(&self) -> &str;
+
+    /// Stable work-desk slug.
+    fn slug(&self) -> &str;
+
+    /// Work-desk title.
+    fn desk_title(&self) -> &str;
+
+    /// Slash command prefix that is routed.
+    fn command_prefix(&self) -> &str;
+
+    /// Creation timestamp.
+    fn created_at(&self) -> &str;
+}
+
+/// Protocol-neutral view of a parcel badge definition.
+pub trait ParcelBadgeDefinitionView {
     /// Badge definition id.
     fn id(&self) -> i64;
 
@@ -309,16 +501,16 @@ pub trait ShopBadgeDefinitionView {
     fn updated_at(&self) -> &str;
 }
 
-/// Protocol-neutral view of a shop badge award.
-pub trait ShopBadgeAwardView {
+/// Protocol-neutral view of a parcel badge award.
+pub trait ParcelBadgeAwardView {
     /// Badge award id.
     fn id(&self) -> i64;
 
     /// Parcel id.
     fn parcel_id(&self) -> &str;
 
-    /// Shop title, if the shop is built.
-    fn shop_title(&self) -> Option<&str>;
+    /// Parcel title, if the parcel is built.
+    fn parcel_title(&self) -> Option<&str>;
 
     /// Stable badge slug.
     fn slug(&self) -> &str;
@@ -355,31 +547,85 @@ pub trait ShopBadgeAwardView {
 }
 
 /// Member page for an owner mailing-list inspection.
-pub struct ShopMailingListSubscriberPage<S> {
+pub struct ParcelMailingListSubscriberPage<S> {
     /// Total active member count.
     pub total: i64,
     /// Recent active members.
     pub subscribers: Vec<S>,
 }
 
-/// One inbox delivery created for a mailing-list or shop-chat post.
-pub struct ShopMailingListDelivery<I> {
+/// One inbox delivery created for a mailing-list or parcel-chat post.
+pub struct ParcelMailingListDelivery<I> {
     /// Recipient player id for live notification routing.
     pub recipient_player_id: String,
     /// Inbox item created or reused for the recipient.
     pub inbox_item: I,
 }
 
-/// Result from sending a mailing-list or shop-chat post.
-pub struct ShopMailingListSend<P, I> {
+/// Result from sending a mailing-list or parcel-chat post.
+pub struct ParcelMailingListSend<P, I> {
     /// Stored post.
     pub post: P,
     /// Created or reused inbox deliveries.
-    pub deliveries: Vec<ShopMailingListDelivery<I>>,
+    pub deliveries: Vec<ParcelMailingListDelivery<I>>,
 }
 
-/// Storage boundary for shop operator actions.
-pub trait ShopStore {
+/// Inputs for publishing or replacing one parcel job guide.
+pub struct ParcelJobGuidePublish<'a> {
+    /// Parcel id.
+    pub parcel_id: &'a str,
+    /// Parcel owner player id.
+    pub owner_player_id: &'a str,
+    /// Stable job slug.
+    pub slug: &'a str,
+    /// Player-facing job title.
+    pub title: &'a str,
+    /// Job description or role instructions.
+    pub body: &'a str,
+    /// Publishing username.
+    pub publisher_user: &'a str,
+    /// Publishing player id.
+    pub publisher_player_id: &'a str,
+}
+
+/// Inputs for sending one parcel mailing-list post from inside the parcel.
+pub struct ParcelMailingListPostInput<'a> {
+    /// Current runtime view id.
+    pub current_view: &'a str,
+    /// Parcel id or visible parcel title.
+    pub target: &'a str,
+    /// Stable list slug.
+    pub slug: &'a str,
+    /// Sender username.
+    pub sender_user: &'a str,
+    /// Sender player id.
+    pub sender_player_id: &'a str,
+    /// Inbox subject.
+    pub subject: &'a str,
+    /// Inbox body.
+    pub body: &'a str,
+}
+
+/// Inputs for awarding a parcel badge from inside the parcel.
+pub struct ParcelBadgeAwardInput<'a> {
+    /// Current runtime view id.
+    pub current_view: &'a str,
+    /// Parcel id.
+    pub parcel_id: &'a str,
+    /// Stable badge slug.
+    pub slug: &'a str,
+    /// Issuer username.
+    pub issuer_user: &'a str,
+    /// Issuer player id.
+    pub issuer_player_id: &'a str,
+    /// Target username or player id.
+    pub target: &'a str,
+    /// Optional one-line award note.
+    pub note: Option<&'a str>,
+}
+
+/// Storage boundary for parcel operator actions.
+pub trait ParcelStore {
     /// Store error type.
     type Error;
     /// Stored parcel type.
@@ -390,20 +636,32 @@ pub trait ShopStore {
     type InboxItem: InboxItemView;
     /// Stored operator command type.
     type OperatorCommand: OperatorCommandView;
-    /// Stored shop mailing-list type.
-    type MailingList: ShopMailingListView;
-    /// Stored shop mailing-list subscriber type.
-    type MailingListSubscriber: ShopMailingListSubscriberView;
-    /// Stored shop mailing-list subscription type.
-    type MailingListSubscription: ShopMailingListSubscriptionView;
-    /// Stored shop mailing-list post type.
-    type MailingListPost: ShopMailingListPostView;
-    /// Stored shop badge definition type.
-    type BadgeDefinition: ShopBadgeDefinitionView;
-    /// Stored shop badge award type.
-    type BadgeAward: ShopBadgeAwardView;
+    /// Stored parcel mailing-list type.
+    type MailingList: ParcelMailingListView;
+    /// Stored parcel mailing-list subscriber type.
+    type MailingListSubscriber: ParcelMailingListSubscriberView;
+    /// Stored parcel mailing-list subscription type.
+    type MailingListSubscription: ParcelMailingListSubscriptionView;
+    /// Stored parcel mailing-list post type.
+    type MailingListPost: ParcelMailingListPostView;
+    /// Stored parcel command-route type.
+    type CommandRoute: ParcelCommandRouteView;
+    /// Stored parcel work-desk type.
+    type WorkDesk: ParcelWorkDeskView;
+    /// Stored parcel job-guide type.
+    type JobGuide: ParcelJobGuideView;
+    /// Stored parcel staff assignment type.
+    type Staff: ParcelStaffView;
+    /// Stored parcel shift type.
+    type Shift: ParcelShiftView;
+    /// Stored parcel work item type.
+    type WorkItem: ParcelWorkItemView;
+    /// Stored parcel badge definition type.
+    type BadgeDefinition: ParcelBadgeDefinitionView;
+    /// Stored parcel badge award type.
+    type BadgeAward: ParcelBadgeAwardView;
 
-    /// Persists a visitor command for a shop operator.
+    /// Persists a visitor command for a parcel operator.
     async fn save_operator_command<P>(
         &self,
         parcel: &P,
@@ -415,21 +673,26 @@ pub trait ShopStore {
     where
         P: ParcelView + Sync;
 
-    /// Lists recent operator commands for a shop owner.
+    /// Lists recent operator commands for one owned parcel.
     async fn recent_operator_commands(
         &self,
+        parcel_id: &str,
         owner_player_id: &str,
         limit: i64,
     ) -> Result<Vec<Self::OperatorCommand>, Self::Error>;
 
-    /// Creates a payment request from a shop command.
+    /// Loads one stored parcel operator command.
+    async fn operator_command(&self, command_id: i64)
+    -> Result<Self::OperatorCommand, Self::Error>;
+
+    /// Creates a payment request from a parcel command.
     async fn create_payment_request(
         &self,
         operator_command_id: i64,
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<Self::PaymentRequest, Self::Error>;
+    ) -> Result<PaymentRequestCreation<Self::PaymentRequest>, Self::Error>;
 
     /// Loads an inbox item by idempotent source.
     async fn inbox_item_by_source(
@@ -439,8 +702,8 @@ pub trait ShopStore {
         source_id: i64,
     ) -> Result<Self::InboxItem, Self::Error>;
 
-    /// Creates a mailing list for an owned shop parcel.
-    async fn create_shop_mailing_list(
+    /// Creates a mailing list for an owned parcel.
+    async fn create_parcel_mailing_list(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -448,32 +711,39 @@ pub trait ShopStore {
         title: &str,
     ) -> Result<Self::MailingList, Self::Error>;
 
-    /// Lists mailing lists for an owned shop parcel.
-    async fn shop_mailing_lists(
+    /// Lists mailing lists for an owned parcel.
+    async fn parcel_mailing_lists(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<Vec<Self::MailingList>, Self::Error>;
 
-    /// Lists recent active subscribers for an owned shop mailing list.
-    async fn shop_mailing_list_subscribers(
+    /// Lists recent active subscribers for an owned parcel mailing list.
+    async fn parcel_mailing_list_subscribers(
         &self,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
         limit: i64,
-    ) -> Result<ShopMailingListSubscriberPage<Self::MailingListSubscriber>, Self::Error>;
+    ) -> Result<ParcelMailingListSubscriberPage<Self::MailingListSubscriber>, Self::Error>;
 
-    /// Closes an owned shop mailing list to new subscriptions.
-    async fn close_shop_mailing_list(
+    /// Closes an owned parcel mailing list to new subscriptions.
+    async fn close_parcel_mailing_list(
         &self,
         parcel_id: &str,
         slug: &str,
         owner_player_id: &str,
     ) -> Result<Self::MailingList, Self::Error>;
 
-    /// Subscribes a player to an open shop mailing list.
-    async fn subscribe_shop_mailing_list(
+    /// Resolves a visible parcel target and slug to one mailing list.
+    async fn parcel_mailing_list(
+        &self,
+        target: &str,
+        slug: &str,
+    ) -> Result<Self::MailingList, Self::Error>;
+
+    /// Subscribes a player to an open parcel mailing list.
+    async fn subscribe_parcel_mailing_list(
         &self,
         target: &str,
         slug: &str,
@@ -481,8 +751,8 @@ pub trait ShopStore {
         subscriber_player_id: &str,
     ) -> Result<Self::MailingListSubscription, Self::Error>;
 
-    /// Unsubscribes a player from a shop mailing list.
-    async fn unsubscribe_shop_mailing_list(
+    /// Unsubscribes a player from a parcel mailing list.
+    async fn unsubscribe_parcel_mailing_list(
         &self,
         target: &str,
         slug: &str,
@@ -491,13 +761,13 @@ pub trait ShopStore {
     ) -> Result<Self::MailingListSubscription, Self::Error>;
 
     /// Lists active subscriptions for a player.
-    async fn shop_mailing_list_subscriptions(
+    async fn parcel_mailing_list_subscriptions(
         &self,
         subscriber_player_id: &str,
     ) -> Result<Vec<Self::MailingListSubscription>, Self::Error>;
 
     /// Sends one mailing-list post to all active members.
-    async fn send_shop_mailing_list_post(
+    async fn send_parcel_mailing_list_post(
         &self,
         target: &str,
         slug: &str,
@@ -505,10 +775,150 @@ pub trait ShopStore {
         sender_player_id: &str,
         subject: &str,
         body: &str,
-    ) -> Result<ShopMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error>;
+    ) -> Result<ParcelMailingListSend<Self::MailingListPost, Self::InboxItem>, Self::Error>;
 
-    /// Creates or updates a badge definition for an owned shop parcel.
-    async fn create_shop_badge(
+    /// Creates a parcel-local work desk for an owned parcel.
+    async fn create_parcel_work_desk(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        title: &str,
+    ) -> Result<Self::WorkDesk, Self::Error>;
+
+    /// Lists parcel-local work desks for an owned parcel.
+    async fn parcel_work_desks(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::WorkDesk>, Self::Error>;
+
+    /// Publishes or replaces a parcel job guide.
+    async fn publish_parcel_job_guide(
+        &self,
+        input: ParcelJobGuidePublish<'_>,
+    ) -> Result<Self::JobGuide, Self::Error>;
+
+    /// Lists job guides published by a built parcel.
+    async fn parcel_job_guides(&self, parcel_id: &str) -> Result<Vec<Self::JobGuide>, Self::Error>;
+
+    /// Reads one job guide published by a built parcel.
+    async fn parcel_job_guide(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+    ) -> Result<Self::JobGuide, Self::Error>;
+
+    /// Adds or reactivates a worker assignment for one work desk.
+    async fn add_parcel_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<Self::Staff, Self::Error>;
+
+    /// Lists staff assignments for one owned work desk.
+    async fn parcel_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Self::Staff>, Self::Error>;
+
+    /// Removes a worker assignment from one work desk.
+    async fn remove_parcel_staff(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        owner_player_id: &str,
+        username: &str,
+    ) -> Result<Self::Staff, Self::Error>;
+
+    /// Starts an active in-parcel shift for an assigned worker.
+    async fn start_parcel_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<Self::Shift, Self::Error>;
+
+    /// Ends the worker's active in-parcel shift for one desk.
+    async fn end_parcel_shift(
+        &self,
+        parcel_id: &str,
+        slug: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+    ) -> Result<Self::Shift, Self::Error>;
+
+    /// Lists available or claimed work visible to an active in-parcel worker.
+    async fn parcel_work_items(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        slug: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<Self::WorkItem>, Self::Error>;
+
+    /// Claims one queued work item for an active in-parcel worker.
+    async fn claim_parcel_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+    ) -> Result<Self::WorkItem, Self::Error>;
+
+    /// Completes one claimed work item for an active in-parcel worker.
+    async fn finish_parcel_work(
+        &self,
+        parcel_id: &str,
+        worker_user: &str,
+        worker_player_id: &str,
+        work_id: i64,
+        result: &str,
+    ) -> Result<Self::WorkItem, Self::Error>;
+
+    /// Creates or returns a parcel command route for an owned work desk.
+    async fn add_parcel_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<Self::CommandRoute, Self::Error>;
+
+    /// Lists parcel command routes for an owned parcel.
+    async fn parcel_command_routes(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+    ) -> Result<Vec<Self::CommandRoute>, Self::Error>;
+
+    /// Removes a parcel command route from an owned work desk.
+    async fn remove_parcel_command_route(
+        &self,
+        parcel_id: &str,
+        owner_player_id: &str,
+        slug: &str,
+        command_prefix: &str,
+    ) -> Result<Self::CommandRoute, Self::Error>;
+
+    /// Dispatches one saved operator command into matching work queues.
+    async fn dispatch_parcel_command_routes<P>(
+        &self,
+        parcel: &P,
+        command_id: i64,
+    ) -> Result<Vec<Self::WorkItem>, Self::Error>
+    where
+        P: ParcelView + Sync;
+
+    /// Creates or updates a badge definition for an owned parcel.
+    async fn create_parcel_badge(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
@@ -517,15 +927,15 @@ pub trait ShopStore {
         description: Option<&str>,
     ) -> Result<Self::BadgeDefinition, Self::Error>;
 
-    /// Lists badge definitions for an owned shop parcel.
-    async fn shop_badges(
+    /// Lists badge definitions for an owned parcel.
+    async fn parcel_badges(
         &self,
         parcel_id: &str,
         owner_player_id: &str,
     ) -> Result<Vec<Self::BadgeDefinition>, Self::Error>;
 
-    /// Awards a badge from an owned shop to a target player.
-    async fn award_shop_badge(
+    /// Awards a badge from an owned parcel to a target player.
+    async fn award_parcel_badge(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -535,8 +945,8 @@ pub trait ShopStore {
         note: Option<&str>,
     ) -> Result<Self::BadgeAward, Self::Error>;
 
-    /// Revokes an active badge award from an owned shop.
-    async fn revoke_shop_badge(
+    /// Revokes an active badge award from an owned parcel.
+    async fn revoke_parcel_badge(
         &self,
         parcel_id: &str,
         slug: &str,
@@ -545,14 +955,14 @@ pub trait ShopStore {
     ) -> Result<Self::BadgeAward, Self::Error>;
 
     /// Lists active badges for one player id.
-    async fn shop_badges_for_player(
+    async fn parcel_badges_for_player(
         &self,
         player_id: &str,
         limit: i64,
     ) -> Result<Vec<Self::BadgeAward>, Self::Error>;
 
     /// Lists active public badges for one username or player id.
-    async fn shop_badges_for_target(
+    async fn parcel_badges_for_target(
         &self,
         target: &str,
         limit: i64,

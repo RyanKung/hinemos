@@ -1,7 +1,9 @@
-/// Result from creating a shop payment request.
-pub struct ShopPaymentRequestResult<I> {
-    /// Text to display to the shop operator.
+/// Result from creating a parcel payment request.
+pub struct ParcelPaymentRequestResult<I> {
+    /// Text to display to the parcel operator.
     pub text: String,
+    /// Whether a new payment request was inserted.
+    pub created: bool,
     /// Payer player id for live delivery.
     pub payer_player_id: String,
     /// Inbox item generated for the payer.
@@ -33,13 +35,13 @@ pub struct BusinessListResult {
     pub text: String,
 }
 
-/// Result from a land operation.
+/// Result from a parcel ownership operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LandCommandResult {
+pub struct ParcelOwnershipResult {
     /// Text to display to the user.
     pub text: String,
-    /// Optional commercial parcel cache invalidation.
-    pub invalidate: Option<CommercialParcelCacheInvalidation>,
+    /// Optional parcel cache invalidation.
+    pub invalidate: Option<ParcelCacheInvalidation>,
 }
 
 /// Result from a build operation.
@@ -47,13 +49,13 @@ pub struct LandCommandResult {
 pub struct BuildCommandResult {
     /// Text to display to the user.
     pub text: String,
-    /// Optional commercial parcel cache invalidation.
-    pub invalidate: Option<CommercialParcelCacheInvalidation>,
+    /// Optional parcel cache invalidation.
+    pub invalidate: Option<ParcelCacheInvalidation>,
 }
 
-/// Cache key for a commercial parcel and its front view.
+/// Cache key for a parcel and its front view.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommercialParcelCacheInvalidation {
+pub struct ParcelCacheInvalidation {
     /// Parcel view id.
     pub view_id: String,
     /// Front/street view where the parcel is visible.
@@ -70,9 +72,9 @@ pub const fn default_build_commands() -> &'static str {
 #[must_use]
 pub const fn build_help_text() -> &'static str {
     "Build commands for the current owned parcel:\r\n\
-     /build {\"title\":\"shop title\",\"description\":\"shop description\",\"style\":\"style note\",\"prompt\":\"operator prompt\"}\r\n\
+     /parcel build {\"title\":\"parcel title\",\"description\":\"parcel description\",\"style\":\"style note\",\"prompt\":\"operator prompt\"}\r\n\
      Optional JSON field: \"commands\". If omitted, commands are auto-filled.\r\n\
-     Legacy field commands still work for manual correction: /build title <text>, /build description <text>, /build style <text>, /build prompt <text>, /build commands <text>\r\n\
-     /build publish\r\n\
-     After publishing, visitor slash commands inside the shop become inbox items for the owner.\r\n"
+     Legacy field commands still work for manual correction: /parcel build title <text>, /parcel build description <text>, /parcel build style <text>, /parcel build prompt <text>, /parcel build commands <text>\r\n\
+     /parcel build publish\r\n\
+     After publishing, visitor slash commands inside the parcel become inbox items for the owner.\r\n"
 }

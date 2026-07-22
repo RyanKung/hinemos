@@ -36,7 +36,7 @@ where
 }
 
 impl PgStorage {
-    /// Stores a raw visitor command for a shop operator.
+    /// Stores a raw visitor command for a parcel operator.
     pub async fn save_operator_command<P>(
         &self,
         parcel: &P,
@@ -59,7 +59,7 @@ impl PgStorage {
                 delivered,
             )
             .await?;
-        self.notify_shop_operator(
+        self.notify_parcel_operator(
             parcel,
             &parties,
             sender_user,
@@ -68,7 +68,7 @@ impl PgStorage {
             &command,
         )
         .await?;
-        self.record_shop_command_memory(
+        self.record_parcel_command_memory(
             parcel,
             &parties,
             sender_user,
@@ -124,7 +124,7 @@ impl PgStorage {
         Ok(command)
     }
 
-    async fn notify_shop_operator<P>(
+    async fn notify_parcel_operator<P>(
         &self,
         parcel: &P,
         parties: &OperatorCommandParties<'_>,
@@ -136,9 +136,9 @@ impl PgStorage {
     where
         P: ParcelView,
     {
-        let subject = format!("Shop command for {}", parcel.parcel_id());
+        let subject = format!("Parcel command for {}", parcel.parcel_id());
         self.create_inbox_item(NewInboxItem {
-            kind: "shop_command",
+            kind: "parcel_command",
             recipient_user: parties.room_user,
             recipient_player_id: parties.room_player_id,
             sender_user,
@@ -158,7 +158,7 @@ impl PgStorage {
         Ok(())
     }
 
-    async fn record_shop_command_memory<P>(
+    async fn record_parcel_command_memory<P>(
         &self,
         parcel: &P,
         parties: &OperatorCommandParties<'_>,
@@ -170,7 +170,7 @@ impl PgStorage {
     where
         P: ParcelView,
     {
-        self.record_shop_command_visitor_memory(
+        self.record_parcel_command_visitor_memory(
             parcel,
             parties,
             sender_user,
@@ -179,12 +179,12 @@ impl PgStorage {
             command,
         )
         .await?;
-        self.record_shop_command_owner_memory(parcel, parties, sender_user, raw_input, command)
+        self.record_parcel_command_owner_memory(parcel, parties, sender_user, raw_input, command)
             .await?;
         Ok(())
     }
 
-    async fn record_shop_command_visitor_memory<P>(
+    async fn record_parcel_command_visitor_memory<P>(
         &self,
         parcel: &P,
         parties: &OperatorCommandParties<'_>,
@@ -199,18 +199,18 @@ impl PgStorage {
         let visitor_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: sender_player_id.to_owned(),
-                source: "shop".to_owned(),
-                event_type: "shop_command_sent".to_owned(),
+                source: "parcel".to_owned(),
+                event_type: "parcel_command_sent".to_owned(),
                 actors: json!([sender_user, parties.owner_user]),
                 content: format!(
-                    "Sent shop command #{} to {} at {}: {}",
+                    "Sent parcel command #{} to {} at {}: {}",
                     command.id,
                     parties.owner_user,
                     parcel.parcel_id(),
                     raw_input
                 ),
                 world_refs: json!({
-                    "kind": "shop_command",
+                    "kind": "parcel_command",
                     "command_id": command.id,
                     "parcel_id": parcel.parcel_id(),
                     "view_id": parcel.view_id(),
@@ -224,7 +224,7 @@ impl PgStorage {
                 agent_id: sender_player_id.to_owned(),
                 kind: "social".to_owned(),
                 subject: parties.owner_user.to_owned(),
-                predicate: "shop_interaction".to_owned(),
+                predicate: "parcel_interaction".to_owned(),
                 object: json!({
                     "direction": "sent",
                     "command_id": command.id,
@@ -232,7 +232,7 @@ impl PgStorage {
                     "raw_input": raw_input
                 }),
                 summary: format!(
-                    "Asked {}'s shop at {}: {}",
+                    "Asked {}'s parcel at {}: {}",
                     parties.owner_user,
                     parcel.parcel_id(),
                     raw_input
@@ -247,13 +247,13 @@ impl PgStorage {
             sender_player_id,
             parties.owner_user,
             visitor_atom.id,
-            Some("shop_counterparty"),
+            Some("parcel_counterparty"),
         )
         .await?;
         Ok(())
     }
 
-    async fn record_shop_command_owner_memory<P>(
+    async fn record_parcel_command_owner_memory<P>(
         &self,
         parcel: &P,
         parties: &OperatorCommandParties<'_>,
@@ -267,18 +267,18 @@ impl PgStorage {
         let owner_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: parties.owner_player_id.to_owned(),
-                source: "shop".to_owned(),
-                event_type: "shop_command_received".to_owned(),
+                source: "parcel".to_owned(),
+                event_type: "parcel_command_received".to_owned(),
                 actors: json!([sender_user, parties.owner_user]),
                 content: format!(
-                    "Received shop command #{} from {} at {}: {}",
+                    "Received parcel command #{} from {} at {}: {}",
                     command.id,
                     sender_user,
                     parcel.parcel_id(),
                     raw_input
                 ),
                 world_refs: json!({
-                    "kind": "shop_command",
+                    "kind": "parcel_command",
                     "command_id": command.id,
                     "parcel_id": parcel.parcel_id(),
                     "view_id": parcel.view_id(),
@@ -292,7 +292,7 @@ impl PgStorage {
                 agent_id: parties.owner_player_id.to_owned(),
                 kind: "social".to_owned(),
                 subject: sender_user.to_owned(),
-                predicate: "shop_interaction".to_owned(),
+                predicate: "parcel_interaction".to_owned(),
                 object: json!({
                     "direction": "received",
                     "command_id": command.id,
@@ -300,7 +300,7 @@ impl PgStorage {
                     "raw_input": raw_input
                 }),
                 summary: format!(
-                    "{} asked my shop at {}: {}",
+                    "{} asked my parcel at {}: {}",
                     sender_user,
                     parcel.parcel_id(),
                     raw_input
@@ -315,15 +315,16 @@ impl PgStorage {
             parties.owner_player_id,
             sender_user,
             owner_atom.id,
-            Some("shop_counterparty"),
+            Some("parcel_counterparty"),
         )
         .await?;
         Ok(())
     }
 
-    /// Loads recent raw visitor commands for shops owned by a player.
+    /// Loads recent raw visitor commands for one parcel owned by a player.
     pub async fn recent_operator_commands(
         &self,
+        parcel_id: &str,
         owner_player_id: &str,
         limit: i64,
     ) -> Result<Vec<StoredOperatorCommand>, StorageError> {
@@ -333,11 +334,13 @@ impl PgStorage {
                    owner_user, owner_player_id, raw_input, status,
                    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
             from operator_commands
-            where owner_player_id = $1
+            where parcel_id = $1
+              and owner_player_id = $2
             order by id desc
-            limit $2
+            limit $3
             "#,
         )
+        .bind(parcel_id)
         .bind(owner_player_id)
         .bind(limit)
         .fetch_all(&self.pool)

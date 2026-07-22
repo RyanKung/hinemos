@@ -5,6 +5,8 @@
 docs/**
 !docs/**/
 !docs/**/README.md
+!docs/parcel-blueprints/*.json
+!docs/parcel-blueprints/*.md
 scripts/**
 scripts/local/
 scripts/*.local.sh

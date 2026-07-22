@@ -1,12 +1,14 @@
 //! Connected-session presence tracking for the SSH adapter.
 
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use hinemos_admin_protocol::{AdminSession, AdminUser};
 use hinemos_app::RecentPresenceUser;
 use russh::ChannelId;
 use russh::server::Handle;
+
+const SSH_PRESENCE_LEASE: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Default)]
 pub(crate) struct PresenceRegistry {
@@ -70,26 +72,26 @@ impl PresenceRegistry {
     }
 
     pub(crate) fn online_count_for_player(&self, player_id: &str) -> usize {
-        self.connections
-            .values()
+        self.fresh_records()
+            .map(|(_, record)| record)
             .filter(|record| record.player_id == player_id)
             .count()
     }
 
     pub(crate) fn users(&self) -> Vec<&str> {
-        self.connections
-            .values()
+        self.fresh_records()
+            .map(|(_, record)| record)
             .map(|record| record.user.as_str())
             .collect()
     }
 
     pub(crate) fn session_count(&self) -> usize {
-        self.connections.len()
+        self.fresh_records().count()
     }
 
     pub(crate) fn user_count(&self) -> usize {
-        self.connections
-            .values()
+        self.fresh_records()
+            .map(|(_, record)| record)
             .map(|record| record.user.as_str())
             .collect::<HashSet<_>>()
             .len()
@@ -97,7 +99,7 @@ impl PresenceRegistry {
 
     pub(crate) fn users_outside_view(&self, excluded_view_id: &str) -> Vec<PresenceViewUser> {
         let mut grouped = HashMap::<String, Instant>::new();
-        for record in self.connections.values() {
+        for (_, record) in self.fresh_records() {
             if record.current_view == excluded_view_id {
                 continue;
             }
@@ -110,8 +112,7 @@ impl PresenceRegistry {
     }
 
     pub(crate) fn admin_sessions(&self) -> Vec<AdminSession> {
-        self.connections
-            .iter()
+        self.fresh_records()
             .map(|(&connection_id, record)| AdminSession {
                 connection_id,
                 player_id: record.player_id.clone(),
@@ -121,8 +122,7 @@ impl PresenceRegistry {
     }
 
     pub(crate) fn connection_views(&self) -> Vec<(u64, String)> {
-        self.connections
-            .iter()
+        self.fresh_records()
             .map(|(&connection_id, record)| (connection_id, record.current_view.clone()))
             .collect()
     }
@@ -135,7 +135,7 @@ impl PresenceRegistry {
 
     pub(crate) fn admin_users(&self) -> Vec<AdminUser> {
         let mut grouped = HashMap::<String, UserAccumulator>::new();
-        for record in self.connections.values() {
+        for (_, record) in self.fresh_records() {
             let entry = grouped.entry(record.user.clone()).or_default();
             entry.session_count += 1;
             entry.player_ids.insert(record.player_id.clone());
@@ -163,7 +163,7 @@ impl PresenceRegistry {
         view_id: &str,
     ) -> Vec<PresenceViewUser> {
         let mut grouped = HashMap::<String, Instant>::new();
-        for (connection_id, record) in &self.connections {
+        for (connection_id, record) in self.fresh_records() {
             if *connection_id == current_connection_id || record.current_view != view_id {
                 continue;
             }
@@ -198,6 +198,7 @@ impl PresenceRegistry {
             .iter()
             .filter(|(connection_id, record)| {
                 **connection_id != sender_connection_id
+                    && record.is_fresh()
                     && (record.user == target || record.player_id == target)
             })
             .filter_map(|(_, record)| record.delivery())
@@ -214,6 +215,7 @@ impl PresenceRegistry {
             .iter()
             .filter(|(connection_id, record)| {
                 **connection_id != sender_connection_id
+                    && record.is_fresh()
                     && record.current_view == view_id
                     && (record.user == target || record.player_id == target)
             })
@@ -229,7 +231,9 @@ impl PresenceRegistry {
         self.connections
             .iter()
             .filter(|(connection_id, record)| {
-                **connection_id != sender_connection_id && record.current_view == view_id
+                **connection_id != sender_connection_id
+                    && record.is_fresh()
+                    && record.current_view == view_id
             })
             .filter_map(|(_, record)| record.delivery())
             .collect()
@@ -238,9 +242,28 @@ impl PresenceRegistry {
     pub(crate) fn broadcast_recipients(&self, sender_connection_id: u64) -> Vec<PresenceDelivery> {
         self.connections
             .iter()
-            .filter(|(connection_id, _)| **connection_id != sender_connection_id)
+            .filter(|(connection_id, record)| {
+                **connection_id != sender_connection_id && record.is_fresh()
+            })
             .filter_map(|(_, record)| record.delivery())
             .collect()
+    }
+
+    pub(crate) fn connection_is_fresh_in_view(
+        &self,
+        connection_id: u64,
+        player_id: &str,
+        view_id: &str,
+    ) -> bool {
+        self.connections.get(&connection_id).is_some_and(|record| {
+            record.is_fresh() && record.player_id == player_id && record.current_view == view_id
+        })
+    }
+
+    fn fresh_records(&self) -> impl Iterator<Item = (&u64, &PresenceRecord)> {
+        self.connections
+            .iter()
+            .filter(|(_, record)| record.is_fresh())
     }
 }
 
@@ -275,6 +298,10 @@ struct PresenceRecord {
 }
 
 impl PresenceRecord {
+    fn is_fresh(&self) -> bool {
+        self.last_seen_at.elapsed() <= SSH_PRESENCE_LEASE
+    }
+
     fn delivery(&self) -> Option<PresenceDelivery> {
         self.channel.as_ref().map(|channel| PresenceDelivery {
             handle: channel.handle.clone(),
@@ -325,7 +352,9 @@ fn instant_age_millis(last_seen_at: Instant) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::PresenceRegistry;
+    use std::time::Instant;
+
+    use super::{PresenceRegistry, SSH_PRESENCE_LEASE};
 
     #[test]
     fn admin_users_group_sessions_by_user() {
@@ -360,5 +389,33 @@ mod tests {
         );
         assert_eq!(users[1].user, "bob");
         assert_eq!(users[1].session_count, 1);
+    }
+
+    #[test]
+    fn stale_sessions_do_not_count_as_online() {
+        let mut presence = PresenceRegistry::default();
+        presence.mark_online(
+            1,
+            "player_a".to_owned(),
+            "alice".to_owned(),
+            "view_a".to_owned(),
+        );
+        presence.mark_online(
+            2,
+            "player_b".to_owned(),
+            "bob".to_owned(),
+            "view_a".to_owned(),
+        );
+        presence
+            .connections
+            .get_mut(&2)
+            .expect("session")
+            .last_seen_at = Instant::now() - SSH_PRESENCE_LEASE - SSH_PRESENCE_LEASE;
+
+        assert_eq!(presence.session_count(), 1);
+        assert_eq!(presence.user_count(), 1);
+        assert_eq!(presence.users(), vec!["alice"]);
+        assert_eq!(presence.view_users(99, "view_a").len(), 1);
+        assert!(!presence.connection_is_fresh_in_view(2, "player_b", "view_a"));
     }
 }

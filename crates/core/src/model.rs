@@ -21,7 +21,7 @@ pub const FEEDBACK_QUIT: &str = "Goodbye.";
 pub const PARCEL_STATUS_VACANT: &str = "vacant";
 /// Parcel status indicating a claimed but unbuilt lot.
 pub const PARCEL_STATUS_CLAIMED: &str = "claimed";
-/// Parcel status indicating a built shop.
+/// Parcel status indicating a built parcel.
 pub const PARCEL_STATUS_BUILT: &str = "built";
 /// Admission state indicating the board has not been accepted yet.
 pub const ADMISSION_STATE_PENDING: &str = "pending";
@@ -57,18 +57,38 @@ pub const OPERATOR_COMMAND_STATUS_PENDING: &str = "pending";
 pub const OPERATOR_COMMAND_STATUS_DELIVERED: &str = "delivered";
 /// Operator command status indicating a handled command.
 pub const OPERATOR_COMMAND_STATUS_HANDLED: &str = "handled";
-/// Shop mailing list status indicating new subscriptions are accepted.
-pub const SHOP_MAILING_LIST_STATUS_OPEN: &str = "open";
-/// Shop mailing list status indicating new subscriptions are closed.
-pub const SHOP_MAILING_LIST_STATUS_CLOSED: &str = "closed";
-/// Shop mailing list subscription status indicating active delivery.
-pub const SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE: &str = "active";
-/// Shop mailing list subscription status indicating the player opted out.
-pub const SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED: &str = "unsubscribed";
-/// Shop badge award status indicating the badge is currently held.
-pub const SHOP_BADGE_AWARD_ACTIVE: &str = "active";
-/// Shop badge award status indicating the badge has been revoked.
-pub const SHOP_BADGE_AWARD_REVOKED: &str = "revoked";
+/// Parcel mailing list status indicating new subscriptions are accepted.
+pub const PARCEL_MAILING_LIST_STATUS_OPEN: &str = "open";
+/// Parcel mailing list status indicating new subscriptions are closed.
+pub const PARCEL_MAILING_LIST_STATUS_CLOSED: &str = "closed";
+/// Parcel mailing list subscription status indicating active delivery.
+pub const PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE: &str = "active";
+/// Parcel mailing list subscription status indicating the player opted out.
+pub const PARCEL_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED: &str = "unsubscribed";
+/// Parcel work desk status indicating the desk accepts routed work.
+pub const PARCEL_WORK_DESK_STATUS_OPEN: &str = "open";
+/// Parcel work desk status indicating the desk is closed.
+pub const PARCEL_WORK_DESK_STATUS_CLOSED: &str = "closed";
+/// Parcel staff status indicating the worker may start shifts.
+pub const PARCEL_WORK_STAFF_ACTIVE: &str = "active";
+/// Parcel staff status indicating the worker was removed.
+pub const PARCEL_WORK_STAFF_REMOVED: &str = "removed";
+/// Parcel shift status indicating the worker is currently on site.
+pub const PARCEL_WORK_SHIFT_ACTIVE: &str = "active";
+/// Parcel shift status indicating the worker ended the shift.
+pub const PARCEL_WORK_SHIFT_ENDED: &str = "ended";
+/// Parcel work item status indicating the item is waiting for a worker.
+pub const PARCEL_WORK_ITEM_QUEUED: &str = "queued";
+/// Parcel work item status indicating the item is claimed by a worker.
+pub const PARCEL_WORK_ITEM_CLAIMED: &str = "claimed";
+/// Parcel work item status indicating the item is complete.
+pub const PARCEL_WORK_ITEM_DONE: &str = "done";
+/// Parcel work item status indicating the item was cancelled.
+pub const PARCEL_WORK_ITEM_CANCELLED: &str = "cancelled";
+/// Parcel badge award status indicating the badge is currently held.
+pub const PARCEL_BADGE_AWARD_ACTIVE: &str = "active";
+/// Parcel badge award status indicating the badge has been revoked.
+pub const PARCEL_BADGE_AWARD_REVOKED: &str = "revoked";
 
 /// The mutable state of a world instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,9 +126,6 @@ pub struct WorldMetadata {
     /// Whether the hunger survival gate participates in ordinary commands.
     #[serde(default)]
     pub hunger_loop_enabled: bool,
-    /// Whether builtin service rooms from `rooms.ron` are inserted at startup.
-    #[serde(default)]
-    pub builtin_service_rooms_enabled: bool,
     /// Real-world seconds represented by one in-world day.
     #[serde(default = "default_virtual_day_seconds")]
     pub virtual_day_seconds: u64,
@@ -121,7 +138,6 @@ impl Default for WorldMetadata {
             admission_board_entity_id: default_admission_board_entity_id(),
             agreement_version: default_agreement_version(),
             hunger_loop_enabled: false,
-            builtin_service_rooms_enabled: false,
             virtual_day_seconds: default_virtual_day_seconds(),
         }
     }
@@ -208,7 +224,7 @@ pub struct Entity {
     pub aliases: Vec<String>,
     /// Commands supported by this entity.
     pub actions: Vec<ActionKind>,
-    /// Optional structured payload (bulletin boards, shops, etc.).
+    /// Optional structured payload (bulletin boards, parcels, etc.).
     #[serde(default)]
     pub collection: Option<EntityCollection>,
     /// Whether the entity can be carried.

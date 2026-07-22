@@ -20,8 +20,8 @@ fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
             text: String::new(),
         },
         SemanticCommand::Extension {
-            name: "position".to_owned(),
-            input: "/position start <position>".to_owned(),
+            name: "paper".to_owned(),
+            input: "/paper submit <article>".to_owned(),
         },
     ]);
     let snapshot = task.snapshot(
@@ -39,13 +39,13 @@ fn task_mode_accepts_existing_extension_command_without_protocol_leak() {
         .validate_command(
             &snapshot,
             SemanticCommand::Extension {
-                name: "position".to_owned(),
-                input: "/position start greeter".to_owned(),
+                name: "paper".to_owned(),
+                input: "/paper submit market-report".to_owned(),
             },
         )
-        .expect("position command is available");
+        .expect("paper command is available");
 
-    assert_eq!(command.line(), "/position start greeter");
+    assert_eq!(command.line(), "/paper submit market-report");
     assert!(!command.line().contains("earn MARK"));
     assert!(!command.line().to_ascii_lowercase().contains("/plan"));
     assert!(!command.line().to_ascii_lowercase().contains("/act"));
@@ -251,7 +251,7 @@ fn reward_prefers_social_progress_over_isolated_survival() {
 
 #[test]
 fn task_history_transcript_contains_only_world_commands() {
-    let mut task = TaskMode::new("own a shop").expect("task");
+    let mut task = TaskMode::new("own a parcel").expect("task");
     let before = task.snapshot(
         &observation(vec![SemanticCommand::Move {
             direction: Direction::North,
@@ -278,13 +278,13 @@ fn task_history_transcript_contains_only_world_commands() {
     assert!(
         task.command_transcript()
             .iter()
-            .all(|line| !line.contains("own a shop"))
+            .all(|line| !line.contains("own a parcel"))
     );
 }
 
 #[test]
 fn plan_act_and_goal_json_are_rejected_as_protocol_leaks() {
-    let task = TaskMode::new("become a shopkeeper").expect("task");
+    let task = TaskMode::new("become a parcelkeeper").expect("task");
     let observation = observation(vec![SemanticCommand::Extension {
         name: "plan".to_owned(),
         input: "/plan <json>".to_owned(),
@@ -295,7 +295,7 @@ fn plan_act_and_goal_json_are_rejected_as_protocol_leaks() {
         &snapshot,
         SemanticCommand::Extension {
             name: "plan".to_owned(),
-            input: "/plan {\"objective\":\"become a shopkeeper\"}".to_owned(),
+            input: "/plan {\"objective\":\"become a parcelkeeper\"}".to_owned(),
         },
     );
 
@@ -337,8 +337,8 @@ fn multiline_commands_are_rejected_before_execution() {
                 text: String::new(),
             },
             SemanticCommand::Extension {
-                name: "position".to_owned(),
-                input: "/position start <position>".to_owned(),
+                name: "paper".to_owned(),
+                input: "/paper submit <article>".to_owned(),
             },
         ]),
         ObservedTaskState::default(),
@@ -360,8 +360,8 @@ fn multiline_commands_are_rejected_before_execution() {
     let extension = task.validate_command(
         &snapshot,
         SemanticCommand::Extension {
-            name: "position".to_owned(),
-            input: "/position start greeter\n/pay bob 10".to_owned(),
+            name: "paper".to_owned(),
+            input: "/paper submit market-report\n/pay bob 10".to_owned(),
         },
     );
 
@@ -425,19 +425,19 @@ fn pay_direct_template_authorizes_direct_payment_placeholders() {
 }
 
 #[test]
-fn shop_inbox_template_does_not_authorize_payment_request() {
-    let task = TaskMode::new("check shop inbox").expect("task");
+fn parcel_inbox_template_does_not_authorize_payment_request() {
+    let task = TaskMode::new("check parcel inbox").expect("task");
     let snapshot = task.snapshot(
-        &observation(vec![SemanticCommand::Shop {
-            action: ShopAction::Inbox,
+        &observation(vec![SemanticCommand::Parcel {
+            action: ParcelAction::Inbox,
         }]),
         ObservedTaskState::default(),
     );
 
     let request = task.validate_command(
         &snapshot,
-        SemanticCommand::Shop {
-            action: ShopAction::RequestPayment {
+        SemanticCommand::Parcel {
+            action: ParcelAction::RequestPayment {
                 command_id: 1,
                 amount: 10,
                 delivery: "done".to_owned(),
@@ -452,16 +452,16 @@ fn shop_inbox_template_does_not_authorize_payment_request() {
 fn subscription_list_template_does_not_authorize_chat() {
     let task = TaskMode::new("read subscriptions").expect("task");
     let snapshot = task.snapshot(
-        &observation(vec![SemanticCommand::Subscription {
-            action: SubscriptionAction::List,
+        &observation(vec![SemanticCommand::Parcel {
+            action: ParcelAction::Subscriptions,
         }]),
         ObservedTaskState::default(),
     );
 
     let chat = task.validate_command(
         &snapshot,
-        SemanticCommand::Subscription {
-            action: SubscriptionAction::Chat {
+        SemanticCommand::Parcel {
+            action: ParcelAction::Chat {
                 target: "P1".to_owned(),
                 slug: "news".to_owned(),
                 body: "hello".to_owned(),

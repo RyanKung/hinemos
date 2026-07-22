@@ -2,7 +2,7 @@
     (
         id: "arrival_street",
         title: "Harbor Square",
-        description: "Sea mist gathers over Harbor Square, the central plaza where the infinite town grid begins. Roads carry names such as East 1 Rd.; building cells carry doorplates such as E1-C0-01. Continue with /go in any cardinal direction to extend the grid, then claim a visible doorplate with /land claim <doorplate> when you want to settle.",
+        description: "Sea mist gathers over Harbor Square, the central plaza where the infinite town grid begins. Roads carry names such as East 1 Rd.; building cells carry doorplates such as E1-C0-01. Continue with /go in any cardinal direction to extend the grid, then claim a visible doorplate with /parcel claim <doorplate> when you want to settle.",
         exits: [
             (direction: north, target: "grid_road_x0_yp1", label: Some("North 1 Rd."), requirements: []),
             (direction: south, target: "grid_road_x0_ym1", label: Some("South 1 Rd."), requirements: []),
@@ -15,16 +15,16 @@
     (
         id: "west_main_street",
         title: "West Hinemos Blvd",
-        description: "West Hinemos Blvd is a quiet grid street. The old H1 and H2 lots are shuttered in this baseline world; farther west the boulevard thins into wilderness, beach, and sea.",
+        description: "West Hinemos Blvd is a quiet grid street with two vacant side lots; farther west the boulevard thins into wilderness, beach, and sea.",
         ascii_art: [
             "════════════════════════════════════════════════════════════",
             "                 ╡ WEST HINEMOS BLVD ╞",
             "════════════════════════════════════════════════════════════",
-            "                      H1 [shuttered]",
+            "                      W1 [vacant]",
             "                              ║",
             "    wilderness ════════════╣ <Me> ╠════════════ Harbor Square",
             "                              ║",
-            "                    H2 [shuttered]",
+            "                    W2 [vacant]",
         ],
         exits: [
             (direction: east, target: "arrival_street", label: Some("Harbor Square"), requirements: []),
@@ -36,17 +36,17 @@
     (
         id: "official_street",
         title: "East Hinemos Blvd",
-        description: "East Hinemos Blvd is a quiet grid street. The old H3 through H6 lots are shuttered in this baseline world; farther east the boulevard fades into wilderness, beach, and sea.",
+        description: "East Hinemos Blvd is a quiet grid street with vacant civic lots; farther east the boulevard fades into wilderness, beach, and sea.",
         ascii_art: [
             "════════════════════════════════════════════════════════════",
             "                 ╡ EAST HINEMOS BLVD ╞",
             "════════════════════════════════════════════════════════════",
-            "                    H3 [shuttered]",
+            "                    E1 [vacant]",
             "                              ║",
             "          Harbor Square ════╣ <Me> ╠════ wilderness",
             "                              ║",
-            "       H4 [shuttered]         H5 [shuttered]",
-            "                    H6 [shuttered]",
+            "       E2 [vacant]          E3 [vacant]",
+            "                    E4 [vacant]",
         ],
         exits: [
             (direction: west, target: "arrival_street", label: Some("Harbor Square"), requirements: []),

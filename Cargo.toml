@@ -2,7 +2,6 @@
 members = [
     "crates/admin-protocol",
     "crates/app",
-    "crates/builtin-rooms",
     "crates/cli",
     "crates/core",
     "crates/runtime",
@@ -10,13 +9,6 @@ members = [
     "crates/test-support",
     "crates/protocol/http",
     "crates/protocol/ssh",
-    "rooms/bank",
-    "rooms/blackstone",
-    "rooms/libhinemos-room",
-    "rooms/newspaper",
-    "rooms/registry",
-    "rooms/school",
-    "rooms/workers",
 ]
 resolver = "3"
 

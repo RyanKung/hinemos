@@ -1,10 +1,7 @@
 use crate::*;
 
 use super::events::text_events;
-use super::request_mapping::{
-    badge_request, build_request, inbox_request, land_request, payment_request, shop_request,
-    subscription_request,
-};
+use super::request_mapping::{badge_request, inbox_request, parcel_request, payment_request};
 use super::route::ReadAppRequest;
 use super::{AppDispatchStore, AppViewCommandContext};
 
@@ -20,7 +17,10 @@ struct WorldViewCommandContext<'a> {
 impl<S> AppService<S>
 where
     S: AppDispatchStore,
-    <S as AppDispatchStore>::Error: FromMailingListValidation + FromShopBadgeValidation,
+    <S as AppDispatchStore>::Error: FromMailingListValidation
+        + FromParcelBadgeValidation
+        + FromParcelWorkValidation
+        + FromParcelJobGuideValidation,
     <S as RoomStore>::ServiceRoom: ServiceRoomView,
     <S as RoomStore>::RoomBinding: RoomBindingEntryView
         + ParcelView
@@ -61,11 +61,10 @@ where
             }
             SemanticCommand::Pay { action } => payment_request(action),
             SemanticCommand::Inbox { action } => inbox_request(action, context.mail_domain),
-            SemanticCommand::Land { action } => land_request(action, context.generated_token),
-            SemanticCommand::Build { action } => build_request(action, context.current_view),
-            SemanticCommand::Shop { action } => shop_request(action),
+            SemanticCommand::Parcel { action } => {
+                parcel_request(action, context.current_view, context.generated_token)
+            }
             SemanticCommand::Badges { action } => badge_request(action),
-            SemanticCommand::Subscription { action } => subscription_request(action),
             _ => return Ok(None),
         };
         Ok(Some(self.handle(identity, request).await?))

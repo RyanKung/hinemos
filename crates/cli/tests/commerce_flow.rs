@@ -11,7 +11,7 @@ struct SshAgent<'a> {
 }
 
 #[test]
-fn two_ssh_agents_can_trade_with_offline_shop_owner() {
+fn two_ssh_agents_can_trade_with_offline_parcel_owner() {
     let root = workspace_root();
     let env = load_local_env(&root);
     let test_database = TestDatabase::create(&env);
@@ -31,10 +31,10 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
     let customer_key = admitted_key(&temp, host, port, &customer);
     let peer_key = admitted_key(&temp, host, port, &peer);
 
-    assert_owner_shop_setup(host, port, &owner, &owner_key);
+    assert_owner_parcel_setup(host, port, &owner, &owner_key);
     assert_owner_mailing_list_setup(host, port, &owner, &owner_key);
-    assert_customer_shop_visit(host, port, &customer, &customer_key);
-    assert_shop_mailing_list_flow(
+    assert_customer_parcel_visit(host, port, &customer, &customer_key);
+    assert_parcel_mailing_list_flow(
         &test_database,
         host,
         port,
@@ -51,9 +51,9 @@ fn two_ssh_agents_can_trade_with_offline_shop_owner() {
             key: &peer_key,
         },
     );
-    assert_shop_badge_flow(host, port, &owner, &owner_key, &customer, &customer_key);
-    assert_shop_mailbox_converged(&test_database);
-    let request_id = request_shop_payment(host, port, &owner, &owner_key);
+    assert_parcel_badge_flow(host, port, &owner, &owner_key, &customer, &customer_key);
+    assert_parcel_mailbox_converged(&test_database);
+    let request_id = request_parcel_payment(host, port, &owner, &owner_key);
     assert_customer_paid_request(host, port, &customer, &customer_key, request_id);
     assert_owner_received_payment(host, port, &owner, &owner_key);
 
@@ -68,35 +68,35 @@ fn assert_owner_mailing_list_setup(host: &str, port: u16, owner: &str, owner_key
         owner,
         owner_key,
         &[
-            "/shop mailing-list create C0-N1-01 updates Shop Updates",
-            "/shop mailing-list list C0-N1-01",
+            "/parcel mailing-list create C0-N1-01 updates Parcel Updates",
+            "/parcel mailing-list list C0-N1-01",
             "/quit",
         ],
     );
     assert_contains(
         &owner_setup,
-        "Created shop chat updates for parcel C0-N1-01: Shop Updates.",
-        "owner can create a shop chat",
+        "Created parcel chat updates for parcel C0-N1-01: Parcel Updates.",
+        "owner can create a parcel chat",
     );
     assert_contains(
         &owner_setup,
-        "Post: /chat C0-N1-01 updates -- <message>",
+        "Post: /parcel chat C0-N1-01 updates -- <message>",
         "create response gives chat command",
     );
     assert_contains(
         &owner_setup,
-        "Shop Chats for C0-N1-01",
-        "owner can list shop chats",
+        "Parcel Chats for C0-N1-01",
+        "owner can list parcel chats",
     );
 }
 
-fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
-    let shop_command_count = test_database.query_value(
-        "select count(*) from inbox_items where recipient_user = 'room-C0-N1-01' and kind = 'shop_command' and source_kind = 'operator_command' and body = '/hello'",
+fn assert_parcel_mailbox_converged(test_database: &TestDatabase) {
+    let parcel_command_count = test_database.query_value(
+        "select count(*) from inbox_items where recipient_user = 'room-C0-N1-01' and kind = 'parcel_command' and source_kind = 'operator_command' and body = '/hello'",
     );
     assert_eq!(
-        shop_command_count, "1",
-        "visitor shop command should be stored once as the shop actionable item"
+        parcel_command_count, "1",
+        "visitor parcel command should be stored once as the parcel actionable item"
     );
 
     let duplicate_mail_count = test_database.query_value(
@@ -104,7 +104,7 @@ fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
     );
     assert_eq!(
         duplicate_mail_count, "0",
-        "visitor shop command should not also be stored as generic mail"
+        "visitor parcel command should not also be stored as generic mail"
     );
 
     let world_mail_count = test_database.query_value(
@@ -112,31 +112,31 @@ fn assert_shop_mailbox_converged(test_database: &TestDatabase) {
     );
     assert_eq!(
         world_mail_count, "0",
-        "visitor shop command should not create an extra generic mail history row"
+        "visitor parcel command should not create an extra generic mail history row"
     );
 }
 
-fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path) {
+fn assert_owner_parcel_setup(host: &str, port: u16, owner: &str, owner_key: &Path) {
     let owner_setup = run_ssh_batch_with_key(
         host,
         port,
         owner,
         owner_key,
         &[
-            "/land claim C0-N1-01",
+            "/parcel claim C0-N1-01",
             "/go north",
             "/enter C0-N1-01",
-            "/build {\"title\":\"Offline Tool Broker\",\"description\":\"An operator-run shop that sells a simple greeting string.\",\"style\":\"Ledger-first counter service.\",\"prompt\":\"Parse visitor requests, create payment requests, and deliver content only after payment.\"}",
-            "/land info C0-N1-01",
-            "/build publish",
+            "/parcel build {\"title\":\"Offline Tool Broker\",\"description\":\"An operator-run parcel service that sells a simple greeting string.\",\"style\":\"Ledger-first counter service.\",\"prompt\":\"Parse visitor requests, create payment requests, and deliver content only after payment.\"}",
+            "/parcel info C0-N1-01",
+            "/parcel build publish",
             "/hello",
-            "/land info C0-N1-01",
+            "/parcel info C0-N1-01",
             "/quit",
         ],
     );
     assert_contains(
         &owner_setup,
-        "Build here with /build",
+        "Build here with /parcel build",
         "claim response gives the owner a usable build command",
     );
     assert_not_contains(
@@ -151,7 +151,7 @@ fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path)
     );
     assert_contains(
         &owner_setup,
-        "Description: An operator-run shop that sells a simple greeting string.",
+        "Description: An operator-run parcel service that sells a simple greeting string.",
         "owner build description was persisted",
     );
     assert_contains(
@@ -172,11 +172,11 @@ fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path)
     assert_contains(
         &owner_setup,
         "Published parcel C0-N1-01",
-        "owner published shop",
+        "owner published parcel",
     );
     assert_contains(
         &owner_setup,
-        "You own this shop. Visitors use /hello here",
+        "You own this parcel. Visitors use /hello here",
         "owner custom command usage explains visitor flow",
     );
     assert_contains(
@@ -186,7 +186,7 @@ fn assert_owner_shop_setup(host: &str, port: u16, owner: &str, owner_key: &Path)
     );
 }
 
-fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_key: &Path) {
+fn assert_customer_parcel_visit(host: &str, port: u16, customer: &str, customer_key: &Path) {
     let customer_visit = run_ssh_batch_with_key(
         host,
         port,
@@ -197,47 +197,52 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     assert_contains(
         &customer_visit,
         "Offline Tool Broker",
-        "customer sees the edited shop title",
+        "customer sees the edited parcel title",
     );
     assert_contains(
         &customer_visit,
         "[Offline Tool Broker]",
-        "customer sees the shop title on the street sign",
+        "customer sees the parcel title on the street sign",
     );
     assert_contains(
         &customer_visit,
-        "An operator-run shop that sells a simple greeting string.",
-        "customer sees the edited shop description",
+        "An operator-run parcel service that sells a simple greeting string.",
+        "customer sees the edited parcel description",
     );
     assert_contains(
         &customer_visit,
-        "Style: Ledger-first counter service.",
-        "customer sees the edited shop style",
+        "Style: Ledger-first counter",
+        "customer sees the edited parcel style",
     );
     assert_contains(
         &customer_visit,
-        "Shop commands: /hello - hello, price 25; /status",
-        "customer sees readable shop commands",
+        "service.",
+        "customer sees the edited parcel style terminator",
     );
     assert_contains(
         &customer_visit,
-        "Mailing lists: Shop Updates (updates) join: /subscribe C0-N1-01 updates",
-        "customer sees the shop chat join command",
+        "Parcel commands: /hello - hello, price 25; /status",
+        "customer sees readable parcel commands",
     );
     assert_contains(
         &customer_visit,
-        "joining: /chat C0-N1-01 updates -- <message>",
-        "customer sees the shop chat post command",
+        "Mailing lists: Parcel Updates (updates) join: /parcel subscribe C0-N1-01 updates",
+        "customer sees the parcel chat join command",
     );
     assert_contains(
         &customer_visit,
-        "subscriptions: /subscribe C0-N1-01 updates",
+        "joining: /parcel chat C0-N1-01 updates -- <message>",
+        "customer sees the parcel chat post command",
+    );
+    assert_contains(
+        &customer_visit,
+        "subscriptions: /parcel subscribe C0-N1-01 updates",
         "customer sees subscription command in Available",
     );
     assert_contains(
         &customer_visit,
         "local: /hello preview=hello price=25, /status",
-        "customer sees shop commands in Available",
+        "customer sees parcel commands in Available",
     );
     assert_contains(
         &customer_visit,
@@ -256,13 +261,13 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
     assert_contains(
         &customer_visit,
-        "Shop request",
+        "Parcel request",
         "customer raw command forwarded to offline owner",
     );
     assert_contains(
         &customer_visit,
         "Status: delivered.",
-        "offline owner command was delivered to the shop inbox",
+        "offline owner command was delivered to the parcel inbox",
     );
     assert_contains(
         &customer_visit,
@@ -276,7 +281,7 @@ fn assert_customer_shop_visit(host: &str, port: u16, customer: &str, customer_ke
     );
 }
 
-fn assert_shop_mailing_list_flow(
+fn assert_parcel_mailing_list_flow(
     test_database: &TestDatabase,
     host: &str,
     port: u16,
@@ -289,16 +294,20 @@ fn assert_shop_mailing_list_flow(
         port,
         customer.user,
         customer.key,
-        &["/subscribe C0-N1-01 updates", "/subscriptions", "/quit"],
+        &[
+            "/parcel subscribe C0-N1-01 updates",
+            "/parcel subscriptions",
+            "/quit",
+        ],
     );
     assert_contains(
         &customer_subscribe,
-        "Joined shop chat Shop Updates (updates) at C0-N1-01.",
-        "customer can subscribe to the shop mailing list",
+        "Joined parcel chat Parcel Updates (updates) at C0-N1-01.",
+        "customer can subscribe to the parcel mailing list",
     );
     assert_contains(
         &customer_subscribe,
-        "Post: /chat C0-N1-01 updates -- <message>",
+        "Post: /parcel chat C0-N1-01 updates -- <message>",
         "subscription response gives chat command",
     );
 
@@ -307,16 +316,22 @@ fn assert_shop_mailing_list_flow(
         port,
         peer.user,
         peer.key,
-        &["/subscribe C0-N1-01 updates", "/subscriptions", "/quit"],
+        &[
+            "/go north",
+            "/enter C0-N1-01",
+            "/parcel subscribe C0-N1-01 updates",
+            "/parcel subscriptions",
+            "/quit",
+        ],
     );
     assert_contains(
         &peer_subscribe,
-        "Joined shop chat Shop Updates (updates) at C0-N1-01.",
-        "peer can join the same shop chat",
+        "Joined parcel chat Parcel Updates (updates) at C0-N1-01.",
+        "peer can join the same parcel chat",
     );
     assert_contains(
         &peer_subscribe,
-        "Shop Chat Memberships",
+        "Parcel Chat Memberships",
         "subscription list uses group-chat language",
     );
 
@@ -326,19 +341,19 @@ fn assert_shop_mailing_list_flow(
         owner.user,
         owner.key,
         &[
-            "/shop mailing-list subscribers C0-N1-01 updates",
-            "/shop mailing-list send C0-N1-01 updates Weekly Deal -- Subscribers get first notice.",
+            "/parcel mailing-list subscribers C0-N1-01 updates",
+            "/parcel mailing-list send C0-N1-01 updates Weekly Deal -- Subscribers get first notice.",
             "/quit",
         ],
     );
     assert_contains(
         &owner_send,
-        "Shop Chat Members for C0-N1-01 updates: 2 active",
+        "Parcel Chat Members for C0-N1-01 updates: 2 active",
         "owner can inspect active subscriber count",
     );
     assert_contains(
         &owner_send,
-        "Sent shop chat post",
+        "Sent parcel chat post",
         "owner can send a mailing-list post",
     );
     assert_contains(
@@ -361,7 +376,7 @@ fn assert_shop_mailing_list_flow(
     );
     assert_contains(
         &customer_mailbox,
-        "shop_mailing_list_post",
+        "parcel_mailing_list_post",
         "mailbox item keeps mailing-list source metadata",
     );
     assert_contains(
@@ -370,7 +385,7 @@ fn assert_shop_mailing_list_flow(
              from inbox_items
              where recipient_user = '{}'
                and subject = 'Weekly Deal'
-               and body like '%Reply: /chat C0-N1-01 updates -- <message>%'",
+               and body like '%Reply: /parcel chat C0-N1-01 updates -- <message>%'",
             customer.user
         )),
         "1",
@@ -383,27 +398,27 @@ fn assert_shop_mailing_list_flow(
         customer.user,
         customer.key,
         &[
-            "/chat C0-N1-01 updates -- I can vouch for this shop.",
+            "/parcel chat C0-N1-01 updates -- I can vouch for this parcel.",
             "/quit",
         ],
     );
     assert_contains(
         &customer_chat,
-        "Posted shop chat message",
-        "subscriber can post to the shop chat",
+        "Posted parcel chat message",
+        "subscriber can post to the parcel chat",
     );
 
     let peer_mailbox =
         run_ssh_batch_with_key(host, port, peer.user, peer.key, &["/mailbox", "/quit"]);
     assert_contains(
         &peer_mailbox,
-        "Shop chat: updates",
-        "peer sees another member's shop chat subject",
+        "Parcel chat: updates",
+        "peer sees another member's parcel chat subject",
     );
     assert_contains(
         &peer_mailbox,
         "from customer_",
-        "shop chat message preserves the member sender",
+        "parcel chat message preserves the member sender",
     );
     assert_contains(
         &test_database.query_value(&format!(
@@ -411,12 +426,12 @@ fn assert_shop_mailing_list_flow(
              from inbox_items
              where recipient_user = '{}'
                and sender_user = '{}'
-               and subject = 'Shop chat: updates'
-               and body like '%I can vouch for this shop.%'",
+               and subject = 'Parcel chat: updates'
+               and body like '%I can vouch for this parcel.%'",
             peer.user, customer.user
         )),
         "1",
-        "peer receives another member's shop chat message",
+        "peer receives another member's parcel chat message",
     );
 
     let customer_unsubscribe = run_ssh_batch_with_key(
@@ -424,16 +439,20 @@ fn assert_shop_mailing_list_flow(
         port,
         customer.user,
         customer.key,
-        &["/unsubscribe C0-N1-01 updates", "/subscriptions", "/quit"],
+        &[
+            "/parcel unsubscribe C0-N1-01 updates",
+            "/parcel subscriptions",
+            "/quit",
+        ],
     );
     assert_contains(
         &customer_unsubscribe,
-        "Left shop chat Shop Updates (updates) at C0-N1-01.",
+        "Left parcel chat Parcel Updates (updates) at C0-N1-01.",
         "customer can unsubscribe",
     );
     assert_contains(
         &customer_unsubscribe,
-        "No active shop chats.",
+        "No active parcel chats.",
         "customer subscriptions list reflects unsubscribe",
     );
 
@@ -442,12 +461,16 @@ fn assert_shop_mailing_list_flow(
         port,
         peer.user,
         peer.key,
-        &["/unsubscribe C0-N1-01 updates", "/subscriptions", "/quit"],
+        &[
+            "/parcel unsubscribe C0-N1-01 updates",
+            "/parcel subscriptions",
+            "/quit",
+        ],
     );
     assert_contains(
         &peer_unsubscribe,
-        "Left shop chat Shop Updates (updates) at C0-N1-01.",
-        "peer can leave the shop chat",
+        "Left parcel chat Parcel Updates (updates) at C0-N1-01.",
+        "peer can leave the parcel chat",
     );
 
     let owner_send_after_unsubscribe = run_ssh_batch_with_key(
@@ -456,18 +479,18 @@ fn assert_shop_mailing_list_flow(
         owner.user,
         owner.key,
         &[
-            "/shop mailing-list send C0-N1-01 updates Hidden Deal -- No one should get this.",
+            "/parcel mailing-list send C0-N1-01 updates Hidden Deal -- No one should get this.",
             "/quit",
         ],
     );
     assert_contains(
         &owner_send_after_unsubscribe,
-        "shop chat has no active members",
+        "parcel chat has no active members",
         "send is blocked after all members leave",
     );
 }
 
-fn assert_shop_badge_flow(
+fn assert_parcel_badge_flow(
     host: &str,
     port: u16,
     owner: &str,
@@ -481,25 +504,25 @@ fn assert_shop_badge_flow(
         owner,
         owner_key,
         &[
-            "/shop badge create C0-N1-01 patron Good Patron -- Paid and polite",
-            "/shop badge list C0-N1-01",
+            "/parcel badge create C0-N1-01 patron Good Patron -- Paid and polite",
+            "/parcel badge list C0-N1-01",
             "/quit",
         ],
     );
     assert_contains(
         &owner_create,
         "Saved badge patron for parcel C0-N1-01: Good Patron.",
-        "owner can create a shop badge",
+        "owner can create a parcel badge",
     );
     assert_contains(
         &owner_create,
-        "/shop badge award C0-N1-01 patron <user> [note]",
+        "/parcel badge award C0-N1-01 patron <user> [note]",
         "create response gives award command",
     );
     assert_contains(
         &owner_create,
-        "Shop Badges for C0-N1-01",
-        "owner can list shop badges",
+        "Parcel Badges for C0-N1-01",
+        "owner can list parcel badges",
     );
 
     let customer_award = run_ssh_batch_with_key(
@@ -508,14 +531,14 @@ fn assert_shop_badge_flow(
         customer,
         customer_key,
         &[
-            &format!("/shop badge award C0-N1-01 patron {customer} not allowed"),
+            &format!("/parcel badge award C0-N1-01 patron {customer} not allowed"),
             "/quit",
         ],
     );
     assert_contains(
         &customer_award,
         "The Guild will not accept that parcel action; you do not own this parcel.",
-        "non-owner cannot award shop badges",
+        "non-owner cannot award parcel badges",
     );
 
     let owner_award = run_ssh_batch_with_key(
@@ -524,15 +547,15 @@ fn assert_shop_badge_flow(
         owner,
         owner_key,
         &[
-            &format!("/shop badge award C0-N1-01 patron {customer} first visit"),
-            &format!("/shop badge award C0-N1-01 patron {customer} duplicate"),
+            &format!("/parcel badge award C0-N1-01 patron {customer} first visit"),
+            &format!("/parcel badge award C0-N1-01 patron {customer} duplicate"),
             "/quit",
         ],
     );
     assert_contains(
         &owner_award,
         "Awarded badge Good Patron (patron) from C0-N1-01",
-        "owner can award a shop badge",
+        "owner can award a parcel badge",
     );
 
     let customer_badges =
@@ -545,7 +568,7 @@ fn assert_shop_badge_flow(
     assert_contains(
         &customer_badges,
         "Good Patron (patron) from Offline Tool Broker [C0-N1-01]",
-        "badge output includes shop identity and badge title",
+        "badge output includes parcel identity and badge title",
     );
     assert_contains(
         &customer_badges,
@@ -567,15 +590,15 @@ fn assert_shop_badge_flow(
     );
 }
 
-fn request_shop_payment(host: &str, port: u16, owner: &str, owner_key: &Path) -> i64 {
+fn request_parcel_payment(host: &str, port: u16, owner: &str, owner_key: &Path) -> i64 {
     let owner_request = run_ssh_batch_with_key(
         host,
         port,
         owner,
         owner_key,
         &[
-            "/shop inbox",
-            "/shop request-payment 1 25 hello world",
+            "/parcel inbox",
+            "/parcel request-payment 1 25 hello world",
             "/quit",
         ],
     );
@@ -646,17 +669,17 @@ fn assert_owner_received_payment(host: &str, port: u16, owner: &str, owner_key: 
         port,
         owner,
         owner_key,
-        &["/shop inbox", "/balance", "/quit"],
+        &["/parcel inbox", "/balance", "/quit"],
     );
     assert_contains(
         &owner_reconnect,
         "/hello",
-        "owner sees offline shop command",
+        "owner sees offline parcel command",
     );
     assert_contains(
         &owner_reconnect,
         "handled",
-        "shop command is marked handled after payment request creation",
+        "parcel command is marked handled after payment request creation",
     );
     assert_contains(
         &owner_reconnect,

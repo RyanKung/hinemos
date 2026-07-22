@@ -1,6 +1,7 @@
 use crate::{
-    BadgeAction, BuildAction, InboxAction, LandAction, PayAction, SemanticCommand, SettingsAction,
-    ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
+    BadgeAction, BuildAction, InboxAction, ParcelAction, ParcelBadgeAction, ParcelDeskAction,
+    ParcelJobAction, ParcelMailingListAction, ParcelRouteAction, ParcelShiftAction,
+    ParcelStaffAction, ParcelWorkAction, PayAction, SemanticCommand, SettingsAction,
     extension_command_input_matches_template,
 };
 
@@ -35,22 +36,12 @@ pub(crate) fn command_matches_template(
         (SemanticCommand::Pay { action }, SemanticCommand::Pay { action: template }) => {
             pay_action_matches(action, template)
         }
-        (SemanticCommand::Land { action }, SemanticCommand::Land { action: template }) => {
-            land_action_matches(action, template)
-        }
-        (SemanticCommand::Build { action }, SemanticCommand::Build { action: template }) => {
-            build_action_matches(action, template)
-        }
-        (SemanticCommand::Shop { action }, SemanticCommand::Shop { action: template }) => {
-            shop_action_matches(action, template)
+        (SemanticCommand::Parcel { action }, SemanticCommand::Parcel { action: template }) => {
+            parcel_action_matches(action, template)
         }
         (SemanticCommand::Badges { action }, SemanticCommand::Badges { action: template }) => {
             badge_action_matches(action, template)
         }
-        (
-            SemanticCommand::Subscription { action },
-            SemanticCommand::Subscription { action: template },
-        ) => subscription_action_matches(action, template),
         (
             SemanticCommand::Extension { input, .. },
             SemanticCommand::Extension {
@@ -69,6 +60,14 @@ pub(crate) fn command_matches_template(
 
 fn template_string_matches(value: &str, template: &str) -> bool {
     template_string_is_wildcard(template) || value == template
+}
+
+fn option_string_matches(value: Option<&str>, template: Option<&str>) -> bool {
+    match (value, template) {
+        (_, None) => true,
+        (Some(value), Some(template)) => template_string_matches(value, template),
+        (None, Some(template)) => template_string_is_wildcard(template),
+    }
 }
 
 fn template_string_is_wildcard(template: &str) -> bool {
@@ -152,36 +151,103 @@ fn pay_action_matches(action: &PayAction, template: &PayAction) -> bool {
     }
 }
 
-fn land_action_matches(action: &LandAction, template: &LandAction) -> bool {
+fn parcel_action_matches(action: &ParcelAction, template: &ParcelAction) -> bool {
     match (action, template) {
-        (LandAction::List, LandAction::List) => true,
+        (ParcelAction::List, ParcelAction::List) => true,
         (
-            LandAction::Info { parcel_id },
-            LandAction::Info {
+            ParcelAction::Info { parcel_id },
+            ParcelAction::Info {
                 parcel_id: template,
             },
         )
         | (
-            LandAction::Claim { parcel_id },
-            LandAction::Claim {
+            ParcelAction::Claim { parcel_id },
+            ParcelAction::Claim {
                 parcel_id: template,
             },
         )
         | (
-            LandAction::Token { parcel_id },
-            LandAction::Token {
+            ParcelAction::Token { parcel_id },
+            ParcelAction::Token {
                 parcel_id: template,
             },
         ) => template_string_matches(parcel_id, template),
         (
-            LandAction::Transfer { parcel_id, target },
-            LandAction::Transfer {
+            ParcelAction::Transfer { parcel_id, target },
+            ParcelAction::Transfer {
                 parcel_id: template_parcel,
                 target: template_target,
             },
         ) => {
             template_string_matches(parcel_id, template_parcel)
                 && template_string_matches(target, template_target)
+        }
+        (ParcelAction::Build { action }, ParcelAction::Build { action: template }) => {
+            build_action_matches(action, template)
+        }
+        (ParcelAction::Inbox, ParcelAction::Inbox) => true,
+        (
+            ParcelAction::RequestPayment {
+                command_id, amount, ..
+            },
+            ParcelAction::RequestPayment {
+                command_id: template_command,
+                amount: template_amount,
+                ..
+            },
+        ) => {
+            template_i64_matches(*command_id, *template_command)
+                && template_i64_matches(*amount, *template_amount)
+        }
+        (ParcelAction::MailingList { action }, ParcelAction::MailingList { action: template }) => {
+            parcel_mailing_list_action_matches(action, template)
+        }
+        (ParcelAction::Desk { action }, ParcelAction::Desk { action: template }) => {
+            parcel_desk_action_matches(action, template)
+        }
+        (ParcelAction::Job { action }, ParcelAction::Job { action: template }) => {
+            parcel_job_action_matches(action, template)
+        }
+        (ParcelAction::Route { action }, ParcelAction::Route { action: template }) => {
+            parcel_route_action_matches(action, template)
+        }
+        (ParcelAction::Staff { action }, ParcelAction::Staff { action: template }) => {
+            parcel_staff_action_matches(action, template)
+        }
+        (ParcelAction::Shift { action }, ParcelAction::Shift { action: template }) => {
+            parcel_shift_action_matches(action, template)
+        }
+        (ParcelAction::Work { action }, ParcelAction::Work { action: template }) => {
+            parcel_work_action_matches(action, template)
+        }
+        (ParcelAction::Badge { action }, ParcelAction::Badge { action: template }) => {
+            parcel_badge_action_matches(action, template)
+        }
+        (ParcelAction::Subscriptions, ParcelAction::Subscriptions) => true,
+        (
+            ParcelAction::Subscribe { target, slug },
+            ParcelAction::Subscribe {
+                target: template_target,
+                slug: template_slug,
+            },
+        )
+        | (
+            ParcelAction::Unsubscribe { target, slug },
+            ParcelAction::Unsubscribe {
+                target: template_target,
+                slug: template_slug,
+            },
+        )
+        | (
+            ParcelAction::Chat { target, slug, .. },
+            ParcelAction::Chat {
+                target: template_target,
+                slug: template_slug,
+                ..
+            },
+        ) => {
+            template_string_matches(target, template_target)
+                && template_string_matches(slug, template_slug)
         }
         _ => false,
     }
@@ -203,67 +269,41 @@ fn build_action_matches(action: &BuildAction, template: &BuildAction) -> bool {
     }
 }
 
-fn shop_action_matches(action: &ShopAction, template: &ShopAction) -> bool {
-    match (action, template) {
-        (ShopAction::Inbox, ShopAction::Inbox) => true,
-        (
-            ShopAction::RequestPayment {
-                command_id, amount, ..
-            },
-            ShopAction::RequestPayment {
-                command_id: template_command,
-                amount: template_amount,
-                ..
-            },
-        ) => {
-            template_i64_matches(*command_id, *template_command)
-                && template_i64_matches(*amount, *template_amount)
-        }
-        (ShopAction::MailingList { action }, ShopAction::MailingList { action: template }) => {
-            shop_mailing_list_action_matches(action, template)
-        }
-        (ShopAction::Badge { action }, ShopAction::Badge { action: template }) => {
-            shop_badge_action_matches(action, template)
-        }
-        _ => false,
-    }
-}
-
-fn shop_mailing_list_action_matches(
-    action: &ShopMailingListAction,
-    template: &ShopMailingListAction,
+fn parcel_mailing_list_action_matches(
+    action: &ParcelMailingListAction,
+    template: &ParcelMailingListAction,
 ) -> bool {
     match (action, template) {
         (
-            ShopMailingListAction::Create {
+            ParcelMailingListAction::Create {
                 parcel_id, slug, ..
             },
-            ShopMailingListAction::Create {
+            ParcelMailingListAction::Create {
                 parcel_id: template_parcel,
                 slug: template_slug,
                 ..
             },
         )
         | (
-            ShopMailingListAction::Send {
+            ParcelMailingListAction::Send {
                 parcel_id, slug, ..
             },
-            ShopMailingListAction::Send {
+            ParcelMailingListAction::Send {
                 parcel_id: template_parcel,
                 slug: template_slug,
                 ..
             },
         )
         | (
-            ShopMailingListAction::Subscribers { parcel_id, slug },
-            ShopMailingListAction::Subscribers {
+            ParcelMailingListAction::Subscribers { parcel_id, slug },
+            ParcelMailingListAction::Subscribers {
                 parcel_id: template_parcel,
                 slug: template_slug,
             },
         )
         | (
-            ShopMailingListAction::Close { parcel_id, slug },
-            ShopMailingListAction::Close {
+            ParcelMailingListAction::Close { parcel_id, slug },
+            ParcelMailingListAction::Close {
                 parcel_id: template_parcel,
                 slug: template_slug,
             },
@@ -272,8 +312,8 @@ fn shop_mailing_list_action_matches(
                 && template_string_matches(slug, template_slug)
         }
         (
-            ShopMailingListAction::List { parcel_id },
-            ShopMailingListAction::List {
+            ParcelMailingListAction::List { parcel_id },
+            ParcelMailingListAction::List {
                 parcel_id: template,
             },
         ) => template_string_matches(parcel_id, template),
@@ -281,39 +321,242 @@ fn shop_mailing_list_action_matches(
     }
 }
 
-fn shop_badge_action_matches(action: &ShopBadgeAction, template: &ShopBadgeAction) -> bool {
+fn parcel_desk_action_matches(action: &ParcelDeskAction, template: &ParcelDeskAction) -> bool {
     match (action, template) {
         (
-            ShopBadgeAction::List { parcel_id },
-            ShopBadgeAction::List {
+            ParcelDeskAction::Create {
+                parcel_id, slug, ..
+            },
+            ParcelDeskAction::Create {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                ..
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_string_matches(slug, template_slug)
+        }
+        (
+            ParcelDeskAction::List { parcel_id },
+            ParcelDeskAction::List {
+                parcel_id: template,
+            },
+        ) => template_string_matches(parcel_id, template),
+        _ => false,
+    }
+}
+
+fn parcel_job_action_matches(action: &ParcelJobAction, template: &ParcelJobAction) -> bool {
+    match (action, template) {
+        (
+            ParcelJobAction::Publish {
+                parcel_id, slug, ..
+            },
+            ParcelJobAction::Publish {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                ..
+            },
+        )
+        | (
+            ParcelJobAction::Read { parcel_id, slug },
+            ParcelJobAction::Read {
+                parcel_id: template_parcel,
+                slug: template_slug,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_string_matches(slug, template_slug)
+        }
+        (
+            ParcelJobAction::List { parcel_id },
+            ParcelJobAction::List {
+                parcel_id: template,
+            },
+        ) => template_string_matches(parcel_id, template),
+        _ => false,
+    }
+}
+
+fn parcel_route_action_matches(action: &ParcelRouteAction, template: &ParcelRouteAction) -> bool {
+    match (action, template) {
+        (
+            ParcelRouteAction::Add {
+                parcel_id,
+                slug,
+                command_prefix,
+            },
+            ParcelRouteAction::Add {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                command_prefix: template_prefix,
+            },
+        )
+        | (
+            ParcelRouteAction::Remove {
+                parcel_id,
+                slug,
+                command_prefix,
+            },
+            ParcelRouteAction::Remove {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                command_prefix: template_prefix,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_string_matches(slug, template_slug)
+                && template_string_matches(command_prefix, template_prefix)
+        }
+        (
+            ParcelRouteAction::List { parcel_id },
+            ParcelRouteAction::List {
+                parcel_id: template,
+            },
+        ) => template_string_matches(parcel_id, template),
+        _ => false,
+    }
+}
+
+fn parcel_staff_action_matches(action: &ParcelStaffAction, template: &ParcelStaffAction) -> bool {
+    match (action, template) {
+        (
+            ParcelStaffAction::Add {
+                parcel_id,
+                slug,
+                username,
+            },
+            ParcelStaffAction::Add {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                username: template_user,
+            },
+        )
+        | (
+            ParcelStaffAction::Remove {
+                parcel_id,
+                slug,
+                username,
+            },
+            ParcelStaffAction::Remove {
+                parcel_id: template_parcel,
+                slug: template_slug,
+                username: template_user,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_string_matches(slug, template_slug)
+                && template_string_matches(username, template_user)
+        }
+        (
+            ParcelStaffAction::List { parcel_id, slug },
+            ParcelStaffAction::List {
+                parcel_id: template_parcel,
+                slug: template_slug,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_string_matches(slug, template_slug)
+        }
+        _ => false,
+    }
+}
+
+fn parcel_shift_action_matches(action: &ParcelShiftAction, template: &ParcelShiftAction) -> bool {
+    match (action, template) {
+        (
+            ParcelShiftAction::Start { parcel_id, slug },
+            ParcelShiftAction::Start {
+                parcel_id: template_parcel,
+                slug: template_slug,
+            },
+        )
+        | (
+            ParcelShiftAction::End { parcel_id, slug },
+            ParcelShiftAction::End {
+                parcel_id: template_parcel,
+                slug: template_slug,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_string_matches(slug, template_slug)
+        }
+        _ => false,
+    }
+}
+
+fn parcel_work_action_matches(action: &ParcelWorkAction, template: &ParcelWorkAction) -> bool {
+    match (action, template) {
+        (
+            ParcelWorkAction::List { parcel_id, slug },
+            ParcelWorkAction::List {
+                parcel_id: template_parcel,
+                slug: template_slug,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && option_string_matches(slug.as_deref(), template_slug.as_deref())
+        }
+        (
+            ParcelWorkAction::Claim { parcel_id, work_id },
+            ParcelWorkAction::Claim {
+                parcel_id: template_parcel,
+                work_id: template_id,
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_i64_matches(*work_id, *template_id)
+        }
+        (
+            ParcelWorkAction::Done {
+                parcel_id, work_id, ..
+            },
+            ParcelWorkAction::Done {
+                parcel_id: template_parcel,
+                work_id: template_id,
+                ..
+            },
+        ) => {
+            template_string_matches(parcel_id, template_parcel)
+                && template_i64_matches(*work_id, *template_id)
+        }
+        _ => false,
+    }
+}
+
+fn parcel_badge_action_matches(action: &ParcelBadgeAction, template: &ParcelBadgeAction) -> bool {
+    match (action, template) {
+        (
+            ParcelBadgeAction::List { parcel_id },
+            ParcelBadgeAction::List {
                 parcel_id: template,
             },
         ) => template_string_matches(parcel_id, template),
         (
-            ShopBadgeAction::Create {
+            ParcelBadgeAction::Create {
                 parcel_id, slug, ..
             },
-            ShopBadgeAction::Create {
+            ParcelBadgeAction::Create {
                 parcel_id: template_parcel,
                 slug: template_slug,
                 ..
             },
         )
         | (
-            ShopBadgeAction::Award {
+            ParcelBadgeAction::Award {
                 parcel_id, slug, ..
             },
-            ShopBadgeAction::Award {
+            ParcelBadgeAction::Award {
                 parcel_id: template_parcel,
                 slug: template_slug,
                 ..
             },
         )
         | (
-            ShopBadgeAction::Revoke {
+            ParcelBadgeAction::Revoke {
                 parcel_id, slug, ..
             },
-            ShopBadgeAction::Revoke {
+            ParcelBadgeAction::Revoke {
                 parcel_id: template_parcel,
                 slug: template_slug,
                 ..
@@ -331,38 +574,6 @@ fn badge_action_matches(action: &BadgeAction, template: &BadgeAction) -> bool {
         (BadgeAction::ListMine, BadgeAction::ListMine) => true,
         (BadgeAction::ListUser { target }, BadgeAction::ListUser { target: template }) => {
             template_string_matches(target, template)
-        }
-        _ => false,
-    }
-}
-
-fn subscription_action_matches(action: &SubscriptionAction, template: &SubscriptionAction) -> bool {
-    match (action, template) {
-        (SubscriptionAction::List, SubscriptionAction::List) => true,
-        (
-            SubscriptionAction::Subscribe { target, slug },
-            SubscriptionAction::Subscribe {
-                target: template_target,
-                slug: template_slug,
-            },
-        )
-        | (
-            SubscriptionAction::Unsubscribe { target, slug },
-            SubscriptionAction::Unsubscribe {
-                target: template_target,
-                slug: template_slug,
-            },
-        )
-        | (
-            SubscriptionAction::Chat { target, slug, .. },
-            SubscriptionAction::Chat {
-                target: template_target,
-                slug: template_slug,
-                ..
-            },
-        ) => {
-            template_string_matches(target, template_target)
-                && template_string_matches(slug, template_slug)
         }
         _ => false,
     }

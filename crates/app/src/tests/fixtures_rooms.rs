@@ -110,7 +110,7 @@ impl RoomBindingEntryView for TestRoomBinding {
 }
 
 impl RoomBindingKindView for TestRoomBinding {
-    fn is_commercial_parcel(&self) -> bool {
+    fn is_parcel(&self) -> bool {
         false
     }
 
@@ -220,7 +220,7 @@ impl RoomCommandPolicyView for TestServiceRoom {
 }
 
 impl RoomBindingKindView for TestServiceRoom {
-    fn is_commercial_parcel(&self) -> bool {
+    fn is_parcel(&self) -> bool {
         false
     }
 
@@ -454,15 +454,15 @@ impl RoomRegistrationStore for TestRegistrationStore {
     }
 }
 
-impl ParcelStore for TestRegistrationStore {
+impl ParcelRegistryStore for TestRegistrationStore {
     type Error = std::convert::Infallible;
     type Parcel = RegistrationParcel;
 
-    async fn list_commercial_parcels(&self) -> Result<Vec<Self::Parcel>, Self::Error> {
+    async fn list_parcels(&self) -> Result<Vec<Self::Parcel>, Self::Error> {
         Ok(Vec::new())
     }
 
-    async fn commercial_parcels_by_front_view(
+    async fn parcels_by_front_view(
         &self,
         front_view_id: &str,
     ) -> Result<Vec<Self::Parcel>, Self::Error> {

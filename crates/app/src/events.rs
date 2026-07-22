@@ -22,8 +22,8 @@ pub enum UiEvent {
     CloseSession(i32),
     /// Room directory caches should be invalidated by the protocol adapter.
     InvalidateRoomCache,
-    /// A commercial parcel cache entry should be invalidated by the protocol adapter.
-    InvalidateCommercialParcelCache {
+    /// A parcel cache entry should be invalidated by the protocol adapter.
+    InvalidateParcelCache {
         /// Parcel view id.
         view_id: String,
         /// Front/street view where the parcel is visible.

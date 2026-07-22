@@ -2,7 +2,7 @@
 
 Hinemos is a persistent SSH-native world for humans and software agents. Players
 enter with stable identity, move through shared places, send mail, trade MARK,
-operate shops, and interact with service rooms that run outside the core world.
+operate parcels, and interact with service rooms that run outside the core world.
 
 The repository is a Rust workspace with:
 
@@ -15,8 +15,7 @@ The repository is a Rust workspace with:
 - `crates/protocol/ssh`: SSH daemon, admin socket, SMTP/IMAP sidecar, and room
   rendering overlays.
 - `crates/protocol/http`: HTTP adapter and read-only anonymous demo API.
-- `crates/cli`: `hinemos` binary and built-in room runner.
-- `rooms/*`: built-in external room services.
+- `crates/cli`: `hinemos` binary.
 - `web/landing`: Yew/Trunk landing page with an anonymous demo terminal.
 - `worlds/sample`: sample world data in RON.
 
@@ -46,12 +45,13 @@ Optional mail sidecar configuration:
 HINEMOS_MAIL_DOMAIN=hinemos.local
 ```
 
-Optional LLM integration-test provider configuration:
+Optional Hermes LLM integration-test provider configuration:
 
 ```sh
-ANTHROPIC_BASE_URL=http://127.0.0.1:<port>
-ANTHROPIC_AUTH_TOKEN=<token>
-ANTHROPIC_MODEL=<model>
+HERMES_TEST_PROVIDER=rotom
+HERMES_TEST_MODEL=gpt-5.5
+HERMES_TEST_BASE_URL=http://127.0.0.1:14550/v1
+HERMES_TEST_API_MODE=codex_responses
 ```
 
 Do not commit real credentials. Keep them in ignored local env files or the
@@ -133,31 +133,10 @@ Players generate mailbox tokens in-world with `/settings mail-token`.
 
 ## Service Rooms
 
-Built-in service rooms are external room services connected through the room
-mailbox protocol. They are not static world views; the core world queues room
-requests in Postgres, and the room runner polls and replies through room mail.
-
-Run all built-in room workers:
-
-```sh
-DATABASE_URL=postgres://USER@127.0.0.1:5432/hinemos \
-cargo run -p hinemos-cli -- serve rooms
-```
-
-Process one batch and exit:
-
-```sh
-DATABASE_URL=postgres://USER@127.0.0.1:5432/hinemos \
-cargo run -p hinemos-cli -- serve rooms --once
-```
-
-Current built-in rooms:
-
-- Blackstone Izakaya
-- Hinemos Bank
-- Hinemos Daily Seer
-- Hinemos School
-- Workers Society
+Service rooms are external agents connected through the room mailbox protocol.
+They are not static world views; the core world queues room requests in
+Postgres, and external services poll and reply through room mail. The workspace
+does not ship an in-process room runner.
 
 ## Ledger Model
 
@@ -185,13 +164,17 @@ cargo clippy --workspace --all-targets -- -W clippy::too_many_lines -D warnings
 Focused integration tests that require `DATABASE_URL` and local SSH tooling:
 
 ```sh
-cargo test -p hinemos-cli --test workers_wage_flow
 cargo test -p hinemos-cli --test commerce_flow
 cargo test -p hinemos-cli --test mail_sidecar
 ```
 
-LLM-oriented integration tests also require the `ANTHROPIC_*` provider
-variables shown above.
+Live LLM-oriented integration tests are ignored by default. They require
+`DATABASE_URL`, local SSH tooling, the `hermes` CLI, and the `HERMES_TEST_*`
+provider variables shown above:
+
+```sh
+cargo test -p hinemos-cli --test llm_world_behavior -- --ignored --test-threads=1
+```
 
 ## Deployment
 

@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    BadgeAction, BuildAction, EntityRef, InboxAction, JsonObservation, LandAction, PayAction,
-    SemanticCommand, SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction,
-    SubscriptionAction, agent_task_match::command_matches_template,
+    BadgeAction, BuildAction, EntityRef, InboxAction, JsonObservation, ParcelAction,
+    ParcelBadgeAction, ParcelDeskAction, ParcelJobAction, ParcelMailingListAction,
+    ParcelRouteAction, ParcelShiftAction, ParcelStaffAction, ParcelWorkAction, PayAction,
+    SemanticCommand, SettingsAction, agent_task_match::command_matches_template,
 };
 
 /// Persistent controller state for one task objective.
@@ -570,11 +571,8 @@ fn command_line(command: &SemanticCommand) -> Option<String> {
         SemanticCommand::Who => "/who".to_owned(),
         SemanticCommand::Balance => "/balance".to_owned(),
         SemanticCommand::Pay { action } => pay_line(action),
-        SemanticCommand::Land { action } => land_line(action),
-        SemanticCommand::Build { action } => build_line(action)?,
-        SemanticCommand::Shop { action } => shop_line(action),
+        SemanticCommand::Parcel { action } => parcel_line(action)?,
         SemanticCommand::Badges { action } => badges_line(action),
-        SemanticCommand::Subscription { action } => subscription_line(action),
         SemanticCommand::Extension { input, .. } => input.clone(),
         SemanticCommand::Inventory => "/inventory".to_owned(),
         SemanticCommand::Help => "/help".to_owned(),
@@ -626,103 +624,215 @@ fn pay_line(action: &PayAction) -> String {
     }
 }
 
-fn land_line(action: &LandAction) -> String {
+fn parcel_line(action: &ParcelAction) -> Option<String> {
     match action {
-        LandAction::List => "/land list".to_owned(),
-        LandAction::Info { parcel_id } => format!("/land info {parcel_id}"),
-        LandAction::Claim { parcel_id } => format!("/land claim {parcel_id}"),
-        LandAction::Transfer { parcel_id, target } => {
-            format!("/land transfer {parcel_id} {target}")
+        ParcelAction::List => Some("/parcel list".to_owned()),
+        ParcelAction::Info { parcel_id } => Some(format!("/parcel info {parcel_id}")),
+        ParcelAction::Claim { parcel_id } => Some(format!("/parcel claim {parcel_id}")),
+        ParcelAction::Transfer { parcel_id, target } => {
+            Some(format!("/parcel transfer {parcel_id} {target}"))
         }
-        LandAction::Token { parcel_id } => format!("/land token {parcel_id}"),
+        ParcelAction::Token { parcel_id } => Some(format!("/parcel token {parcel_id}")),
+        ParcelAction::Build { action } => build_line(action),
+        ParcelAction::Inbox => Some("/parcel inbox".to_owned()),
+        ParcelAction::RequestPayment {
+            command_id,
+            amount,
+            delivery,
+        } => Some(format!(
+            "/parcel request-payment {command_id} {amount} {delivery}"
+        )),
+        ParcelAction::MailingList { action } => Some(parcel_mailing_list_line(action)),
+        ParcelAction::Desk { action } => Some(parcel_desk_line(action)),
+        ParcelAction::Job { action } => Some(parcel_job_line(action)),
+        ParcelAction::Route { action } => Some(parcel_route_line(action)),
+        ParcelAction::Staff { action } => Some(parcel_staff_line(action)),
+        ParcelAction::Shift { action } => Some(parcel_shift_line(action)),
+        ParcelAction::Work { action } => Some(parcel_work_line(action)),
+        ParcelAction::Badge { action } => Some(parcel_badge_line(action)),
+        ParcelAction::Subscribe { target, slug } => {
+            Some(format!("/parcel subscribe {target} {slug}"))
+        }
+        ParcelAction::Unsubscribe { target, slug } => {
+            Some(format!("/parcel unsubscribe {target} {slug}"))
+        }
+        ParcelAction::Chat { target, slug, body } => {
+            Some(format!("/parcel chat {target} {slug} -- {body}"))
+        }
+        ParcelAction::Subscriptions => Some("/parcel subscriptions".to_owned()),
     }
 }
 
 fn build_line(action: &BuildAction) -> Option<String> {
     match action {
-        BuildAction::Help => Some("/build".to_owned()),
+        BuildAction::Help => Some("/parcel build".to_owned()),
         BuildAction::Apply { .. } => None,
-        BuildAction::Set { field, value } => Some(format!("/build {field} {value}")),
-        BuildAction::Publish => Some("/build publish".to_owned()),
+        BuildAction::Set { field, value } => Some(format!("/parcel build {field} {value}")),
+        BuildAction::Publish => Some("/parcel build publish".to_owned()),
     }
 }
 
-fn shop_line(action: &ShopAction) -> String {
+fn parcel_mailing_list_line(action: &ParcelMailingListAction) -> String {
     match action {
-        ShopAction::Inbox => "/shop inbox".to_owned(),
-        ShopAction::RequestPayment {
-            command_id,
-            amount,
-            delivery,
-        } => {
-            format!("/shop request-payment {command_id} {amount} {delivery}")
-        }
-        ShopAction::MailingList { action } => shop_mailing_list_line(action),
-        ShopAction::Badge { action } => shop_badge_line(action),
-    }
-}
-
-fn shop_mailing_list_line(action: &ShopMailingListAction) -> String {
-    match action {
-        ShopMailingListAction::Create {
+        ParcelMailingListAction::Create {
             parcel_id,
             slug,
             title,
         } => {
-            format!("/shop mailing-list create {parcel_id} {slug} {title}")
+            format!("/parcel mailing-list create {parcel_id} {slug} {title}")
         }
-        ShopMailingListAction::List { parcel_id } => {
-            format!("/shop mailing-list list {parcel_id}")
+        ParcelMailingListAction::List { parcel_id } => {
+            format!("/parcel mailing-list list {parcel_id}")
         }
-        ShopMailingListAction::Subscribers { parcel_id, slug } => {
-            format!("/shop mailing-list subscribers {parcel_id} {slug}")
+        ParcelMailingListAction::Subscribers { parcel_id, slug } => {
+            format!("/parcel mailing-list subscribers {parcel_id} {slug}")
         }
-        ShopMailingListAction::Send {
+        ParcelMailingListAction::Send {
             parcel_id,
             slug,
             subject,
             body,
         } => {
-            format!("/shop mailing-list send {parcel_id} {slug} {subject} -- {body}")
+            format!("/parcel mailing-list send {parcel_id} {slug} {subject} -- {body}")
         }
-        ShopMailingListAction::Close { parcel_id, slug } => {
-            format!("/shop mailing-list close {parcel_id} {slug}")
+        ParcelMailingListAction::Close { parcel_id, slug } => {
+            format!("/parcel mailing-list close {parcel_id} {slug}")
         }
     }
 }
 
-fn shop_badge_line(action: &ShopBadgeAction) -> String {
+fn parcel_desk_line(action: &ParcelDeskAction) -> String {
     match action {
-        ShopBadgeAction::List { parcel_id } => format!("/shop badge list {parcel_id}"),
-        ShopBadgeAction::Create {
+        ParcelDeskAction::Create {
+            parcel_id,
+            slug,
+            title,
+        } => {
+            format!("/parcel desk create {parcel_id} {slug} {title}")
+        }
+        ParcelDeskAction::List { parcel_id } => format!("/parcel desk list {parcel_id}"),
+    }
+}
+
+fn parcel_job_line(action: &ParcelJobAction) -> String {
+    match action {
+        ParcelJobAction::Publish {
+            parcel_id,
+            slug,
+            title,
+            body,
+        } => {
+            format!("/parcel job publish {parcel_id} {slug} {title} -- {body}")
+        }
+        ParcelJobAction::List { parcel_id } => format!("/parcel job list {parcel_id}"),
+        ParcelJobAction::Read { parcel_id, slug } => format!("/parcel job read {parcel_id} {slug}"),
+    }
+}
+
+fn parcel_route_line(action: &ParcelRouteAction) -> String {
+    match action {
+        ParcelRouteAction::Add {
+            parcel_id,
+            slug,
+            command_prefix,
+        } => {
+            format!("/parcel route add {parcel_id} {slug} {command_prefix}")
+        }
+        ParcelRouteAction::List { parcel_id } => format!("/parcel route list {parcel_id}"),
+        ParcelRouteAction::Remove {
+            parcel_id,
+            slug,
+            command_prefix,
+        } => {
+            format!("/parcel route remove {parcel_id} {slug} {command_prefix}")
+        }
+    }
+}
+
+fn parcel_staff_line(action: &ParcelStaffAction) -> String {
+    match action {
+        ParcelStaffAction::Add {
+            parcel_id,
+            slug,
+            username,
+        } => {
+            format!("/parcel staff add {parcel_id} {slug} {username}")
+        }
+        ParcelStaffAction::List { parcel_id, slug } => {
+            format!("/parcel staff list {parcel_id} {slug}")
+        }
+        ParcelStaffAction::Remove {
+            parcel_id,
+            slug,
+            username,
+        } => {
+            format!("/parcel staff remove {parcel_id} {slug} {username}")
+        }
+    }
+}
+
+fn parcel_shift_line(action: &ParcelShiftAction) -> String {
+    match action {
+        ParcelShiftAction::Start { parcel_id, slug } => {
+            format!("/parcel shift start {parcel_id} {slug}")
+        }
+        ParcelShiftAction::End { parcel_id, slug } => {
+            format!("/parcel shift end {parcel_id} {slug}")
+        }
+    }
+}
+
+fn parcel_work_line(action: &ParcelWorkAction) -> String {
+    match action {
+        ParcelWorkAction::List { parcel_id, slug } => match slug {
+            Some(slug) => format!("/parcel work list {parcel_id} {slug}"),
+            None => format!("/parcel work list {parcel_id}"),
+        },
+        ParcelWorkAction::Claim { parcel_id, work_id } => {
+            format!("/parcel work claim {parcel_id} {work_id}")
+        }
+        ParcelWorkAction::Done {
+            parcel_id,
+            work_id,
+            result,
+        } => {
+            format!("/parcel work done {parcel_id} {work_id} -- {result}")
+        }
+    }
+}
+
+fn parcel_badge_line(action: &ParcelBadgeAction) -> String {
+    match action {
+        ParcelBadgeAction::List { parcel_id } => format!("/parcel badge list {parcel_id}"),
+        ParcelBadgeAction::Create {
             parcel_id,
             slug,
             title,
             description: None,
-        } => format!("/shop badge create {parcel_id} {slug} {title}"),
-        ShopBadgeAction::Create {
+        } => format!("/parcel badge create {parcel_id} {slug} {title}"),
+        ParcelBadgeAction::Create {
             parcel_id,
             slug,
             title,
             description: Some(description),
-        } => format!("/shop badge create {parcel_id} {slug} {title} -- {description}"),
-        ShopBadgeAction::Award {
+        } => format!("/parcel badge create {parcel_id} {slug} {title} -- {description}"),
+        ParcelBadgeAction::Award {
             parcel_id,
             slug,
             target,
             note: None,
-        } => format!("/shop badge award {parcel_id} {slug} {target}"),
-        ShopBadgeAction::Award {
+        } => format!("/parcel badge award {parcel_id} {slug} {target}"),
+        ParcelBadgeAction::Award {
             parcel_id,
             slug,
             target,
             note: Some(note),
-        } => format!("/shop badge award {parcel_id} {slug} {target} {note}"),
-        ShopBadgeAction::Revoke {
+        } => format!("/parcel badge award {parcel_id} {slug} {target} {note}"),
+        ParcelBadgeAction::Revoke {
             parcel_id,
             slug,
             target,
-        } => format!("/shop badge revoke {parcel_id} {slug} {target}"),
+        } => format!("/parcel badge revoke {parcel_id} {slug} {target}"),
     }
 }
 
@@ -730,19 +840,6 @@ fn badges_line(action: &BadgeAction) -> String {
     match action {
         BadgeAction::ListMine => "/badges".to_owned(),
         BadgeAction::ListUser { target } => format!("/badges {target}"),
-    }
-}
-
-fn subscription_line(action: &SubscriptionAction) -> String {
-    match action {
-        SubscriptionAction::Subscribe { target, slug } => format!("/subscribe {target} {slug}"),
-        SubscriptionAction::Unsubscribe { target, slug } => {
-            format!("/unsubscribe {target} {slug}")
-        }
-        SubscriptionAction::Chat { target, slug, body } => {
-            format!("/chat {target} {slug} -- {body}")
-        }
-        SubscriptionAction::List => "/subscriptions".to_owned(),
     }
 }
 

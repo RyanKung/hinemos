@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 use hinemos_core::{
     ActionKind, BadgeAction, BuildAction, Direction, EntityKind, EntityObservation, EntityRef,
-    Gender, GridRoad, InboxAction, JsonObservation, MbtiType, ObservationEvent, SemanticCommand,
-    SettingsAction, ShopAction, ShopBadgeAction, ShopMailingListAction, SubscriptionAction,
+    Gender, GridRoad, InboxAction, JsonObservation, MbtiType, ObservationEvent, ParcelAction,
+    ParcelBadgeAction, ParcelDeskAction, ParcelJobAction, ParcelMailingListAction,
+    ParcelRouteAction, ParcelShiftAction, ParcelStaffAction, ParcelWorkAction, SemanticCommand,
+    SettingsAction,
 };
 
 use super::{Chrome, SlashParseError, render_text_observation};
@@ -36,7 +38,7 @@ fn text_renderer_distinguishes_place_and_item_markers() {
         player_id: "local_player".to_owned(),
         view_id: "arrival_street".to_owned(),
         title: "Island Harbor Crossing".to_owned(),
-        ascii_art: vec!["[Workshop] -- {bulletin board}".to_owned()],
+        ascii_art: vec!["[Workparcel] -- {bulletin board}".to_owned()],
         description: "A crossing.".to_owned(),
         exits: Vec::new(),
         entities: Vec::new(),
@@ -46,7 +48,7 @@ fn text_renderer_distinguishes_place_and_item_markers() {
     });
 
     assert!(rendered.contains(Chrome::ANSI_PLACE_MARKER));
-    assert!(rendered.contains("[Workshop]"));
+    assert!(rendered.contains("[Workparcel]"));
     assert!(rendered.contains(Chrome::ANSI_ITEM_MARKER));
     assert!(rendered.contains("{bulletin board}"));
 }
@@ -236,12 +238,14 @@ fn slash_parser_accepts_read_without_argument_when_single_target_available() {
 fn slash_parser_accepts_build_json() {
     let command = Chrome::with_aliases(HashMap::new())
             .parse_command(
-                "/build {\"title\":\"Tool Broker\",\"description\":\"Simple tools\",\"style\":\"ledger\",\"prompt\":\"reply tersely\"}",
+                "/parcel build {\"title\":\"Tool Broker\",\"description\":\"Simple tools\",\"style\":\"ledger\",\"prompt\":\"reply tersely\"}",
             )
             .expect("build json parses");
 
-    let SemanticCommand::Build {
-        action: BuildAction::Apply { sheet },
+    let SemanticCommand::Parcel {
+        action: ParcelAction::Build {
+            action: BuildAction::Apply { sheet },
+        },
     } = command
     else {
         panic!("expected build sheet");
@@ -282,30 +286,30 @@ fn slash_parser_accepts_inbox_actions() {
 }
 
 #[test]
-fn slash_parser_accepts_shop_mailing_list_actions() {
+fn slash_parser_accepts_parcel_mailing_list_actions() {
     let chrome = Chrome::with_aliases(HashMap::new());
 
     assert_eq!(
         chrome
-            .parse_command("/shop mailing-list create N1 updates Shop Updates")
+            .parse_command("/parcel mailing-list create N1 updates Parcel Updates")
             .expect("mailing-list create parses"),
-        SemanticCommand::Shop {
-            action: ShopAction::MailingList {
-                action: ShopMailingListAction::Create {
+        SemanticCommand::Parcel {
+            action: ParcelAction::MailingList {
+                action: ParcelMailingListAction::Create {
                     parcel_id: "N1".to_owned(),
                     slug: "updates".to_owned(),
-                    title: "Shop Updates".to_owned()
+                    title: "Parcel Updates".to_owned()
                 }
             }
         }
     );
     assert_eq!(
         chrome
-            .parse_command("/shop mailing-list send N1 updates Weekly Deal -- Body keeps -- text")
+            .parse_command("/parcel mailing-list send N1 updates Weekly Deal -- Body keeps -- text")
             .expect("mailing-list send parses"),
-        SemanticCommand::Shop {
-            action: ShopAction::MailingList {
-                action: ShopMailingListAction::Send {
+        SemanticCommand::Parcel {
+            action: ParcelAction::MailingList {
+                action: ParcelMailingListAction::Send {
                     parcel_id: "N1".to_owned(),
                     slug: "updates".to_owned(),
                     subject: "Weekly Deal".to_owned(),
@@ -316,11 +320,11 @@ fn slash_parser_accepts_shop_mailing_list_actions() {
     );
     assert_eq!(
         chrome
-            .parse_command("/shop mailing-list create N1 n Tiny List")
+            .parse_command("/parcel mailing-list create N1 n Tiny List")
             .expect("mailing-list create with short slug parses"),
-        SemanticCommand::Shop {
-            action: ShopAction::MailingList {
-                action: ShopMailingListAction::Create {
+        SemanticCommand::Parcel {
+            action: ParcelAction::MailingList {
+                action: ParcelMailingListAction::Create {
                     parcel_id: "N1".to_owned(),
                     slug: "n".to_owned(),
                     title: "Tiny List".to_owned()
@@ -330,11 +334,11 @@ fn slash_parser_accepts_shop_mailing_list_actions() {
     );
     assert_eq!(
         chrome
-            .parse_command("/shop mailing-list send N1 n Hello -- Body")
+            .parse_command("/parcel mailing-list send N1 n Hello -- Body")
             .expect("mailing-list send with short slug parses"),
-        SemanticCommand::Shop {
-            action: ShopAction::MailingList {
-                action: ShopMailingListAction::Send {
+        SemanticCommand::Parcel {
+            action: ParcelAction::MailingList {
+                action: ParcelMailingListAction::Send {
                     parcel_id: "N1".to_owned(),
                     slug: "n".to_owned(),
                     subject: "Hello".to_owned(),
@@ -345,10 +349,148 @@ fn slash_parser_accepts_shop_mailing_list_actions() {
     );
     assert_eq!(
         chrome
-            .parse_command("/chat Offline Tool Broker updates -- Hello members")
-            .expect("shop chat parses"),
-        SemanticCommand::Subscription {
-            action: SubscriptionAction::Chat {
+            .parse_command("/parcel route add N1 submissions /paper submit")
+            .expect("parcel route add parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Route {
+                action: ParcelRouteAction::Add {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned(),
+                    command_prefix: "/paper submit".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel route remove N1 submissions /paper submit")
+            .expect("parcel route remove parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Route {
+                action: ParcelRouteAction::Remove {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned(),
+                    command_prefix: "/paper submit".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel desk create N1 submissions Submissions Desk")
+            .expect("parcel desk create parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Desk {
+                action: ParcelDeskAction::Create {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned(),
+                    title: "Submissions Desk".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command(
+                "/parcel job publish N1 reporter Reporter JD -- File one story each game day"
+            )
+            .expect("parcel job publish parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Job {
+                action: ParcelJobAction::Publish {
+                    parcel_id: "N1".to_owned(),
+                    slug: "reporter".to_owned(),
+                    title: "Reporter JD".to_owned(),
+                    body: "File one story each game day".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel job read N1 reporter")
+            .expect("parcel job read parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Job {
+                action: ParcelJobAction::Read {
+                    parcel_id: "N1".to_owned(),
+                    slug: "reporter".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel job list N1")
+            .expect("parcel job list parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Job {
+                action: ParcelJobAction::List {
+                    parcel_id: "N1".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel staff add N1 submissions hermes-reporter")
+            .expect("parcel staff add parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Staff {
+                action: ParcelStaffAction::Add {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned(),
+                    username: "hermes-reporter".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel shift start N1 submissions")
+            .expect("parcel shift start parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Shift {
+                action: ParcelShiftAction::Start {
+                    parcel_id: "N1".to_owned(),
+                    slug: "submissions".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel work list N1 submissions")
+            .expect("parcel work list parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Work {
+                action: ParcelWorkAction::List {
+                    parcel_id: "N1".to_owned(),
+                    slug: Some("submissions".to_owned())
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel work done N1 42 -- accepted for daily issue")
+            .expect("parcel work done parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Work {
+                action: ParcelWorkAction::Done {
+                    parcel_id: "N1".to_owned(),
+                    work_id: 42,
+                    result: "accepted for daily issue".to_owned()
+                }
+            }
+        }
+    );
+    assert_eq!(
+        chrome
+            .parse_command("/parcel chat Offline Tool Broker updates -- Hello members")
+            .expect("parcel chat parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Chat {
                 target: "Offline Tool Broker".to_owned(),
                 slug: "updates".to_owned(),
                 body: "Hello members".to_owned()
@@ -358,16 +500,16 @@ fn slash_parser_accepts_shop_mailing_list_actions() {
 }
 
 #[test]
-fn slash_parser_accepts_shop_badge_actions() {
+fn slash_parser_accepts_parcel_badge_actions() {
     let chrome = Chrome::with_aliases(HashMap::new());
 
     assert_eq!(
         chrome
-            .parse_command("/shop badge list N1")
-            .expect("shop badge list parses"),
-        SemanticCommand::Shop {
-            action: ShopAction::Badge {
-                action: ShopBadgeAction::List {
+            .parse_command("/parcel badge list N1")
+            .expect("parcel badge list parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Badge {
+                action: ParcelBadgeAction::List {
                     parcel_id: "N1".to_owned()
                 }
             }
@@ -376,12 +518,12 @@ fn slash_parser_accepts_shop_badge_actions() {
     assert_eq!(
         chrome
             .parse_command(
-                "/shop badge create N1 reliable-worker Reliable Worker -- Finished cleanly"
+                "/parcel badge create N1 reliable-worker Reliable Worker -- Finished cleanly"
             )
-            .expect("shop badge create parses"),
-        SemanticCommand::Shop {
-            action: ShopAction::Badge {
-                action: ShopBadgeAction::Create {
+            .expect("parcel badge create parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Badge {
+                action: ParcelBadgeAction::Create {
                     parcel_id: "N1".to_owned(),
                     slug: "reliable-worker".to_owned(),
                     title: "Reliable Worker".to_owned(),
@@ -392,11 +534,11 @@ fn slash_parser_accepts_shop_badge_actions() {
     );
     assert_eq!(
         chrome
-            .parse_command("/shop badge award N1 reliable-worker ada paid invoice 42")
-            .expect("shop badge award parses"),
-        SemanticCommand::Shop {
-            action: ShopAction::Badge {
-                action: ShopBadgeAction::Award {
+            .parse_command("/parcel badge award N1 reliable-worker ada paid invoice 42")
+            .expect("parcel badge award parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Badge {
+                action: ParcelBadgeAction::Award {
                     parcel_id: "N1".to_owned(),
                     slug: "reliable-worker".to_owned(),
                     target: "ada".to_owned(),
@@ -407,11 +549,11 @@ fn slash_parser_accepts_shop_badge_actions() {
     );
     assert_eq!(
         chrome
-            .parse_command("/shop badge revoke N1 reliable-worker ada")
-            .expect("shop badge revoke parses"),
-        SemanticCommand::Shop {
-            action: ShopAction::Badge {
-                action: ShopBadgeAction::Revoke {
+            .parse_command("/parcel badge revoke N1 reliable-worker ada")
+            .expect("parcel badge revoke parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Badge {
+                action: ParcelBadgeAction::Revoke {
                     parcel_id: "N1".to_owned(),
                     slug: "reliable-worker".to_owned(),
                     target: "ada".to_owned()
@@ -444,15 +586,15 @@ fn slash_parser_accepts_badge_lookup_actions() {
 }
 
 #[test]
-fn slash_parser_accepts_shop_subscription_actions() {
+fn slash_parser_accepts_parcel_subscription_actions() {
     let chrome = Chrome::with_aliases(HashMap::new());
 
     assert_eq!(
         chrome
-            .parse_command("/subscribe N1 updates")
+            .parse_command("/parcel subscribe N1 updates")
             .expect("subscribe parses"),
-        SemanticCommand::Subscription {
-            action: SubscriptionAction::Subscribe {
+        SemanticCommand::Parcel {
+            action: ParcelAction::Subscribe {
                 target: "N1".to_owned(),
                 slug: "updates".to_owned()
             }
@@ -460,10 +602,10 @@ fn slash_parser_accepts_shop_subscription_actions() {
     );
     assert_eq!(
         chrome
-            .parse_command("/unsubscribe N1 updates")
+            .parse_command("/parcel unsubscribe N1 updates")
             .expect("unsubscribe parses"),
-        SemanticCommand::Subscription {
-            action: SubscriptionAction::Unsubscribe {
+        SemanticCommand::Parcel {
+            action: ParcelAction::Unsubscribe {
                 target: "N1".to_owned(),
                 slug: "updates".to_owned()
             }
@@ -471,18 +613,18 @@ fn slash_parser_accepts_shop_subscription_actions() {
     );
     assert_eq!(
         chrome
-            .parse_command("/subscriptions")
+            .parse_command("/parcel subscriptions")
             .expect("subscriptions parses"),
-        SemanticCommand::Subscription {
-            action: SubscriptionAction::List
+        SemanticCommand::Parcel {
+            action: ParcelAction::Subscriptions
         }
     );
     assert_eq!(
         chrome
-            .parse_command("/subscribe Offline Tool Broker updates")
-            .expect("subscribe with shop title parses"),
-        SemanticCommand::Subscription {
-            action: SubscriptionAction::Subscribe {
+            .parse_command("/parcel subscribe Offline Tool Broker updates")
+            .expect("subscribe with parcel title parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Subscribe {
                 target: "Offline Tool Broker".to_owned(),
                 slug: "updates".to_owned()
             }
@@ -490,10 +632,10 @@ fn slash_parser_accepts_shop_subscription_actions() {
     );
     assert_eq!(
         chrome
-            .parse_command("/unsubscribe Offline Tool Broker updates")
-            .expect("unsubscribe with shop title parses"),
-        SemanticCommand::Subscription {
-            action: SubscriptionAction::Unsubscribe {
+            .parse_command("/parcel unsubscribe Offline Tool Broker updates")
+            .expect("unsubscribe with parcel title parses"),
+        SemanticCommand::Parcel {
+            action: ParcelAction::Unsubscribe {
                 target: "Offline Tool Broker".to_owned(),
                 slug: "updates".to_owned()
             }

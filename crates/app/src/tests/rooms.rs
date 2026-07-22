@@ -139,16 +139,16 @@ fn service_room_binding_helper_reads_room_binding_view() {
 fn visible_room_enter_events_returns_none_when_no_visible_binding_matches() {
     let app = AppService::new(TestRoomStore { service_room: None });
     let bindings = vec![TestRoomBinding {
-        view_id: "bank_room",
-        front_entity_id: Some("bank_door"),
-        address: "H4",
-        label: "Hinemos Bank",
-        enter_aliases: vec!["bank".to_owned()],
+        view_id: "studio_room",
+        front_entity_id: Some("studio_door"),
+        address: "XR4",
+        label: "External Studio",
+        enter_aliases: vec!["studio".to_owned()],
     }];
     let visible_entity_ids = Vec::<String>::new();
 
     assert!(
-        app.visible_room_enter_events("bank", &visible_entity_ids, &bindings)
+        app.visible_room_enter_events("studio", &visible_entity_ids, &bindings)
             .is_none()
     );
 }
@@ -157,16 +157,16 @@ fn visible_room_enter_events_returns_none_when_no_visible_binding_matches() {
 fn unavailable_room_enter_events_explain_current_visible_entrances() {
     let app = AppService::new(TestRoomStore { service_room: None });
     let bindings = vec![TestRoomBinding {
-        view_id: "workers_room",
-        front_entity_id: Some("workers_front"),
-        address: "H3",
-        label: "Workers Society",
-        enter_aliases: vec!["workers".to_owned()],
+        view_id: "studio_room",
+        front_entity_id: Some("studio_front"),
+        address: "XR3",
+        label: "External Studio",
+        enter_aliases: vec!["studio".to_owned()],
     }];
-    let visible_entity_ids = vec!["workers_front".to_owned()];
+    let visible_entity_ids = vec!["studio_front".to_owned()];
 
     let events = app.unavailable_room_enter_events(
-        "bank",
+        "archive",
         "East Hinemos Blvd",
         &visible_entity_ids,
         &bindings,
@@ -175,7 +175,7 @@ fn unavailable_room_enter_events_explain_current_visible_entrances() {
     assert_eq!(
         events,
         vec![UiEvent::Text(
-            "No entrance named bank is visible from East Hinemos Blvd. Available entrances here: /enter H3.\r\n"
+            "No entrance named archive is visible from East Hinemos Blvd. Available entrances here: /enter XR3.\r\n"
                 .to_owned()
         )]
     );
@@ -222,10 +222,10 @@ fn room_binding_accepts_input_honors_forward_all_and_prefix_matching() {
     assert!(app.room_binding_accepts_input(&policy_binding, "/anything"));
 
     let binding = TestRoomBinding {
-        view_id: "bank_room",
-        front_entity_id: Some("bank_door"),
-        address: "H4",
-        label: "Hinemos Bank",
+        view_id: "studio_room",
+        front_entity_id: Some("studio_door"),
+        address: "XR4",
+        label: "External Studio",
         enter_aliases: vec!["/Room Status".to_owned(), "/room ask".to_owned()],
     };
     assert!(app.room_binding_accepts_input(&binding, "/ROOM STATUS"));
@@ -375,17 +375,19 @@ fn service_room_command_for_binding_quit_closes_session() {
 fn room_binding_enter_matching_uses_explicit_tokens_and_visibility() {
     let app = AppService::new(TestRoomStore { service_room: None });
     let binding = TestRoomBinding {
-        view_id: "bank_room",
-        front_entity_id: Some("bank_door"),
-        address: "H4",
-        label: "Hinemos Bank",
-        enter_aliases: vec!["bank".to_owned()],
+        view_id: "studio_room",
+        front_entity_id: Some("studio_door"),
+        address: "XR4",
+        label: "External Studio",
+        enter_aliases: vec!["studio".to_owned()],
     };
 
-    assert!(app.room_binding_enter_matches(&binding, &app.normalize_enter_target("h4")));
-    assert!(app.room_binding_enter_matches(&binding, &app.normalize_enter_target("Hinemos Bank")));
-    assert!(app.room_binding_enter_matches(&binding, &app.normalize_enter_target("bank")));
+    assert!(app.room_binding_enter_matches(&binding, &app.normalize_enter_target("xr4")));
+    assert!(
+        app.room_binding_enter_matches(&binding, &app.normalize_enter_target("External Studio"))
+    );
+    assert!(app.room_binding_enter_matches(&binding, &app.normalize_enter_target("studio")));
     assert!(!app.room_binding_enter_matches(&binding, &app.normalize_enter_target("room")));
-    assert!(app.room_binding_is_visible(&binding, &["bank_door".to_owned()]));
+    assert!(app.room_binding_is_visible(&binding, &["studio_door".to_owned()]));
     assert!(!app.room_binding_is_visible(&binding, &["other_door".to_owned()]));
 }

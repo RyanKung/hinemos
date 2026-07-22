@@ -13,11 +13,10 @@ mod schema;
 mod storage_badges;
 mod storage_ext;
 mod storage_mailing_lists;
-mod storage_marriage;
 mod storage_memory;
+mod storage_parcel;
 mod storage_payments;
 mod storage_rooms;
-mod storage_shop;
 mod types;
 
 use std::future::Future;
@@ -32,22 +31,27 @@ pub use hinemos_core::{
     INBOX_FILTER_DONE, INBOX_FILTER_OPEN, INBOX_FILTER_UNREAD, INBOX_STATUS_ACKED,
     INBOX_STATUS_ARCHIVED, INBOX_STATUS_CLAIMED, INBOX_STATUS_UNREAD,
     OPERATOR_COMMAND_STATUS_DELIVERED, OPERATOR_COMMAND_STATUS_HANDLED,
-    OPERATOR_COMMAND_STATUS_PENDING, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED,
-    PARCEL_STATUS_VACANT, PAYMENT_REQUEST_STATUS_CANCELLED, PAYMENT_REQUEST_STATUS_PAID,
-    PAYMENT_REQUEST_STATUS_PENDING, SHOP_BADGE_AWARD_ACTIVE, SHOP_BADGE_AWARD_REVOKED,
-    SHOP_MAILING_LIST_STATUS_CLOSED, SHOP_MAILING_LIST_STATUS_OPEN,
-    SHOP_MAILING_LIST_SUBSCRIPTION_ACTIVE, SHOP_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED,
+    OPERATOR_COMMAND_STATUS_PENDING, PARCEL_BADGE_AWARD_ACTIVE, PARCEL_BADGE_AWARD_REVOKED,
+    PARCEL_MAILING_LIST_STATUS_CLOSED, PARCEL_MAILING_LIST_STATUS_OPEN,
+    PARCEL_MAILING_LIST_SUBSCRIPTION_ACTIVE, PARCEL_MAILING_LIST_SUBSCRIPTION_UNSUBSCRIBED,
+    PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, PARCEL_STATUS_VACANT,
+    PARCEL_WORK_DESK_STATUS_CLOSED, PARCEL_WORK_DESK_STATUS_OPEN, PARCEL_WORK_ITEM_CANCELLED,
+    PARCEL_WORK_ITEM_CLAIMED, PARCEL_WORK_ITEM_DONE, PARCEL_WORK_ITEM_QUEUED,
+    PARCEL_WORK_SHIFT_ACTIVE, PARCEL_WORK_SHIFT_ENDED, PARCEL_WORK_STAFF_ACTIVE,
+    PARCEL_WORK_STAFF_REMOVED, PAYMENT_REQUEST_STATUS_CANCELLED, PAYMENT_REQUEST_STATUS_PAID,
+    PAYMENT_REQUEST_STATUS_PENDING,
 };
 pub(crate) use messages::NewInboxItem;
 pub use types::{
     NewMemoryAtom, NewMemoryEvent, StoredAccountSettings, StoredAdmission, StoredAgentSelfModel,
     StoredBalance, StoredHungerState, StoredIdentity, StoredInboxItem, StoredMailAuthToken,
-    StoredMarriageCertificate, StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand,
-    StoredParcel, StoredPasswordIdentity, StoredPaymentRequest, StoredRoomBinding,
-    StoredRoomBindingKind, StoredRoomCommandPolicy, StoredServiceRoom, StoredShopBadgeAward,
-    StoredShopBadgeDefinition, StoredShopMailingList, StoredShopMailingListPost,
-    StoredShopMailingListSubscriber, StoredShopMailingListSubscription, StoredSocialEdge,
-    StoredTransfer, StoredWorldMessage,
+    StoredMemoryAtom, StoredMemoryEvent, StoredOperatorCommand, StoredParcel,
+    StoredParcelBadgeAward, StoredParcelBadgeDefinition, StoredParcelCommandRoute,
+    StoredParcelJobGuide, StoredParcelMailingList, StoredParcelMailingListPost,
+    StoredParcelMailingListSubscriber, StoredParcelMailingListSubscription, StoredParcelShift,
+    StoredParcelStaff, StoredParcelWorkDesk, StoredParcelWorkItem, StoredPasswordIdentity,
+    StoredPaymentRequest, StoredRoomBinding, StoredRoomBindingKind, StoredRoomCommandPolicy,
+    StoredServiceRoom, StoredSocialEdge, StoredTransfer, StoredWorldMessage,
 };
 
 /// Single in-world test currency used by the current ledger.
@@ -80,8 +84,6 @@ pub struct ServiceRoomUpsert<'a> {
     pub custom_commands: Option<&'a str>,
     /// Optional command list that counts as hunger recovery.
     pub recovery_commands: Option<&'a str>,
-    /// Optional built-in handler key consumed by the built-in room runner.
-    pub builtin_handler: Option<&'a str>,
     /// Whether the room is currently enabled.
     pub enabled: bool,
 }

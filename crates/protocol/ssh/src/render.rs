@@ -8,8 +8,8 @@ mod render_tests;
 
 use anyhow::Result;
 use hinemos_core::{
-    JsonObservation, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED, SHOP_MAILING_LIST_STATUS_OPEN,
-    SemanticCommand, SubscriptionAction,
+    JsonObservation, PARCEL_MAILING_LIST_STATUS_OPEN, PARCEL_STATUS_BUILT, PARCEL_STATUS_CLAIMED,
+    ParcelAction, SemanticCommand,
 };
 use hinemos_runtime::{Chrome, render_text_events, render_text_observation_with_width};
 use hinemos_storage::{StoredInboxItem, StoredRoomBinding};
@@ -174,13 +174,15 @@ pub(crate) fn overlay_parcel_observation(
                 observation.title = title.to_owned();
             }
             if let Some(description) = binding.parcel_description.as_deref() {
-                let shop_commands = format_shop_commands(binding);
+                let parcel_commands = format_parcel_commands(binding);
+                let style =
+                    sentence_terminated(binding.parcel_style.as_deref().unwrap_or("unspecified"));
                 observation.description = format!(
-                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}.\nShop commands: {}.\nMailing lists: {}.\nOperator prompt: {}",
+                    "{description}\nOwner: {owner}. Parcel: {}. Style: {}\nParcel commands: {}.\nMailing lists: {}.\nOperator prompt: {}",
                     binding.address,
-                    binding.parcel_style.as_deref().unwrap_or("unspecified"),
-                    shop_commands.as_deref().unwrap_or("not specified"),
-                    format_shop_mailing_lists(binding)
+                    style,
+                    parcel_commands.as_deref().unwrap_or("not specified"),
+                    format_parcel_mailing_lists(binding)
                         .as_deref()
                         .unwrap_or("none"),
                     binding
@@ -204,24 +206,24 @@ pub(crate) fn overlay_parcel_observation(
                 }));
             observation
                 .available_commands
-                .extend(open_shop_mailing_lists(binding).map(|list| {
-                    SemanticCommand::Subscription {
-                        action: SubscriptionAction::Subscribe {
+                .extend(
+                    open_parcel_mailing_lists(binding).map(|list| SemanticCommand::Parcel {
+                        action: ParcelAction::Subscribe {
                             target: binding.address.clone(),
                             slug: list.slug.clone(),
                         },
-                    }
-                }));
+                    }),
+                );
         }
         PARCEL_STATUS_CLAIMED => {
             observation.description = format!(
-                "Commercial parcel {} is claimed by {owner} but not built yet.\nOwner can edit here with one JSON build sheet: /build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /build publish. Custom commands are auto-filled if omitted.",
+                "Parcel {} is claimed by {owner} but not built yet.\nOwner can edit here with one JSON build sheet: /parcel build {{\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}}, then /parcel build publish. Custom commands are auto-filled if omitted.",
                 binding.address
             );
         }
         _ => {
             observation.description = format!(
-                "Vacant commercial parcel {}. Claim it from the land registry with /land claim {}.",
+                "Vacant parcel {}. Claim it from the parcel registry with /parcel claim {}.",
                 binding.address, binding.address
             );
         }
@@ -231,6 +233,15 @@ pub(crate) fn overlay_parcel_observation(
 pub(crate) fn overlay_service_room(observation: &mut JsonObservation, room: &impl ServiceRoomView) {
     if let Some(status) = room.status_text().filter(|status| !status.is_empty()) {
         observation.description = format!("{}\n{status}", observation.description);
+    }
+}
+
+fn sentence_terminated(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.ends_with('.') || trimmed.ends_with('!') || trimmed.ends_with('?') {
+        trimmed.to_owned()
+    } else {
+        format!("{trimmed}.")
     }
 }
 
@@ -341,21 +352,21 @@ pub(crate) fn command_inputs(commands: Option<&str>) -> impl Iterator<Item = Str
         })
 }
 
-fn format_shop_commands(binding: &StoredRoomBinding) -> Option<String> {
+fn format_parcel_commands(binding: &StoredRoomBinding) -> Option<String> {
     let rendered = binding
         .parcel_custom_commands
         .as_deref()?
         .split(['\n', ';'])
-        .filter_map(format_shop_command_entry)
+        .filter_map(format_parcel_command_entry)
         .collect::<Vec<_>>();
     (!rendered.is_empty()).then(|| rendered.join("; "))
 }
 
-fn format_shop_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
-    let rendered = open_shop_mailing_lists(binding)
+fn format_parcel_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
+    let rendered = open_parcel_mailing_lists(binding)
         .map(|list| {
             format!(
-                "{} ({}) join: /subscribe {} {}; chat after joining: /chat {} {} -- <message>",
+                "{} ({}) join: /parcel subscribe {} {}; chat after joining: /parcel chat {} {} -- <message>",
                 list.title, list.slug, binding.address, list.slug, binding.address, list.slug
             )
         })
@@ -363,16 +374,16 @@ fn format_shop_mailing_lists(binding: &StoredRoomBinding) -> Option<String> {
     (!rendered.is_empty()).then(|| rendered.join("; "))
 }
 
-fn open_shop_mailing_lists(
+fn open_parcel_mailing_lists(
     binding: &StoredRoomBinding,
-) -> impl Iterator<Item = &hinemos_storage::StoredShopMailingList> {
+) -> impl Iterator<Item = &hinemos_storage::StoredParcelMailingList> {
     binding
         .parcel_mailing_lists
         .iter()
-        .filter(|list| list.status == SHOP_MAILING_LIST_STATUS_OPEN)
+        .filter(|list| list.status == PARCEL_MAILING_LIST_STATUS_OPEN)
 }
 
-fn format_shop_command_entry(entry: &str) -> Option<String> {
+fn format_parcel_command_entry(entry: &str) -> Option<String> {
     let entry = entry.trim();
     let command = entry.split_whitespace().next()?;
     if !command.starts_with('/') {
@@ -473,8 +484,8 @@ pub(crate) fn world_error_feedback(message: &str) -> String {
         return "The Guild will not accept that parcel action; you do not own this parcel."
             .to_owned();
     }
-    if let Some(id) = message.strip_prefix("shop command not found: ") {
-        return format!("No shop notice #{id} is waiting here.");
+    if let Some(id) = message.strip_prefix("parcel command not found: ") {
+        return format!("No parcel notice #{id} is waiting here.");
     }
     if let Some(target) = message.strip_prefix("entity is not visible: ") {
         return format!("You do not see {target} here.");
@@ -492,7 +503,7 @@ pub(crate) fn world_error_feedback(message: &str) -> String {
         return format!("That parcel is not beside this path. {rest}");
     }
     if message.starts_with("no adjacent parcel here") {
-        return "Nothing opens from this side. Move along the street with /go, or use /enter <place> when a shopfront or parcel is visible."
+        return "Nothing opens from this side. Move along the street with /go, or use /enter <place> when a parcel is visible."
             .to_owned();
     }
     message.to_owned()
@@ -589,6 +600,6 @@ pub(crate) fn exec_help() -> &'static str {
      Autonomous agent mail: log in with an ed25519 SSH key, run /settings mail-token, then use SMTP/IMAP with username <user> and that token. Keep IMAP IDLE open to receive no-prompt EXISTS notifications, then FETCH and STORE +FLAGS (\\Seen).\n\
      Room service agents: requests arrive with subject `Room command #<id> for <view_id>`; reply with subject `Re: #<id>` so players can associate the answer with the request.\n\
      Keep the SSH connection open, read each observation, choose one Available command, send it, and continue.\n\
-     Common commands inside the session: /look, /go east, /go west, /inspect board, /read board, /help.\n\
+     Common commands inside the session: /look, /go east, /go west, /inspect board, /read agreement, /help.\n\
      Wallet commands: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>."
 }

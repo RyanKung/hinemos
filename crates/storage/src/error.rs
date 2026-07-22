@@ -21,28 +21,16 @@ pub enum StorageError {
     /// Sender and target resolve to the same account.
     #[error("cannot pay yourself")]
     SelfPayment,
-    /// A player cannot marry themself.
-    #[error("cannot register marriage with yourself")]
-    SelfMarriage,
     /// Sender balance is too low.
     #[error("insufficient MARK balance")]
     InsufficientFunds,
-    /// Marriage partner is not present in the registry room.
-    #[error("marriage partner is not present in registry: {0}")]
-    MarriagePartnerNotPresent(String),
-    /// One of the players already has an active marriage.
-    #[error("active marriage already exists for: {0}")]
-    MarriageAlreadyActive(String),
-    /// Player has no active marriage certificate to dissolve.
-    #[error("no active marriage found for: {0}")]
-    NoActiveMarriage(String),
-    /// Commercial parcel does not exist.
+    /// Parcel does not exist.
     #[error("parcel not found: {0}")]
     ParcelNotFound(String),
     /// Room binding has no room mailbox principal.
     #[error("room mailbox missing for view: {0}")]
     RoomMailboxMissing(String),
-    /// Commercial parcel is already owned.
+    /// Parcel is already owned.
     #[error("parcel is already owned: {0}")]
     ParcelAlreadyOwned(String),
     /// Player does not own the parcel.
@@ -58,7 +46,7 @@ pub enum StorageError {
     #[error("parcel is not built: {0}")]
     ParcelNotBuilt(String),
     /// Operator command was not found.
-    #[error("shop command not found: {0}")]
+    #[error("parcel command not found: {0}")]
     OperatorCommandNotFound(i64),
     /// Payment request was not found.
     #[error("payment request not found: {0}")]
@@ -89,7 +77,7 @@ pub enum StorageError {
         /// Stable list slug.
         slug: String,
     },
-    /// Mailing list already exists for a shop parcel.
+    /// Mailing list already exists for a parcel parcel.
     #[error("mailing list already exists: {parcel_id}/{slug}")]
     MailingListAlreadyExists {
         /// Parcel id.
@@ -114,35 +102,87 @@ pub enum StorageError {
         slug: String,
     },
     /// Mailing list has no active members.
-    #[error("shop chat has no active members: {parcel_id}/{slug}")]
+    #[error("parcel chat has no active members: {parcel_id}/{slug}")]
     MailingListNoSubscribers {
         /// Parcel id.
         parcel_id: String,
         /// Stable list slug.
         slug: String,
     },
-    /// Player is not a member of the shop mailing list.
-    #[error("join this shop chat before posting: {parcel_id}/{slug}")]
+    /// Player is not a member of the parcel mailing list.
+    #[error("join this parcel chat before posting: {parcel_id}/{slug}")]
     MailingListNotMember {
         /// Parcel id.
         parcel_id: String,
         /// Stable list slug.
         slug: String,
     },
-    /// Shop badge input is invalid.
-    #[error("invalid shop badge: {0}")]
-    InvalidShopBadge(String),
-    /// Shop badge was not found.
-    #[error("shop badge not found: {parcel_id}/{slug}")]
-    ShopBadgeNotFound {
+    /// Parcel work input is invalid.
+    #[error("invalid parcel work: {0}")]
+    InvalidParcelWork(String),
+    /// Parcel job-guide input is invalid.
+    #[error("invalid parcel job guide: {0}")]
+    InvalidParcelJobGuide(String),
+    /// Parcel job guide was not found.
+    #[error("parcel job guide not found: {parcel_id}/{slug}")]
+    ParcelJobGuideNotFound {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable job slug.
+        slug: String,
+    },
+    /// Parcel work desk was not found.
+    #[error("parcel work desk not found: {parcel_id}/{slug}")]
+    ParcelWorkDeskNotFound {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Parcel work desk already exists.
+    #[error("parcel work desk already exists: {parcel_id}/{slug}")]
+    ParcelWorkDeskAlreadyExists {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Worker is not assigned to the parcel work desk.
+    #[error("parcel worker is not assigned to this desk: {parcel_id}/{slug}")]
+    ParcelWorkerNotAssigned {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Worker has no active in-parcel shift for this desk.
+    #[error("no active parcel shift for this desk: {parcel_id}/{slug}")]
+    ParcelShiftNotActive {
+        /// Parcel id.
+        parcel_id: String,
+        /// Stable work-desk slug.
+        slug: String,
+    },
+    /// Parcel work item was not found.
+    #[error("parcel work item not found: {0}")]
+    ParcelWorkItemNotFound(i64),
+    /// Parcel work item is not in a valid state for this operation.
+    #[error("parcel work item has invalid state: {0}")]
+    ParcelWorkItemInvalidState(i64),
+    /// Parcel badge input is invalid.
+    #[error("invalid parcel badge: {0}")]
+    InvalidParcelBadge(String),
+    /// Parcel badge was not found.
+    #[error("parcel badge not found: {parcel_id}/{slug}")]
+    ParcelBadgeNotFound {
         /// Parcel id.
         parcel_id: String,
         /// Stable badge slug.
         slug: String,
     },
-    /// Shop badge award was not found.
-    #[error("shop badge award not found: {parcel_id}/{slug} for {target}")]
-    ShopBadgeAwardNotFound {
+    /// Parcel badge award was not found.
+    #[error("parcel badge award not found: {parcel_id}/{slug} for {target}")]
+    ParcelBadgeAwardNotFound {
         /// Parcel id.
         parcel_id: String,
         /// Stable badge slug.
@@ -150,9 +190,9 @@ pub enum StorageError {
         /// Target username or player id.
         target: String,
     },
-    /// Shop badge award is not currently active.
-    #[error("shop badge award is not active: {parcel_id}/{slug} for {target}")]
-    ShopBadgeAwardNotActive {
+    /// Parcel badge award is not currently active.
+    #[error("parcel badge award is not active: {parcel_id}/{slug} for {target}")]
+    ParcelBadgeAwardNotActive {
         /// Parcel id.
         parcel_id: String,
         /// Stable badge slug.

@@ -1,6 +1,6 @@
 use super::{CacheEntry, InboxItemCache, RoomDirectoryCache, RoomViewContext, ViewPresenceCache};
 use anyhow::Result;
-use hinemos_app::{AppService, ParcelStore, ServiceRoomRegistration};
+use hinemos_app::{AppService, ParcelRegistryStore, ServiceRoomRegistration};
 use hinemos_storage::{StorageError, StoredInboxItem, StoredParcel, StoredServiceRoom};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -9,15 +9,15 @@ struct TestParcelStore {
     parcels: Vec<StoredParcel>,
 }
 
-impl ParcelStore for TestParcelStore {
+impl ParcelRegistryStore for TestParcelStore {
     type Error = StorageError;
     type Parcel = StoredParcel;
 
-    async fn list_commercial_parcels(&self) -> Result<Vec<Self::Parcel>, Self::Error> {
+    async fn list_parcels(&self) -> Result<Vec<Self::Parcel>, Self::Error> {
         Ok(self.parcels.clone())
     }
 
-    async fn commercial_parcels_by_front_view(
+    async fn parcels_by_front_view(
         &self,
         front_view_id: &str,
     ) -> Result<Vec<Self::Parcel>, Self::Error> {
@@ -63,7 +63,6 @@ fn service_room(
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     }
 }
@@ -111,7 +110,7 @@ fn room_directory_cache_clears_entries() {
             "room-user",
         ))),
     );
-    cache.commercial_parcels_front_views.insert(
+    cache.parcels_front_views.insert(
         "street".to_owned(),
         entry(vec![parcel("parcel", "parcel_view", "street")]),
     );
@@ -147,7 +146,7 @@ fn room_directory_cache_clears_entries() {
 
     assert!(cache.service_room_views.is_empty());
     assert!(cache.service_room_any_views.is_empty());
-    assert!(cache.commercial_parcels_front_views.is_empty());
+    assert!(cache.parcels_front_views.is_empty());
     assert!(cache.service_room_users.is_empty());
     assert!(cache.service_rooms_front_views.is_empty());
     assert!(cache.room_context_views.is_empty());
@@ -210,7 +209,7 @@ fn room_directory_cache_invalidates_service_room_scopes() {
             value: Vec::new(),
         },
     );
-    cache.commercial_parcels_front_views.insert(
+    cache.parcels_front_views.insert(
         "street-a".to_owned(),
         CacheEntry {
             loaded_at: Instant::now(),
@@ -232,15 +231,11 @@ fn room_directory_cache_invalidates_service_room_scopes() {
     assert!(!cache.service_rooms_front_views.contains_key("street-a"));
     assert!(!cache.room_binding_views.contains_key("room-view"));
     assert!(!cache.room_binding_front_views.contains_key("street-a"));
-    assert!(
-        !cache
-            .commercial_parcels_front_views
-            .contains_key("street-a")
-    );
+    assert!(!cache.parcels_front_views.contains_key("street-a"));
 }
 
 #[test]
-fn room_directory_cache_invalidates_commercial_parcel_scopes() {
+fn room_directory_cache_invalidates_parcel_scopes() {
     let mut cache = RoomDirectoryCache::default();
     cache.room_binding_views.insert(
         "parcel-view".to_owned(),
@@ -256,7 +251,7 @@ fn room_directory_cache_invalidates_commercial_parcel_scopes() {
             value: Vec::new(),
         },
     );
-    cache.commercial_parcels_front_views.insert(
+    cache.parcels_front_views.insert(
         "street-a".to_owned(),
         CacheEntry {
             loaded_at: Instant::now(),
@@ -317,21 +312,16 @@ fn room_directory_cache_invalidates_commercial_parcel_scopes() {
                 status_text: None,
                 custom_commands: None,
                 recovery_commands: None,
-                builtin_handler: None,
                 enabled: true,
             }),
         },
     );
 
-    cache.invalidate_for_commercial_parcel("parcel-view", "street-a");
+    cache.invalidate_for_parcel("parcel-view", "street-a");
 
     assert!(!cache.room_binding_views.contains_key("parcel-view"));
     assert!(!cache.room_binding_front_views.contains_key("street-a"));
-    assert!(
-        !cache
-            .commercial_parcels_front_views
-            .contains_key("street-a")
-    );
+    assert!(!cache.parcels_front_views.contains_key("street-a"));
     assert!(cache.service_room_views.contains_key("room-view"));
     assert!(!cache.room_context_views.contains_key("parcel-view"));
     assert!(!cache.room_context_views.contains_key("street-a"));
@@ -356,7 +346,6 @@ fn room_directory_cache_caches_service_rooms_by_room_user() {
                 status_text: None,
                 custom_commands: None,
                 recovery_commands: None,
-                builtin_handler: None,
                 enabled: true,
             }],
         },
@@ -388,7 +377,6 @@ fn room_directory_cache_caches_room_contexts_by_view() {
                     status_text: None,
                     custom_commands: None,
                     recovery_commands: None,
-                    builtin_handler: None,
                     enabled: true,
                 }),
                 front_bindings: Vec::new(),
@@ -518,7 +506,6 @@ fn service_room_enter_tokens_normalize_and_dedupe_aliases() {
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     };
 
@@ -552,7 +539,6 @@ fn service_room_alias_conflict_rejects_same_front_view_tokens() {
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();
@@ -597,7 +583,6 @@ fn service_room_alias_conflict_rejects_address_conflict() {
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();
@@ -658,7 +643,6 @@ fn service_room_alias_conflict_rejects_parcel_id() {
         status_text: None,
         custom_commands: None,
         recovery_commands: None,
-        builtin_handler: None,
         enabled: true,
     };
     let mut claimed_aliases = HashMap::new();

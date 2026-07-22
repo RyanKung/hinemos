@@ -117,6 +117,16 @@ impl MailDaemonStore for PgStorage {
         Box::pin(async move { PgStorage::verify_mail_auth_token(self, username, token).await })
     }
 
+    fn record_agent_mail_pool_presence<'a>(
+        &'a self,
+        username: &'a str,
+        player_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>> {
+        Box::pin(async move {
+            PgStorage::record_agent_mail_pool_presence(self, username, player_id).await
+        })
+    }
+
     fn save_mail_message_with_subject<'a>(
         &'a self,
         sender_user: &'a str,

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -17,74 +16,37 @@ pub struct AgentRun {
     pub stderr: Vec<u8>,
 }
 
-pub fn run_claude_agent(
-    prompt: &str,
+pub fn prepare_hermes_test_home(
+    temp: &TestTempDir,
     provider_env: &HashMap<String, String>,
-    timeout: Duration,
-) -> AgentRun {
-    run_claude_agent_until(prompt, provider_env, timeout, has_world_agent_evidence)
+) -> PathBuf {
+    prepare_named_hermes_test_home(temp, provider_env, "hermes-home")
 }
 
-pub fn run_claude_agent_until(
-    prompt: &str,
+pub fn prepare_named_hermes_test_home(
+    temp: &TestTempDir,
     provider_env: &HashMap<String, String>,
-    timeout: Duration,
-    evidence: impl Fn(&str) -> bool,
-) -> AgentRun {
-    run_claude_agent_until_with_tools(prompt, provider_env, timeout, &["Bash(ssh *)"], evidence)
-}
-
-pub fn run_claude_agent_until_with_tools(
-    prompt: &str,
-    provider_env: &HashMap<String, String>,
-    timeout: Duration,
-    allowed_tools: &[&str],
-    evidence: impl Fn(&str) -> bool,
-) -> AgentRun {
-    let allowed_tools = allowed_tools.join(",");
-    let mut child = Command::new("claude")
-        .args([
-            "--print",
-            "--verbose",
-            "--output-format",
-            "stream-json",
-            "--include-partial-messages",
-            "--permission-mode",
-            "bypassPermissions",
-            "--allowedTools",
-            &allowed_tools,
-        ])
-        .envs(provider_env)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn claude verifier");
-
-    child
-        .stdin
-        .as_mut()
-        .expect("open claude stdin")
-        .write_all(prompt.as_bytes())
-        .expect("write claude prompt");
-    drop(child.stdin.take());
-
-    wait_for_agent_evidence(child, timeout, evidence)
-}
-
-pub fn prepare_hermes_test_home(temp: &TestTempDir) -> PathBuf {
-    let hermes_home = temp.path.join("hermes-home");
+    name: &str,
+) -> PathBuf {
+    let hermes_home = temp.path.join(name);
     fs::create_dir_all(&hermes_home).expect("create isolated Hermes home");
-    fs::write(hermes_home.join("config.yaml"), hermes_test_config())
-        .expect("write isolated Hermes config");
+    fs::write(
+        hermes_home.join("config.yaml"),
+        hermes_test_config(provider_env),
+    )
+    .expect("write isolated Hermes config");
     hermes_home
 }
 
-fn hermes_test_config() -> String {
-    let provider = env_or("HERMES_TEST_PROVIDER", "rotom");
-    let model = env_or("HERMES_TEST_MODEL", "gpt-5.5");
-    let base_url = env_or("HERMES_TEST_BASE_URL", "http://127.0.0.1:14550/v1");
-    let api_mode = env_or("HERMES_TEST_API_MODE", "codex_responses");
+fn hermes_test_config(provider_env: &HashMap<String, String>) -> String {
+    let provider = env_or(provider_env, "HERMES_TEST_PROVIDER", "rotom");
+    let model = env_or(provider_env, "HERMES_TEST_MODEL", "gpt-5.5");
+    let base_url = env_or(
+        provider_env,
+        "HERMES_TEST_BASE_URL",
+        "http://127.0.0.1:14550/v1",
+    );
+    let api_mode = env_or(provider_env, "HERMES_TEST_API_MODE", "codex_responses");
     format!(
         r#"model:
   default: {model}
@@ -118,8 +80,13 @@ display:
     )
 }
 
-fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_owned())
+fn env_or(provider_env: &HashMap<String, String>, key: &str, default: &str) -> String {
+    provider_env
+        .get(key)
+        .filter(|value| !value.is_empty())
+        .cloned()
+        .or_else(|| std::env::var(key).ok())
+        .unwrap_or_else(|| default.to_owned())
 }
 
 pub fn run_hermes_agent_until(
@@ -295,22 +262,4 @@ fn wait_for_agent_evidence(
         stdout: take_buffer(stdout),
         stderr: take_buffer(stderr),
     }
-}
-
-fn has_world_agent_evidence(stdout: &str) -> bool {
-    [
-        &["ssh", "SSH"][..],
-        &["Hinemos", "open world"],
-        &["Available", "/look", "/go"],
-        &["Guild", "market", "parcel", "north_01", "/land"],
-        &["claim", "build", "publish", "/build", "owned", "shop"],
-    ]
-    .iter()
-    .all(|needles| {
-        needles.iter().any(|needle| {
-            stdout
-                .to_ascii_lowercase()
-                .contains(&needle.to_ascii_lowercase())
-        })
-    })
 }

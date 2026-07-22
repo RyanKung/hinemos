@@ -11,9 +11,7 @@ mod client_shell_text;
 
 use std::collections::HashMap;
 
-use hinemos_core::{
-    Direction, EntityRef, JsonObservation, SemanticCommand, SubscriptionAction, WorldState,
-};
+use hinemos_core::{Direction, EntityRef, JsonObservation, SemanticCommand, WorldState};
 use thiserror::Error;
 
 use client_shell_natural::*;
@@ -67,7 +65,7 @@ impl Chrome {
 
     /// Legend for semantic ASCII markers.
     pub const MAP_LEGEND: &'static str =
-        "Map: <Me> is you, [name] is a place/shopfront/room, {name} is an item/object.";
+        "Map: <Me> is you, [name] is a place/parcel/room, {name} is an item/object.";
 
     /// Verb printed before a movement direction (for example "You go north").
     pub const MOVE_VERB: &'static str = "You go";
@@ -79,16 +77,16 @@ impl Chrome {
         Inspect: /inspect <target>, /read <target>, /take <target>, /talk <target>\n\
         Local chat: /say <text>, /history, /who\n\
         Mail and news: /mail <user> <text>, /mailbox, /mail read <id>, /mail claim <id>, /mail ack <id>, /broadcast <text>, /news\n\
-        Shop chats: /subscribe <parcel-or-shop> <slug>, /chat <parcel-or-shop> <slug> -- <message>, /unsubscribe <parcel-or-shop> <slug>, /subscriptions\n\
-        Shop badges: /badges, /badges <user>, /shop badge list <parcel>, /shop badge create <parcel> <slug> <title> [-- description], /shop badge award <parcel> <slug> <user> [note], /shop badge revoke <parcel> <slug> <user>\n\
+        Parcel chats: /parcel subscribe <parcel-or-title> <slug>, /parcel chat <parcel-or-title> <slug> -- <message>, /parcel unsubscribe <parcel-or-title> <slug>, /parcel subscriptions\n\
+        Parcel badges: /badges, /badges <user>, /parcel badge list <parcel>, /parcel badge create <parcel> <slug> <title> [-- description], /parcel badge award <parcel> <slug> <user> [note], /parcel badge revoke <parcel> <slug> <user>\n\
         Memory: /memory, /memory self, /memory commitments, /memory report <text>, /memory recall <person>, /memory search <query>\n\
         Settings: /settings, /settings name <name>, /settings gender <male|female|none>, /settings mbti <type>, /settings intro <one line>, /settings intro clear, /settings mail-token\n\
         Agent realtime mail: use ed25519 SSH login, run /settings mail-token once, then connect to SMTP/IMAP as your Hinemos username with that token. Agents that need no-prompt message handling should keep an IMAP IDLE listener open and process EXISTS notifications before FETCH/STORE Seen.\n\
         Wallet: /balance, /pay <user> <amount> [memo], /pay requests, /pay accept <id>\n\
         Resident loop: use /map, /go, /who, /say, and /memory report <text> to search for residents and keep daily reports.\n\
-        Land: /land list, /land info <doorplate>, /land claim <doorplate>, /land token <doorplate>, /land transfer <doorplate> <user>\n\
-        Build: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /build publish\n\
-        Shop: incoming shop notices appear in the inbox; reply with /shop request-payment <cmd_id> <amount> <delivery>; shop chats use /shop mailing-list create <parcel> <slug> <title>, /chat <parcel-or-shop> <slug> -- <message>\n\
+        Parcel: /parcel list, /parcel info <doorplate>, /parcel claim <doorplate>, /parcel token <doorplate>, /parcel transfer <doorplate> <user>\n\
+        Parcel build: /parcel build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, /parcel build publish\n\
+        Parcel work: incoming parcel notices appear in the inbox; reply with /parcel request-payment <cmd_id> <amount> <delivery>; publish role guides with /parcel job publish <parcel> <job> <title> -- <body>; workers read them with /parcel job read <parcel> <job>; route commands with /parcel route add <parcel> <slug> <command-prefix>\n\
         Local extensions appear in Available inside their view.";
 
     /// Feedback line after inspecting an entity.
@@ -251,16 +249,8 @@ impl Chrome {
                 action: parse_pay_action(trimmed, &mut tokens)?,
             }),
             "settings" => parse_settings_command(trimmed, &mut tokens),
-            "land" => parse_land_command(&mut tokens),
-            "build" => parse_build_command(trimmed, &mut tokens),
-            "shop" => parse_shop_command(trimmed, &mut tokens),
+            "parcel" => parse_parcel_command(trimmed, &mut tokens),
             "badges" => parse_badges_command(trimmed, rest, cmd.as_str(), &mut tokens),
-            "subscribe" => parse_subscribe_command(&mut tokens),
-            "unsubscribe" => parse_unsubscribe_command(&mut tokens),
-            "chat" => parse_chat_command(trimmed),
-            "subscriptions" => Ok(SemanticCommand::Subscription {
-                action: SubscriptionAction::List,
-            }),
             _ if self.extension_commands.contains_key(cmd.as_str()) => {
                 Ok(SemanticCommand::Extension {
                     name: cmd,

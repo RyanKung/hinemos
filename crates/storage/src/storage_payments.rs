@@ -1,6 +1,8 @@
 use serde_json::json;
 use sqlx::Row;
 
+use hinemos_app::PaymentRequestCreation;
+
 use crate::accounts::{
     credit_balance, debit_balance, ensure_balance_row, ensure_player_account, fetch_balance_tx,
     player_account_id,
@@ -12,23 +14,27 @@ use crate::{
 };
 
 impl PgStorage {
-    /// Creates a payment request from a shop command owned by the operator.
+    /// Creates a payment request from a parcel command owned by the operator.
     pub async fn create_payment_request(
         &self,
         operator_command_id: i64,
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<StoredPaymentRequest, StorageError> {
+    ) -> Result<PaymentRequestCreation<StoredPaymentRequest>, StorageError> {
         if amount <= 0 {
             return Err(StorageError::InvalidAmount(amount));
         }
-        let request = self
+        let creation = self
             .insert_payment_request(operator_command_id, owner_player_id, amount, delivery)
             .await?;
-        self.create_payment_request_inbox_item(&request).await?;
-        self.record_payment_request_created_memory(&request).await?;
-        Ok(request)
+        if creation.created {
+            self.create_payment_request_inbox_item(&creation.request)
+                .await?;
+            self.record_payment_request_created_memory(&creation.request)
+                .await?;
+        }
+        Ok(creation)
     }
 
     async fn insert_payment_request(
@@ -37,7 +43,7 @@ impl PgStorage {
         owner_player_id: &str,
         amount: i64,
         delivery: &str,
-    ) -> Result<StoredPaymentRequest, StorageError> {
+    ) -> Result<PaymentRequestCreation<StoredPaymentRequest>, StorageError> {
         let mut tx = self.pool.begin().await?;
         let command = sqlx::query_as::<_, StoredOperatorCommand>(
             r#"
@@ -58,7 +64,28 @@ impl PgStorage {
             return Err(StorageError::NotParcelOwner(command.parcel_id));
         }
 
-        let memo = format!("shop command #{}", command.id);
+        if let Some(request) = sqlx::query_as::<_, StoredPaymentRequest>(
+            r#"
+            select id, operator_command_id, parcel_id, payer_user, payer_player_id,
+                   payee_user, payee_player_id, asset, amount, memo, delivery,
+                   status, ledger_id,
+                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS TZ') as created_at
+            from payment_requests
+            where operator_command_id = $1
+            "#,
+        )
+        .bind(command.id)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(PaymentRequestCreation {
+                request,
+                created: false,
+            });
+        }
+
+        let memo = format!("parcel command #{}", command.id);
         let request = sqlx::query_as::<_, StoredPaymentRequest>(
             r#"
             insert into payment_requests (
@@ -95,7 +122,10 @@ impl PgStorage {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(request)
+        Ok(PaymentRequestCreation {
+            request,
+            created: true,
+        })
     }
 
     async fn create_payment_request_inbox_item(
@@ -104,7 +134,7 @@ impl PgStorage {
     ) -> Result<(), StorageError> {
         let subject = format!("Payment request #{}", request.id);
         let body = format!(
-            "{} requests {} {} for shop command #{} in {}. Accept with /pay accept {}.",
+            "{} requests {} {} for parcel command #{} in {}. Accept with /pay accept {}.",
             request.payee_user,
             request.amount,
             request.asset,
@@ -150,11 +180,11 @@ impl PgStorage {
         let payee_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: request.payee_player_id.clone(),
-                source: "shop".to_owned(),
+                source: "parcel".to_owned(),
                 event_type: "payment_request_created".to_owned(),
                 actors: json!([request.payee_user, request.payer_user]),
                 content: format!(
-                    "Requested {} {} from {} for shop command #{}.",
+                    "Requested {} {} from {} for parcel command #{}.",
                     request.amount, request.asset, request.payer_user, request.operator_command_id
                 ),
                 world_refs: json!({
@@ -207,7 +237,7 @@ impl PgStorage {
         let payer_event = self
             .append_memory_event(NewMemoryEvent {
                 agent_id: request.payer_player_id.clone(),
-                source: "shop".to_owned(),
+                source: "parcel".to_owned(),
                 event_type: "payment_request_received".to_owned(),
                 actors: json!([request.payee_user, request.payer_user]),
                 content: format!(
@@ -353,7 +383,7 @@ impl PgStorage {
             insert into world_ledger_entries (
                 asset, debit_account_id, credit_account_id, amount, reason, memo
             )
-            values ('MARK', $1, $2, $3, 'shop_payment_request', $4)
+            values ('MARK', $1, $2, $3, 'parcel_payment_request', $4)
             returning id
             "#,
         )

@@ -22,7 +22,6 @@ admission_view_id: "custom_street",
 admission_board_entity_id: "custom_board",
 agreement_version: "2030-01-01",
 hunger_loop_enabled: true,
-builtin_service_rooms_enabled: true,
 virtual_day_seconds: 600,
 )"#,
     )
@@ -36,7 +35,6 @@ virtual_day_seconds: 600,
             admission_board_entity_id: "custom_board".to_owned(),
             agreement_version: "2030-01-01".to_owned(),
             hunger_loop_enabled: true,
-            builtin_service_rooms_enabled: true,
             virtual_day_seconds: 600,
         }
     );
@@ -57,7 +55,6 @@ admission_view_id = "toml_street"
 admission_board_entity_id = "toml_board"
 agreement_version = "2031-02-03"
 hunger_loop_enabled = true
-builtin_service_rooms_enabled = true
 virtual_day_seconds = 900
 "#,
     )
@@ -71,7 +68,6 @@ virtual_day_seconds = 900
             admission_board_entity_id: "toml_board".to_owned(),
             agreement_version: "2031-02-03".to_owned(),
             hunger_loop_enabled: true,
-            builtin_service_rooms_enabled: true,
             virtual_day_seconds: 900,
         }
     );

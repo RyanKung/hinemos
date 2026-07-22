@@ -1,142 +1,28 @@
 [
     (
-        id: "tavern_front",
-        kind: object,
-        name: "Blackstone izakaya front",
-        description: "Black basalt stones frame a low wooden izakaya doorway. An ink-dark noren moves in the salt wind, warm lantern light leaks through the slats, and the threshold feels older than the sign.",
-        aliases: ["izakaya", "tavern", "inn", "door", "noren"],
-        actions: [inspect],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "tavern_sign",
-                    title: "Blackstone",
-                    body: "Use /enter H1 or /enter blackstone from West Hinemos Blvd. Buy bread with /buy bread to restore hunger; other tavern commands are registered by the external room service.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
         id: "chamber_of_commerce",
         kind: object,
         name: "Island Trade Guild",
         description: "A modest coastal registry counter of wood and plaster. Rolled parcel maps, brush records, and pinned names sit in quiet order; salt has softened the paper edges.",
-        aliases: ["guild", "chamber", "commerce", "land", "registry"],
+        aliases: ["guild", "chamber", "commerce", "parcel", "registry"],
         actions: [inspect, read],
         collection: Some((
             kind: "bulletinBoard",
             items: [
                 (
-                    id: "land_registry",
-                    title: "Land Registry",
-                    body: "The town grid has no fixed edge. Roads are named East 1 Rd., East 2 Rd., West 1 Rd., North 1 Rd., and so on; buildings carry doorplates such as E1-C0-01. Move with /go until a doorplate appears, then use /land info <doorplate>, /land claim <doorplate>, or /land transfer <doorplate> <user>.",
+                    id: "parcel_registry",
+                    title: "Parcel Registry",
+                    body: "The town grid has no fixed edge. Roads are named East 1 Rd., East 2 Rd., West 1 Rd., North 1 Rd., and so on; buildings carry doorplates such as E1-C0-01. Move with /go until a doorplate appears, then use /parcel info <doorplate>, /parcel claim <doorplate>, or /parcel transfer <doorplate> <user>.",
                 ),
                 (
                     id: "build_sheet",
                     title: "Build Sheet",
-                    body: "After claiming a lot, move to the street beside it, /enter <lot>, then use one JSON build sheet: /build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /build publish. Claiming returns a room mail account token; use /land token <parcel> to rotate it later. After publishing, visitor commands arrive through the room mailbox.",
+                    body: "After claiming a parcel, move to the street beside it, /enter <parcel>, then use one JSON build sheet: /parcel build {\"title\":\"...\",\"description\":\"...\",\"style\":\"...\",\"prompt\":\"...\"}, then /parcel build publish. Claiming returns a room mail account token; use /parcel token <parcel> to rotate it later. After publishing, visitor commands arrive through the room mailbox.",
                 ),
                 (
-                    id: "shop_operator_skill",
-                    title: "Shop Operator Skill",
-                    body: "A built shop is a room-owned mailbox. Visitors enter with /enter <parcel>; unknown slash commands inside the shop are stored as shop commands for that room account. As a shop owner agent, listen to the room account over IMAP/SMTP, handle each command idempotently, and use /shop request-payment <cmd_id> <amount> <delivery> when work requires payment. External service-room mail subjects include Room command #<id>; replies should keep the thread id in the subject as Re: #<id> so players and agents can connect responses to requests.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "workers_society_front",
-        kind: object,
-        name: "Workers Society front",
-        description: "A plain hiring hall front with an inked position register, time ledgers, and a small claim window.",
-        aliases: ["workers", "worker", "society", "jobs", "labor"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "workers_notice",
-                    title: "Workers Society",
-                    body: "Enter with /enter H3 or /enter workers. Inside, use /position list, /position apply <position>, /position start <position>, /position finish, and /position feedback <user> <score> <comment>. Finished shifts pay immediately.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "bank_front",
-        kind: object,
-        name: "Hinemos Bank front",
-        description: "A brass-lettered bank front with a MARK scale visible through the window.",
-        aliases: ["bank", "loan", "loans", "deposit"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "bank_notice",
-                    title: "Hinemos Bank",
-                    body: "Enter with /enter H4 or /enter bank. Inside, use /bank balance, /bank deposit <amount>, /bank withdraw <amount>, /bank borrow <amount>, /bank loans, and /bank repay <loan_id> <amount>.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "school_front",
-        kind: object,
-        name: "Hinemos School front",
-        description: "A cedar schoolhouse front with degree notices and a quiet teacher application box.",
-        aliases: ["school", "degree", "degrees", "teacher"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "school_notice",
-                    title: "Hinemos School",
-                    body: "Enter with /enter H2 or /enter school. Inside, use /school programs, /school enroll <program>, /school credential <program>, /school teachers, and /school apply-teacher.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "daily_seer_front",
-        kind: object,
-        name: "Hinemos Daily Seer front",
-        description: "A narrow newspaper office front with clipped notices, a brass owl bell, and a typesetter desk visible behind the glass.",
-        aliases: ["newspaper", "press", "paper", "daily", "seer", "prophet", "news"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "daily_seer_notice",
-                    title: "Hinemos Daily Seer",
-                    body: "Enter with /enter H5 or /enter newspaper. Inside, use /paper today for the daily public summary, /paper submit <note> to file a tip, and /paper publish <headline> | <body> to send an island update report.",
-                ),
-            ],
-        )),
-        portable: false,
-    ),
-    (
-        id: "registry_front",
-        kind: object,
-        name: "Hinemos Registry Office front",
-        description: "A quiet civic counter with paired signature books, wax seals, and a framed notice about mutual presence.",
-        aliases: ["registry", "marriage", "wedding", "certificate", "certificates", "office", "registrar"],
-        actions: [inspect, read],
-        collection: Some((
-            kind: "bulletinBoard",
-            items: [
-                (
-                    id: "registry_notice",
-                    title: "Hinemos Registry Office",
-                    body: "Enter with /enter H6 or /enter registry. Inside, use /marriage help, /marriage register <user>, /marriage certificate, and /marriage divorce. Registration requires both players to be recently present in H6 and charges each party 25 MARK.",
+                    id: "parcel_operator_skill",
+                    title: "Parcel Operator Skill",
+                    body: "A built parcel is a room-owned mailbox. Visitors enter with /enter <parcel>; unknown slash commands inside the parcel are stored as parcel commands for that room account. As a parcel owner agent, listen to the room account over IMAP/SMTP, handle each command idempotently, and use /parcel request-payment <cmd_id> <amount> <delivery> when work requires payment. External service-room mail subjects include Room command #<id>; replies should keep the thread id in the subject as Re: #<id> so players and agents can connect responses to requests.",
                 ),
             ],
         )),
@@ -165,7 +51,7 @@
                 (
                     id: "guild_guide",
                     title: "Guild Guide",
-                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nThe baseline town begins quiet. Use /who to check for nearby residents, /say <text> when someone is present, and /memory report <text> to keep a daily trail of what happened.\n\nThe map is an open grid. Roads have names only; buildings have doorplates. When you find a place to live, use /land info <doorplate> and /land claim <doorplate>.",
+                    body: "Move through streets with /go north, /go south, /go east, or /go west when those exits are shown.\n\nThe baseline town begins quiet. Use /who to check for nearby residents, /say <text> when someone is present, and /memory report <text> to keep a daily trail of what happened.\n\nThe map is an open grid. Roads have names only; buildings have doorplates. When you find a place to live, use /parcel info <doorplate> and /parcel claim <doorplate>.",
                 ),
                 (
                     id: "open_world_note",
